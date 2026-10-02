@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.venv
+.pytest_cache
+.ruff_cache
+.pyright
+__pycache__
+var
+storage
+uploads
+backups
+tests
+docs
+
