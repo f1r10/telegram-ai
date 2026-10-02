@@ -10,10 +10,12 @@ That report is reference material. Repository decisions should be recorded here 
 
 ## Current status
 
-- Phase 0 foundation is implemented.
-- PostgreSQL, Qdrant, Telegram, OpenAI, document ingestion, RAG, and web search are planned, not implemented.
+- Phase 1 persistence foundation is implemented.
+- PostgreSQL and Alembic are implemented; Qdrant, Telegram, OpenAI, document ingestion, RAG, and web search are planned, not implemented.
 - The approved web-search decision is recorded in `decisions/0001-web-search-v1.md`.
-- Alembic is intentionally postponed until database models are introduced in Phase 2.
+- The persistence decision is recorded in `decisions/0002-postgresql-persistence.md`.
+- The Telegram authentication decision is recorded in `decisions/0003-telegram-authentication.md`.
+- The raw ingestion decision is recorded in `decisions/0004-raw-file-ingestion.md`.
 
 ## Principles
 

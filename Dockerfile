@@ -18,8 +18,8 @@ COPY README.md ./README.md
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /app/var/storage \
-    && chown -R appuser:appuser /app
+    && mkdir -p /app/var/storage /data/storage \
+    && chown -R appuser:appuser /app /data
 
 USER appuser
 CMD ["uv", "run", "--no-dev", "python", "-m", "office_assistant.main"]
