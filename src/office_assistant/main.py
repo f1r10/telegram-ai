@@ -33,6 +33,7 @@ from office_assistant.internal_evidence.tool_adapter import OpenAIToolSchemaAdap
 from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEmbedTextAdapter
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
 from office_assistant.web_evidence.providers import (
@@ -89,6 +90,7 @@ def main() -> None:
             max_upload_bytes=settings.max_upload_bytes,
         )
         language_model = None
+        image_reader = None
         qdrant_store = None
         retrieval = None
         internal_service = None
@@ -99,8 +101,13 @@ def main() -> None:
                 settings.openai_api_key.get_secret_value(),
                 default_model=settings.openai_default_model,
                 strong_model=settings.openai_strong_model,
+                vision_model=settings.vision_model,
                 timeout_seconds=settings.openai_request_timeout_seconds,
                 max_output_tokens=settings.openai_max_output_tokens,
+            )
+            image_reader = ImageVisionExtractor(
+                language_model,
+                max_image_bytes=settings.vision_max_image_bytes,
             )
             if settings.qdrant_url:
                 qdrant_store = QdrantKnowledgeStore(
@@ -206,6 +213,7 @@ def main() -> None:
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
             ),
             web_evidence=web_service,
+            image_reader=image_reader,
             reminders=ReminderService(session_factory, clock=SystemClock()),
         )
         application = create_telegram_application(

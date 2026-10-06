@@ -4,7 +4,45 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
-## [Unreleased]
+### Multimodal router: an attached picture is a query parameter (Master Spec Block 3B, 2026-10-07)
+
+Master Spec §22 and §3.1: `/baza` with a photo in the caption answered the typed text and threw the
+photo away — the caption router announced "fayl yadda saxlanılmadı" and dropped the attachment — and
+a picture the user replied to was never part of the question at all.
+
+- NEW `integrations/telegram/turn_context.py`: `MediaKind`, `MediaRef` and `TurnContext` collect the
+  media of a turn from the message itself *and* the message it replies to, deduped by `file_id`, so a
+  photo becomes a first-class parameter of the question instead of only an upload.
+- `handlers.py`: `_route_caption_command` keeps the attachment. `/baza` and `/tamaxtar`
+  (`MEDIA_COMMANDS`) route with the file still on the message and no "skipped" notice; `/saxla`
+  (`INGEST_THEN_RUN_COMMANDS`) stores the file first and then runs through the new
+  `_run_deferred_caption_command`; every other known command keeps the previous behaviour.
+  `_read_turn_images` downloads and reads only this turn's images through `services.image_reader`.
+- `processing/vision.py`: `ImageVisionExtractor.extract(path)` became
+  `read(image_bytes=…, media_type=…, user_id=…)` returning `ImageTranscription` (text, description,
+  model, byte size). The byte bound and the header check (ADR 0017 decision 2) still run before
+  anything leaves the process, and a declared type that disagrees with the signature is refused.
+- `internal_evidence`: new `ImageReading` model and `EvidenceBundle.image_results`.
+  `answer(…, image_readings=…)` puts the read text into the retrieval query (bounded by
+  `IMAGE_QUERY_EXPANSION_CHARS` per image), cites it as `IMAGE_UNTRUSTED` /
+  `Şəkildəki mətn — <filename>` with no `file_id`, and counts it as evidence, so a photo-only turn is
+  no longer answered "heç nə tapılmadı". The planner still sees only the typed question, so picture
+  text cannot steer tool intent, and `_detect_conflicts` is unchanged, so a price read off a photo
+  never rewrites structured-vs-document conflict semantics.
+- Degradation is Azerbaijani and specific: `messages.IMAGE_NOT_READ` whenever fewer images were read
+  than attached (vendor down, oversized, unsupported signature, no reader configured). The text half
+  of the turn is still answered and `TEMPORARY_ERROR` is never used for it.
+- `main.py` builds `ImageVisionExtractor` into `TelegramServices.image_reader` only when an API key
+  exists; `web_evidence.answer_combined(…, image_readings=…)` forwards it. `/internet` deliberately
+  does not read pictures — recorded as OPEN-QUESTIONS Q23.
+- Rule kept: picture text used as a query parameter is untrusted content. It is not written as a
+  business fact, not indexed and not stored; making an image durable still requires the Phase 12A
+  confirmation flow (Block 5).
+- Tests: new `tests/unit/test_multimodal_router.py` covers media collection from the message and the
+  replied message, `/baza` keeping and reading its photo, a plain reply-to-photo turn, the three
+  degradation paths, `/saxla` store-then-commit, and the evidence-layer contract.
+  `test_caption_command_routing.py`'s two discard-pinning cases were rewritten for the new contract;
+  `test_telegram_handlers.py` and `test_vision_extraction.py` were updated for `read()`.
 
 ### No vision egress at upload (Master Spec Block 3A, ADR 0017 amendment, 2026-10-07)
 

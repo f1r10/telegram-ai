@@ -3,6 +3,7 @@
 import logging
 import re
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -18,7 +19,11 @@ from office_assistant.infrastructure.database.models import (
     AIUsage,
     User,
 )
-from office_assistant.internal_evidence.models import InternalAnswer, UnifiedCitation
+from office_assistant.internal_evidence.models import (
+    ImageReading,
+    InternalAnswer,
+    UnifiedCitation,
+)
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
@@ -149,9 +154,13 @@ class WebEvidenceService:
             model_response.usage,
         )
 
-    async def answer_combined(self, actor: User, question: str) -> WebAnswer:
+    async def answer_combined(
+        self, actor: User, question: str, *, image_readings: Sequence[ImageReading] = ()
+    ) -> WebAnswer:
         started = time.perf_counter()
-        internal = await self.internal.answer(actor, question, force_internal=True)
+        internal = await self.internal.answer(
+            actor, question, force_internal=True, image_readings=image_readings
+        )
         evidence, response, fetch_count = await self._collect(question)
         if not evidence:
             logger.warning(

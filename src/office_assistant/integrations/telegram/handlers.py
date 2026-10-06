@@ -61,6 +61,10 @@ from office_assistant.integrations.telegram.state import (
     PasswordEntryState,
     ReminderEditState,
 )
+from office_assistant.integrations.telegram.turn_context import (
+    MediaRef,
+    build_turn_context,
+)
 from office_assistant.internal_evidence.delivery import (
     FileDeliveryAmbiguous,
     FileDeliveryError,
@@ -68,9 +72,10 @@ from office_assistant.internal_evidence.delivery import (
     parse_file_delivery_request,
     parse_web_source_request,
 )
-from office_assistant.internal_evidence.models import InternalAnswer
+from office_assistant.internal_evidence.models import ImageReading, InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
@@ -96,6 +101,7 @@ class TelegramServices:
     knowledge: KnowledgeRetrievalService | None = None
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
+    image_reader: ImageVisionExtractor | None = None
     reminders: ReminderService | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
@@ -123,6 +129,12 @@ def _command_text(message: Message) -> str:
     return message.text or message.caption or ""
 
 
+# Commands whose attached picture is a search parameter rather than an upload (Master Spec §22).
+MEDIA_COMMANDS = frozenset({"baza", "tamaxtar"})
+# Commands that must store the file first, then run with it in the pending session.
+INGEST_THEN_RUN_COMMANDS = frozenset({"saxla"})
+
+
 def _caption_command(message: Message) -> tuple[str, str] | None:
     """Split a media caption into (command, arguments) only for known commands.
 
@@ -144,16 +156,29 @@ def _caption_command(message: Message) -> tuple[str, str] | None:
 
 
 async def _route_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Run an explicit caption command instead of ingesting the attached file."""
+    """Route an explicit caption command, keeping the attachment when the command uses it.
+
+    Returning ``True`` means the caller must not ingest the file. ``False`` means the file is the
+    point of the turn, so the caller stores it first and then runs the command.
+    """
     message = update.effective_message
     if message is None:
         return False
     command = _caption_command(message)
     if command is None:
         return False
-    logger.info("Caption command routed | command=%s ingestion_skipped=true", command[0])
+    name = command[0]
+    if name in MEDIA_COMMANDS:
+        # The picture is a query parameter: the handler reads it from this same message.
+        logger.info("Caption command routed with media | command=%s media_attached=true", name)
+        await COMMAND_CALLBACKS[name](update, context)
+        return True
+    if name in INGEST_THEN_RUN_COMMANDS:
+        logger.info("Caption command will run after ingestion | command=%s", name)
+        return False
+    logger.info("Caption command routed | command=%s ingestion_skipped=true", name)
     await message.reply_text(messages.CAPTION_COMMAND_FILE_SKIPPED)
-    await COMMAND_CALLBACKS[command[0]](update, context)
+    await COMMAND_CALLBACKS[name](update, context)
     return True
 
 
@@ -212,6 +237,64 @@ async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
             await _reply_long(update.effective_message, messages.TEMPORARY_ERROR, 4096)
         except TelegramError as error:
             logger.warning("Telegram error reply failed | error_type=%s", type(error).__name__)
+
+
+async def _read_turn_images(
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    images: tuple[MediaRef, ...],
+    *,
+    user_id: int,
+) -> list[ImageReading]:
+    """Read only the pictures this turn carries, and only for this question.
+
+    A picture that cannot be read is reported to the user and skipped; it never becomes an
+    invented transcription, a stored file or a business fact (ADR 0017, invariant 8).
+    """
+    readings: list[ImageReading] = []
+    for item in images:
+        if services.image_reader is None:
+            logger.warning("Image reading is not configured | file_id=%s", item.file_id)
+            continue
+        try:
+            telegram_file = await context.bot.get_file(item.file_id)
+            body = bytes(await telegram_file.download_as_bytearray())
+            transcription = await services.image_reader.read(
+                image_bytes=body, media_type=item.media_type, user_id=user_id
+            )
+        except Exception as error:
+            # Reading the picture is an enhancement on top of the text question, so the failure net
+            # is deliberately wide: nothing here may cost the user the answer they asked for.
+            logger.warning(
+                "Image reading unavailable, turn continues without it | file_id=%s "
+                "size_bytes=%s error_type=%s",
+                item.file_id,
+                item.byte_size,
+                type(error).__name__,
+            )
+            continue
+        if transcription.is_empty:
+            logger.warning("Image read returned no content | file_id=%s", item.file_id)
+            continue
+        readings.append(
+            ImageReading(
+                filename=item.filename,
+                text=transcription.text or transcription.description,
+                description=transcription.description if transcription.text else "",
+                model=transcription.model,
+            )
+        )
+    return readings
+
+
+def _with_image_notice(
+    answer: str, images: tuple[MediaRef, ...], readings: list[ImageReading]
+) -> str:
+    """Tell the user, in Azerbaijani, when a picture they attached could not be read."""
+
+    if not images or len(readings) >= len(images):
+        return answer
+    return f"{messages.IMAGE_NOT_READ}\n\n{answer}"
 
 
 def _format_internal(result: InternalAnswer) -> str:
@@ -356,9 +439,17 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     await message.reply_text(messages.AI_RATE_LIMITED)
                     return
                 await _send_typing(context, message.chat_id)
-                result = await services.internal_evidence.answer(user, message.text)
+                # A picture the user replies to is a first-class parameter of the question.
+                turn = build_turn_context(message, text=message.text)
+                images = turn.images
+                readings = await _read_turn_images(context, services, images, user_id=user.id)
+                result = await services.internal_evidence.answer(
+                    user, message.text, image_readings=readings
+                )
                 await _reply_long(
-                    message, _format_internal(result), services.telegram_message_limit
+                    message,
+                    _with_image_notice(_format_internal(result), images, readings),
+                    services.telegram_message_limit,
                 )
             elif services.ai is not None and services.rate_guard is not None:
                 if not services.rate_guard.allow(user.id):
@@ -823,7 +914,8 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    question = _command_text(message).partition(" ")[2].strip()
+    turn = build_turn_context(message, text=_command_text(message).partition(" ")[2].strip())
+    question = turn.text
     if not question:
         await message.reply_text(messages.AI_INVALID_QUESTION)
         return
@@ -835,8 +927,16 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     try:
         await _send_typing(context, message.chat_id)
-        result = await services.internal_evidence.answer(user, question, force_internal=True)
-        await _reply_long(message, _format_internal(result), services.telegram_message_limit)
+        images = turn.images
+        readings = await _read_turn_images(context, services, images, user_id=user.id)
+        result = await services.internal_evidence.answer(
+            user, question, force_internal=True, image_readings=readings
+        )
+        await _reply_long(
+            message,
+            _with_image_notice(_format_internal(result), images, readings),
+            services.telegram_message_limit,
+        )
     except AnswerGenerationUnavailable:
         await message.reply_text(messages.AI_UNAVAILABLE)
     except RetrievalUnavailable:
@@ -866,7 +966,8 @@ async def _handle_web_command(
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    question = _command_text(message).partition(" ")[2].strip()
+    turn = build_turn_context(message, text=_command_text(message).partition(" ")[2].strip())
+    question = turn.text
     if not question:
         await message.reply_text(messages.WEB_INVALID_QUESTION)
         return
@@ -878,12 +979,20 @@ async def _handle_web_command(
         return
     try:
         await _send_typing(context, message.chat_id)
+        # /internet has no internal evidence to combine with, so its picture is not read; the
+        # caption router already told the user the file was not stored. OPEN-QUESTIONS Q23.
+        images = turn.images if combined else ()
+        readings = await _read_turn_images(context, services, images, user_id=user.id)
         result = (
-            await services.web_evidence.answer_combined(user, question)
+            await services.web_evidence.answer_combined(user, question, image_readings=readings)
             if combined
             else await services.web_evidence.answer_internet(user, question)
         )
-        await _reply_long(message, _format_web(result), services.telegram_message_limit)
+        await _reply_long(
+            message,
+            _with_image_notice(_format_web(result), images, readings),
+            services.telegram_message_limit,
+        )
     except (WebEvidenceUnavailable, AnswerGenerationUnavailable):
         await message.reply_text(messages.WEB_UNAVAILABLE)
     except RetrievalUnavailable:
@@ -923,6 +1032,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         known_size=document.file_size,
         caption=message.caption,
     )
+    await _run_deferred_caption_command(update, context)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -941,6 +1051,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         known_size=None,
         caption=message.caption,
     )
+    await _run_deferred_caption_command(update, context)
+
+
+async def _run_deferred_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Run the caption command the router held back, now that the file is stored."""
+    message = update.effective_message
+    if message is None:
+        return
+    command = _caption_command(message)
+    if command is None or command[0] not in INGEST_THEN_RUN_COMMANDS:
+        return
+    await COMMAND_CALLBACKS[command[0]](update, context)
 
 
 async def _handle_upload(

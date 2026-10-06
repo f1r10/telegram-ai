@@ -110,8 +110,11 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Block 3A: no vendor egress at upload — the ingestion worker holds no vision client, a JPEG/PNG
       upload ends in a `DEFERRED` `image-probe` run with an empty text artifact, and image reading
       moves to the turn that asks about the image (ADR 0017 amendment).
-- [ ] Block 3: multimodal router — an image attached to an explicit command or reply is carried into
-      the turn as a first-class search parameter (Master Spec §22).
+- [x] Block 3: multimodal router — `TurnContext`/`MediaRef` carry the image attached to an explicit
+      command, or the one the user replies to, into the turn as a first-class search parameter, read
+      on demand for that question only and cited as `IMAGE_UNTRUSTED` (Master Spec §22, §3.1). The
+      caption router no longer discards the file: `/baza` and `/tamaxtar` keep the attachment, and
+      `/saxla` stores it first and then runs.
 - [ ] Block 4: web fallback and relevance gate (Master Spec §21).
 - [ ] Block 5: Phase 12A image-asset foundation (Master Spec §23).
 

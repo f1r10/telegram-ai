@@ -85,10 +85,14 @@ What changes:
 - A raster upload ends as it did before Phase 13: `parser_name="image-probe"`, `requires_vision=true`
   and an empty derived text artifact, so nothing is chunked or embedded. The ingestion job still
   succeeds and the completion notification still counts the file as unprocessed.
-- Reading moves to the turn that asks the question (Block 3B): `ImageVisionExtractor` is invoked from
-  the Telegram/`internal_evidence` path for the specific image the user attached or replied to. The
-  text is used as untrusted query expansion and answer context — it is never a citation of a company
-  source, and decision 5's `extraction/sources.py` skip still keeps it out of structured facts.
+- Reading happens in the turn that asks the question (Block 3B, landed 2026-10-07):
+  `integrations/telegram/turn_context.py` collects the images the user attached to the message or is
+  replying to, `handlers._read_turn_images` fetches those bytes and calls
+  `ImageVisionExtractor.read(...)`, and `InternalEvidenceService.answer(..., image_readings=...)` uses
+  the text as untrusted query expansion and answer context, cited as `IMAGE_UNTRUSTED` with no
+  `file_id`. It is never a citation of a company source, and decision 5's `extraction/sources.py` skip
+  still keeps it out of structured facts. A picture that cannot be read is announced in Azerbaijani
+  and the text half of the turn is still answered.
 
 Why: every photo triggered a vendor call whether or not anyone ever asked about it, which put cost
 and data egress on the write path. The user-visible need is "answer my question about this picture",

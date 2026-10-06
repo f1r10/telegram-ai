@@ -78,6 +78,19 @@ class DocumentEvidence(StrictModel):
     score: float
 
 
+class ImageReading(StrictModel):
+    """Text a vision model read off a picture the user supplied for this question.
+
+    Untrusted content, never company state: it has no file id, no committed blob and no path into
+    structured extraction (ADR 0017 decision 5, OPEN-QUESTIONS Q20).
+    """
+
+    filename: str = Field(min_length=1, max_length=255)
+    text: str = Field(min_length=1, max_length=8000)
+    description: str = Field(default="", max_length=1000)
+    model: str = Field(default="", max_length=100)
+
+
 class EvidenceConflict(StrictModel):
     conflict_type: str
     summary: str
@@ -112,9 +125,14 @@ def _empty_citations() -> list[UnifiedCitation]:
     return []
 
 
+def _empty_image_readings() -> list[ImageReading]:
+    return []
+
+
 class EvidenceBundle(StrictModel):
     structured_results: list[StructuredEvidence] = Field(default_factory=_empty_structured_evidence)
     document_results: list[DocumentEvidence] = Field(default_factory=_empty_document_evidence)
+    image_results: list[ImageReading] = Field(default_factory=_empty_image_readings)
     warnings: list[str] = Field(default_factory=list)
     conflicts: list[EvidenceConflict] = Field(default_factory=_empty_conflicts)
     citations: list[UnifiedCitation] = Field(default_factory=_empty_citations)

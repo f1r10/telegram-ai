@@ -86,6 +86,21 @@ def _services(users: FakeUsers) -> TelegramServices:
     )
 
 
+def _plain_message(text: str, **overrides: object) -> SimpleNamespace:
+    """A text-only turn. A real Telegram message always carries the media fields below."""
+    fields: dict[str, object] = {
+        "text": text,
+        "chat_id": 123,
+        "message_id": 77,
+        "reply_text": AsyncMock(),
+        "photo": None,
+        "document": None,
+        "reply_to_message": None,
+    }
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
 async def _run_start(users: FakeUsers, message: FakeMessage) -> None:
     update = FakeUpdate(
         effective_user=TelegramUser(123, "Test", False, username="test"),
@@ -140,9 +155,7 @@ def test_typing_network_failure_does_not_discard_question(grounded: bool) -> Non
     )
     if grounded:
         services.internal_evidence = internal  # type: ignore[assignment]
-    message = SimpleNamespace(
-        text="/baza question" if grounded else "question", chat_id=123, reply_text=AsyncMock()
-    )
+    message = _plain_message("/baza question" if grounded else "question")
     update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
     context = SimpleNamespace(
         bot_data={"phase2_services": services},
@@ -151,7 +164,9 @@ def test_typing_network_failure_does_not_discard_question(grounded: bool) -> Non
     handler = handle_baza if grounded else handle_password_text
     asyncio.run(handler(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
     if grounded:
-        internal.answer.assert_awaited_once_with(user, "question", force_internal=True)
+        internal.answer.assert_awaited_once_with(
+            user, "question", force_internal=True, image_readings=[]
+        )
     else:
         ai.answer_general.assert_awaited_once_with(1, "question")
     message.reply_text.assert_awaited_once()
@@ -187,7 +202,7 @@ def test_internet_command_uses_only_web_service() -> None:
     services.internal_evidence = cast(
         object, SimpleNamespace(answer=AsyncMock(side_effect=AssertionError("internal called")))
     )  # type: ignore[assignment]
-    message = SimpleNamespace(text="/internet KA45", chat_id=123, reply_text=AsyncMock())
+    message = _plain_message("/internet KA45")
     update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
     context = SimpleNamespace(
         bot_data={"phase2_services": services},
@@ -203,7 +218,7 @@ def _run_handler(
     services: TelegramServices,
     text: str,
 ) -> SimpleNamespace:
-    message = SimpleNamespace(text=text, chat_id=123, reply_text=AsyncMock())
+    message = _plain_message(text)
     update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
     context = SimpleNamespace(
         bot_data={"phase2_services": services},

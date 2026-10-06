@@ -27,6 +27,10 @@ FILE_DUPLICATE = "\nBu faylın eyni məzmunu əvvəlcədən mövcuddur; yeni gö
 CAPTION_COMMAND_FILE_SKIPPED = (
     "Diqqət: açıq əmr istifadə edildiyi üçün bu mesajdakı fayl yadda saxlanılmadı."
 )
+IMAGE_NOT_READ = (
+    "Diqqət: göndərdiyiniz şəkli oxuya bilmədim. Cavab yalnız mətn hissəsidir; "
+    "şəkili yenidən göndərin və ya keyfiyyətini yoxlayın."
+)
 INGESTION_COMPLETED = (
     "Emal tamamlandı.\n"
     "Fayllar: {total}\n"

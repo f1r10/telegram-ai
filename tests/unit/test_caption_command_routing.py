@@ -76,6 +76,7 @@ class FakeMessage:
     photo: tuple[FakePhotoSize, ...] = ()
     message_id: int = 77
     chat_id: int = 5
+    reply_to_message: Any = None
     replies: list[str] = field(default_factory=list[str])
 
     async def reply_text(self, text: str, **kwargs: object) -> None:
@@ -217,7 +218,7 @@ def _photo_update(caption: str) -> FakeUpdate:
     )
 
 
-def test_document_caption_command_skips_ingestion(
+def test_document_caption_command_routes_without_storing_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     routed = AsyncMock()
@@ -230,7 +231,8 @@ def test_document_caption_command_skips_ingestion(
     assert routed.await_count == 1
     assert ingestion.add_file.await_count == 0
     assert context.bot.get_file_calls == []
-    assert message.replies == [messages.CAPTION_COMMAND_FILE_SKIPPED]
+    # Master Spec §22: the command keeps its attachment, so nothing is announced as skipped.
+    assert message.replies == []
 
 
 def test_caption_arguments_reach_the_command(tmp_path: Path) -> None:
@@ -250,8 +252,9 @@ def test_caption_arguments_reach_the_command(tmp_path: Path) -> None:
     assert call is not None
     assert call.args[1] == "Zəmanət neçə aydır?"
     assert call.kwargs["force_internal"] is True
-    assert message.replies[0] == messages.CAPTION_COMMAND_FILE_SKIPPED
-    assert answer.answer in message.replies[1]
+    assert list(call.kwargs["image_readings"]) == []
+    assert answer.answer in message.replies[0]
+    assert messages.CAPTION_COMMAND_FILE_SKIPPED not in message.replies
     assert context.bot.get_file_calls == []
 
 
