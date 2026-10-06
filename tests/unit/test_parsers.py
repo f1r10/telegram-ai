@@ -1,10 +1,14 @@
 from pathlib import Path
 
+import pytest
 from docx import Document
 from openpyxl import Workbook
 from pypdf.errors import PdfReadError
 
 from office_assistant.processing.parsers import ParserRegistry
+
+PNG_HEADER = b"\x89PNG\r\n\x1a\n"
+JPEG_BODY = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 
 
 def test_txt_parser_preserves_line_provenance(tmp_path: Path) -> None:
@@ -25,7 +29,7 @@ def test_parsers_handle_empty_txt_and_images(tmp_path: Path) -> None:
     empty = tmp_path / "empty.txt"
     empty.write_text("", encoding="utf-8")
     image = tmp_path / "photo.png"
-    image.write_bytes(b"not an image, but the bytes are not inspected")
+    image.write_bytes(PNG_HEADER + b"\x00" * 24)
 
     assert (
         ParserRegistry()
@@ -34,13 +38,48 @@ def test_parsers_handle_empty_txt_and_images(tmp_path: Path) -> None:
         .blocks
         == []
     )
-    deferred = (
+    probed = (
         ParserRegistry()
         .for_filename("photo.png")
         .parse(image, source_file_id=2, media_type="image/png")
     )
-    assert deferred.requires_vision
-    assert deferred.blocks == []
+    assert probed.requires_vision
+    assert probed.blocks == []
+    assert probed.parser_name == "image-probe"
+    assert probed.warnings == ["image/png image requires vision extraction"]
+
+
+def test_image_probe_trusts_bytes_over_the_declared_type(tmp_path: Path) -> None:
+    jpeg = tmp_path / "photo.jpg"
+    jpeg.write_bytes(JPEG_BODY)
+
+    probed = (
+        ParserRegistry()
+        .for_filename("photo.jpg")
+        .parse(jpeg, source_file_id=3, media_type="application/octet-stream")
+    )
+
+    assert probed.media_type == "image/jpeg"
+    assert probed.requires_vision
+
+
+@pytest.mark.parametrize(
+    ("filename", "body", "error"),
+    [
+        ("photo.jpg", b"PROCBINDnotanimage", "unsupported_image_signature"),
+        ("photo.png", PNG_HEADER[:6] + b"\x00" * 30, "unsupported_image_signature"),
+        ("photo.jpg", JPEG_BODY, "image_signature_mismatch"),
+    ],
+)
+def test_image_probe_refuses_bytes_that_are_not_a_supported_image(
+    tmp_path: Path, filename: str, body: bytes, error: str
+) -> None:
+    path = tmp_path / filename
+    path.write_bytes(body)
+    declared = "image/png" if error == "image_signature_mismatch" else "image/jpeg"
+
+    with pytest.raises(ValueError, match=error):
+        ParserRegistry().for_filename(filename).parse(path, source_file_id=4, media_type=declared)
 
 
 def test_pdf_parser_preserves_page_numbers(tmp_path: Path) -> None:
@@ -74,8 +113,6 @@ def test_pdf_parser_flags_empty_page_for_ocr(tmp_path: Path) -> None:
 def test_pdf_parser_rejects_corrupt_pdf(tmp_path: Path) -> None:
     path = tmp_path / "corrupt.pdf"
     path.write_bytes(b"not a PDF")
-
-    import pytest
 
     with pytest.raises(PdfReadError):
         ParserRegistry().for_filename("corrupt.pdf").parse(

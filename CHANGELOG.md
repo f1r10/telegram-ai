@@ -19,6 +19,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   so a photo yields content instead of an empty document. Image bytes are never
   logged (invariant 6). 5 new unit cases in `tests/unit/test_vision_provider.py`.
 
+- `processing/parsers.py`: `ImageDeferredParser` became `ImageProbeParser`. The old parser never
+  looked at the bytes, so any file with a `.jpg`/`.png` name was accepted and marked deferred.
+  The probe reads the header, decides the media type from the bytes (JPEG/PNG only), and raises
+  `unsupported_image_signature` or `image_signature_mismatch` so a non-image (or a file lying about
+  its type) fails the parse run instead of being uploaded to the vendor. Extension dispatch stayed
+  the single routing key because `validate_upload` already ties extension to declared content type;
+  the bytes are now the authority at parse time.
+  4 new/updated cases in `tests/unit/test_parsers.py`.
+
 ### Live-test fixes (2026-10-06)
 
 - Citations no longer leak raw technical metadata to the user.

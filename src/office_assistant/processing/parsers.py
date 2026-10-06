@@ -165,21 +165,41 @@ class XlsxParser:
             )
 
 
-class ImageDeferredParser:
-    name = "image-deferred"
+class ImageProbeParser:
+    """Verify uploaded image bytes before a vision call is allowed to spend them.
+
+    The header, not the extension, decides the media type: a file whose bytes are not a
+    supported raster image fails the run instead of being sent to the vendor.
+    """
+
+    name = "image-probe"
     version = "1.0"
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
+        detected = detect_image_media_type(path.read_bytes()[:12])
+        if detected is None:
+            raise ValueError("unsupported_image_signature")
+        declared = media_type.split(";", 1)[0].lower()
+        if declared not in {"", "application/octet-stream"} and declared != detected:
+            raise ValueError("image_signature_mismatch")
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
-            media_type,
+            detected,
             {"filename": path.name},
             [],
-            ["Vision processing is deferred to a future phase"],
+            [f"{detected} image requires vision extraction"],
             requires_vision=True,
         )
+
+
+def detect_image_media_type(header: bytes) -> str | None:
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    return None
 
 
 class ParserRegistry:
@@ -189,12 +209,19 @@ class ParserRegistry:
             ".pdf": PdfParser(),
             ".docx": DocxParser(),
             ".xlsx": XlsxParser(),
-            ".jpg": ImageDeferredParser(),
-            ".jpeg": ImageDeferredParser(),
-            ".png": ImageDeferredParser(),
+            ".jpg": ImageProbeParser(),
+            ".jpeg": ImageProbeParser(),
+            ".png": ImageProbeParser(),
         }
 
     def for_filename(self, filename: str) -> DocumentParser:
+        """Route by extension.
+
+        `application/file_validation.validate_upload` already ties the extension to the declared
+        content type, and the image parser re-proves the type from the bytes themselves, so a
+        second content-type lookup here would only duplicate that check.
+        """
+
         suffix = Path(filename).suffix.lower()
         try:
             return self._parsers[suffix]
