@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +15,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    MessageEntity,
     Update,
 )
 from telegram.constants import ChatAction, ChatType
@@ -112,6 +114,44 @@ def _identity(update: Update) -> TelegramIdentity | None:
     if user is None:
         return None
     return TelegramIdentity(user.id, user.username, user.first_name, user.last_name)
+
+
+def _command_text(message: Message) -> str:
+    return message.text or message.caption or ""
+
+
+def _caption_command(message: Message) -> tuple[str, str] | None:
+    """Split a media caption into (command, arguments) only for known commands.
+
+    ``CommandHandler`` never sees captions because captions leave ``Message.text`` empty, so this
+    is the router's way of letting an explicit command beat file ingestion. Unknown ``/...``
+    captions stay uploads instead of being dropped.
+    """
+    caption = message.caption
+    entities = message.caption_entities
+    if not caption or not entities:
+        return None
+    first = entities[0]
+    if first.type != MessageEntity.BOT_COMMAND or first.offset != 0:
+        return None
+    name = caption[1 : first.length].split("@", 1)[0].casefold()
+    if name not in COMMAND_CALLBACKS:
+        return None
+    return name, caption[first.length :].strip()
+
+
+async def _route_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Run an explicit caption command instead of ingesting the attached file."""
+    message = update.effective_message
+    if message is None:
+        return False
+    command = _caption_command(message)
+    if command is None:
+        return False
+    logger.info("Caption command routed | command=%s ingestion_skipped=true", command[0])
+    await message.reply_text(messages.CAPTION_COMMAND_FILE_SKIPPED)
+    await COMMAND_CALLBACKS[command[0]](update, context)
+    return True
 
 
 def _status_message(user: User) -> str:
@@ -418,7 +458,7 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    trailing_text = message.text.partition(" ")[2].strip() if message.text else ""
+    trailing_text = _command_text(message).partition(" ")[2].strip()
     try:
         if trailing_text:
             await services.ingestion.add_instruction(
@@ -777,7 +817,7 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    question = message.text.partition(" ")[2].strip() if message.text else ""
+    question = _command_text(message).partition(" ")[2].strip()
     if not question:
         await message.reply_text(messages.AI_INVALID_QUESTION)
         return
@@ -817,7 +857,7 @@ async def _handle_web_command(
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    question = message.text.partition(" ")[2].strip() if message.text else ""
+    question = _command_text(message).partition(" ")[2].strip()
     if not question:
         await message.reply_text(messages.WEB_INVALID_QUESTION)
         return
@@ -860,6 +900,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = message.document
     if document is None:
         return
+    if await _route_caption_command(update, context):
+        return
     await _handle_upload(
         update,
         context,
@@ -874,6 +916,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None or not message.photo:
+        return
+    if await _route_caption_command(update, context):
         return
     photo = message.photo[-1]
     await _handle_upload(
@@ -1047,3 +1091,20 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     except SQLAlchemyError:
         logger.exception("Telegram user callback database operation failed")
         await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+CommandCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]]
+
+COMMAND_CALLBACKS: dict[str, CommandCallback] = {
+    "start": handle_start,
+    "whoami": handle_whoami,
+    "users": handle_users,
+    "cancel": handle_cancel,
+    "saxla": handle_save,
+    "hatirlatmalar": handle_reminders,
+    "help": handle_help,
+    "verilerimi_sil": handle_delete_data,
+    "baza": handle_baza,
+    "internet": handle_internet,
+    "tamaxtar": handle_tamaxtar,
+}

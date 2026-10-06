@@ -36,6 +36,19 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 - 5 new unit cases in `tests/unit/test_extraction_review_ux.py`; the Phase 8
   integration scenario now also proves an aborted apply leaves `PARTIAL`, not
   `APPLYING`, and that the subsequent approvals still apply all candidates.
+- Commands sent in a file or photo caption are now honoured. PTB's
+  `CommandHandler.check_update` requires `Message.text`, which is always empty for
+  media messages, so `/baza Zəmanət neçə aydır?` typed as a caption never reached
+  a command handler and was swallowed by ingestion ("Fayl müvəqqəti sessiyaya
+  əlavə edildi."). `handle_document` and `handle_photo` now inspect the leading
+  `BOT_COMMAND` caption entity via `_caption_command` and route known commands to
+  the same callbacks `app.py` registers, with `COMMAND_CALLBACKS` as the single
+  source for both. Per the "explicit commands override ingestion" rule the
+  attached file is not stored and the user is told so in Azerbaijani
+  (`CAPTION_COMMAND_FILE_SKIPPED`). Unknown `/...` captions, prose captions and
+  captionless files keep ingesting. Command arguments now come from
+  text-or-caption through `_command_text`.
+  7 new unit cases in `tests/unit/test_caption_command_routing.py`.
 
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 

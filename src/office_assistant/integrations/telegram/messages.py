@@ -24,6 +24,9 @@ FILE_ADDED = (
     "Fayllar: {files}\nTəlimat sayı: {instructions}\nYadda saxlamaq üçün /saxla"
 )
 FILE_DUPLICATE = "\nBu faylın eyni məzmunu əvvəlcədən mövcuddur; yeni göndəriş saxlanıldı."
+CAPTION_COMMAND_FILE_SKIPPED = (
+    "Diqqət: açıq əmr istifadə edildiyi üçün bu mesajdakı fayl yadda saxlanılmadı."
+)
 INSTRUCTION_ADDED = "Təlimat müvəqqəti sessiyaya əlavə edildi."
 NO_OPEN_SESSION = "Açıq yadda saxlama sessiyanız yoxdur. Əvvəlcə fayl göndərin."
 SAVE_SUCCESS = (
