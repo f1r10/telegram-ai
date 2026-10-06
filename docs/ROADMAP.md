@@ -86,5 +86,16 @@ The original SPEC.md remains the requirements source; phases below map to it.
 
 Recurring reminders remain out of scope (`recurrence_rule` column reserved, unused).
 
-## Explicitly out of scope (recorded): recurring reminders, OCR, image embeddings,
+## Phase 13 — Live-test fixes and image ingestion (2026-10-06)
+
+- [x] Issue 1: user-facing citation labels no longer render raw locator JSON.
+- [x] Issue 2: extraction review failures are no longer reported as permission problems; an aborted
+      apply leaves `PARTIAL` instead of a stuck `APPLYING`.
+- [x] Issue 3: a command typed in a file/photo caption routes to the command instead of ingestion.
+- [x] Issue 4: web search reports outages, logs why an answer said "nothing found", stops forcing a
+      one-day window for price questions, and runs two DuckDuckGo paths inside a 12-second budget.
+- [ ] Issue 5: uploaded JPEG/PNG images are transcribed through vision (`decisions/0017`), indexed
+      like any other document, and left visibly `DEFERRED` when the vendor fails.
+
+## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

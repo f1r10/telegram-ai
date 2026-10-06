@@ -34,7 +34,12 @@ Users and roles (RECOMMENDED, confirm in OPEN-QUESTIONS Q1): allowlist-only bot.
 
 In scope for V1: text messages in private chats; Azerbaijani UI; items 1–6 above; Docker Compose deployment on one VM; offline-runnable tests; structured logs.
 
-Out of scope for V1: group chats, voice, images, web admin panel, calendar integrations, recurring reminders (field reserved in schema), multi-tenant organizations, billing, SSO, multi-vendor LLM failover, autonomous browsing, any action on third-party systems.
+Out of scope for V1: group chats, voice, web admin panel, calendar integrations, recurring reminders (field reserved in schema), multi-tenant organizations, billing, SSO, multi-vendor LLM failover, autonomous browsing, any action on third-party systems.
+
+Amendment (2026-10-06, `docs/architecture/decisions/0017-vision-extraction-for-images.md`): uploaded
+raster images (JPEG/PNG photos of documents) are in scope for ingestion — their transcribed text
+becomes ordinary document content and knowledge-index material. Voice messages, scanned PDFs
+(page rasterization) and image embeddings remain out of scope.
 
 ## 3. Architecture
 

@@ -34,6 +34,8 @@ That report is reference material. Repository decisions should be recorded here 
   `decisions/0015-controlled-external-web-evidence.md`.
 - The deterministic reminder parsing and claim/send ledger decision is recorded in
   `decisions/0016-deterministic-reminders.md`.
+- The uploaded-image vision extraction decision is recorded in
+  `decisions/0017-vision-extraction-for-images.md`.
 
 ## Principles
 
