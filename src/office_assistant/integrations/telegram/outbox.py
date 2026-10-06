@@ -10,7 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
-from office_assistant.infrastructure.database.models import OutboxEvent, OutboxEventStatus
+from office_assistant.infrastructure.database.models import (
+    OutboxEvent,
+    OutboxEventStatus,
+    Reminder,
+    ReminderDelivery,
+    ReminderDeliveryStatus,
+    ReminderStatus,
+)
+from office_assistant.integrations.telegram import messages
+from office_assistant.reminders.dispatch import REMINDER_EVENT_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +54,20 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
             return False
         payload = event.payload
         markup = None
-        if event.event_type == "STRUCTURED_EXTRACTION_COMPLETED":
+        delivery: ReminderDelivery | None = None
+        reminder: Reminder | None = None
+        if event.event_type == REMINDER_EVENT_TYPE:
+            delivery_id = int(str(payload.get("delivery_id", 0)))
+            delivery = await session.get(ReminderDelivery, delivery_id)
+            if delivery is None:
+                event.status = OutboxEventStatus.FAILED.value
+                event.last_error = f"Reminder delivery row missing | delivery_id={delivery_id}"
+                logger.warning("Reminder delivery ledger row absent | event_id=%s", event.id)
+                return True
+            reminder = await session.get(Reminder, delivery.reminder_id)
+            text = messages.REMINDER_DELIVERED.format(text=payload.get("text", ""))
+            delivery.status = ReminderDeliveryStatus.SENDING.value
+        elif event.event_type == "STRUCTURED_EXTRACTION_COMPLETED":
             counts = payload.get("counts", {})
             counts = cast(dict[str, object], counts) if isinstance(counts, dict) else {}
             text = (
@@ -76,18 +98,32 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
                 f"Xəta: {payload.get('failed', 0)}"
             )
         try:
-            await bot.send_message(
+            sent = await bot.send_message(
                 chat_id=event.recipient_telegram_id, text=text, reply_markup=markup
             )
         except TelegramError as error:
             event.attempt_count += 1
             event.last_error = str(error)[:2000]
-            if event.attempt_count >= 3:
-                event.status = OutboxEventStatus.FAILED
+            terminal = event.attempt_count >= 3
+            if terminal:
+                event.status = OutboxEventStatus.FAILED.value
             else:
                 event.available_at = datetime.now(UTC) + timedelta(seconds=event.attempt_count * 5)
+            if delivery is not None:
+                delivery.attempt_count += 1
+                delivery.last_error = event.last_error
+                delivery.status = (
+                    ReminderDeliveryStatus.FAILED.value
+                    if terminal
+                    else ReminderDeliveryStatus.RETRY_PENDING.value
+                )
             logger.warning("Outbox notification failed | event_id=%s", event.id)
         else:
-            event.status = OutboxEventStatus.SENT
+            event.status = OutboxEventStatus.SENT.value
             event.sent_at = datetime.now(UTC)
+            if delivery is not None and reminder is not None:
+                delivery.status = ReminderDeliveryStatus.SENT.value
+                delivery.sent_at = event.sent_at
+                delivery.telegram_message_id = sent.message_id
+                reminder.status = ReminderStatus.SENT.value
         return True

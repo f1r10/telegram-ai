@@ -3,7 +3,7 @@
 This file previously listed a 7-phase plan (0-6) that was never checked off and
 no longer matches the delivered system. The authoritative phase plan is now the
 one actually implemented, recorded in `docs/architecture/README.md`, the decision
-records `docs/architecture/decisions/0001..0015`, and the test suite
+records `docs/architecture/decisions/0001..0016`, and the test suite
 (`tests/integration/test_phaseN_*`). Completed items are checked only where
 acceptance evidence exists in-repo (migrations, modules, tests).
 
@@ -73,14 +73,18 @@ The original SPEC.md remains the requirements source; phases below map to it.
 - [x] SearXNG + Tavily behind `WebSearchProvider` (migrations 0013, `decisions/0015`, ADR-001).
 - [x] `web_search_cache`, `/internet`, `/tamaxtar`, SSRF-hardened fetcher, evidence separation.
 
-## Phase 12 — Reminders, /help, /verilerimi_sil ⬅ NEXT (SPEC §4, §5)
+## Phase 12 — Reminders, /help, /verilerimi_sil ✅ (SPEC §4, §5)
 
-- [ ] `reminders` + `reminder_deliveries` tables (migration 0014).
-- [ ] Azerbaijani natural-language time parsing with injected Clock and user IANA timezone.
-- [ ] Confirm/Edit/Cancel UX before saving (invariant 9).
-- [ ] Worker dispatcher loop, `FOR UPDATE SKIP LOCKED`, delivery ledger state machine.
-- [ ] `/hatirlatmalar` with inline cancel, `/help`, `/verilerimi_sil`.
-- [ ] SPEC §5 Azerbaijani golden cases as tests.
+- [x] `reminders` + `reminder_deliveries` tables (migration 0014, `users.timezone` added).
+- [x] Azerbaijani natural-language time parsing with injected Clock and user IANA timezone.
+- [x] Confirm/Edit/Cancel UX before saving (invariant 9): inline keyboard, token-scoped proposals.
+- [x] Worker dispatcher loop with `FOR UPDATE SKIP LOCKED`; delivery ledger state machine
+      `claimed -> sending -> sent` / `retry_pending -> failed` driven by the app-side outbox consumer
+      (`decisions/0016`).
+- [x] `/hatirlatmalar` with inline cancel, `/help`, `/verilerimi_sil` with confirmation keyboard.
+- [x] SPEC §5 Azerbaijani golden cases as tests (17 parser cases, 15 Phase 12 UX/ledger cases).
+
+Recurring reminders remain out of scope (`recurrence_rule` column reserved, unused).
 
 ## Explicitly out of scope (recorded): recurring reminders, OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

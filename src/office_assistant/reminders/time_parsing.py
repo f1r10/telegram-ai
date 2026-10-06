@@ -266,7 +266,10 @@ def _unclear(reminder_text: str, reason: str) -> ReminderTimeResult:
 
 def _clean_text(remaining: str) -> str:
     text = re.sub(
-        r"\b(xatırlat\w*|xatırlad\w*|xatırlan\w*|unutma\w*|yadda saxla\w*)\b", " ", remaining
+        r"\b(xatırlat\w*|xatırlad\w*|xatırlan\w*|xatirlat\w*|xatirlad\w*|xatirlan\w*"
+        r"|unutma\w*|yadda saxla\w*)\b",
+        " ",
+        remaining,
     )
     text = re.sub(r"\b(məni|mənə|günü|gündə)\b", " ", text)
     text = re.sub(r"[.,;:!?]+", " ", text)
@@ -274,3 +277,12 @@ def _clean_text(remaining: str) -> str:
     if not text:
         return ""
     return text[0].upper() + text[1:]
+
+
+_REMINDER_HINTS = ("xatırlat", "xatırlad", "xatırlan", "xatirlat", "xatirlad", "unutma")
+
+
+def looks_like_reminder_request(text: str) -> bool:
+    """Cheap deterministic intent rule (SPEC §6); an LLM is never consulted."""
+    normalized = _normalize(text)
+    return any(hint in normalized for hint in _REMINDER_HINTS)

@@ -20,12 +20,17 @@ from office_assistant.integrations.telegram.handlers import (
     TelegramServices,
     handle_baza,
     handle_cancel,
+    handle_delete_callback,
+    handle_delete_data,
     handle_document,
     handle_error,
     handle_extraction_callback,
+    handle_help,
     handle_internet,
     handle_password_text,
     handle_photo,
+    handle_reminder_callback,
+    handle_reminders,
     handle_save,
     handle_start,
     handle_tamaxtar,
@@ -78,11 +83,17 @@ def create_telegram_application(
     application.add_handler(CommandHandler("users", handle_users))
     application.add_handler(CommandHandler("cancel", handle_cancel))
     application.add_handler(CommandHandler("saxla", handle_save))
+    application.add_handler(CommandHandler("hatirlatmalar", handle_reminders))
+    application.add_handler(CommandHandler("help", handle_help))
+    application.add_handler(CommandHandler("verilerimi_sil", handle_delete_data))
     application.add_handler(CommandHandler("baza", handle_baza))
     application.add_handler(CommandHandler("internet", handle_internet))
     application.add_handler(CommandHandler("tamaxtar", handle_tamaxtar))
     application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^ua:"))
     application.add_handler(CallbackQueryHandler(handle_extraction_callback, pattern=r"^xr:"))
+    application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rp:"))
+    application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rh:"))
+    application.add_handler(CallbackQueryHandler(handle_delete_callback, pattern=r"^rd:"))
     application.add_handler(
         MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, handle_document)
     )

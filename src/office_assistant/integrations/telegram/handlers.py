@@ -2,14 +2,20 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    Update,
+)
 from telegram.constants import ChatAction, ChatType
 from telegram.error import NetworkError, TelegramError
 from telegram.ext import ContextTypes
@@ -28,13 +34,26 @@ from office_assistant.application.authentication import (
 from office_assistant.application.errors import ApplicationError, AuthorizationDenied
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
+from office_assistant.application.reminders import ReminderProposal, ReminderService
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.extraction.review import ExtractionReviewService
-from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+from office_assistant.infrastructure.database.models import (
+    Reminder,
+    ReminderStatus,
+    User,
+    UserRole,
+    UserStatus,
+)
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.integrations.telegram import messages
 from office_assistant.integrations.telegram.formatting import split_telegram_text
-from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
+from office_assistant.integrations.telegram.reminder_format import when_azerbaijani
+from office_assistant.integrations.telegram.state import (
+    DeleteConfirmationState,
+    PasswordAttemptLimiter,
+    PasswordEntryState,
+    ReminderEditState,
+)
 from office_assistant.internal_evidence.delivery import (
     FileDeliveryAmbiguous,
     FileDeliveryError,
@@ -44,6 +63,7 @@ from office_assistant.internal_evidence.delivery import (
 )
 from office_assistant.internal_evidence.models import InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
+from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
 
@@ -67,6 +87,11 @@ class TelegramServices:
     internal_evidence: InternalEvidenceService | None = None
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
+    reminders: ReminderService | None = None
+    reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
+    delete_confirmation_state: DeleteConfirmationState = field(
+        default_factory=DeleteConfirmationState
+    )
 
 
 def _services(context: ContextTypes.DEFAULT_TYPE) -> TelegramServices:
@@ -260,6 +285,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.UNKNOWN_USER)
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
+            elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
+                return
             elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
                     user,
@@ -274,6 +301,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
             elif await _try_file_delivery(
                 message, services, identity.telegram_user_id, message.text
             ):
+                return
+            elif await _try_reminder_proposal(message, services, user, message.text):
                 return
             elif services.internal_evidence is not None and services.rate_guard is not None:
                 if not services.rate_guard.allow(user.id):
@@ -410,6 +439,277 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             duplicates=summary.duplicate_count,
         )
     )
+
+
+def _proposal_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    messages.REMINDER_CONFIRM_BUTTON, callback_data=f"rp:ok:{token}"
+                ),
+                InlineKeyboardButton(messages.REMINDER_EDIT_BUTTON, callback_data=f"rp:e:{token}"),
+                InlineKeyboardButton(
+                    messages.REMINDER_DISCARD_BUTTON, callback_data=f"rp:n:{token}"
+                ),
+            ]
+        ]
+    )
+
+
+def _proposal_text(proposal: ReminderProposal) -> str:
+    text = messages.REMINDER_PROPOSED.format(
+        text=proposal.reminder_text,
+        when=when_azerbaijani(proposal.due_at_utc, proposal.timezone_name),
+    )
+    if proposal.needs_clarification and proposal.clarification_reason:
+        text += messages.REMINDER_CLARIFY_NOTE.format(reason=proposal.clarification_reason)
+    return text
+
+
+async def _show_proposal(message: Message, proposal: ReminderProposal) -> None:
+    await message.reply_text(
+        _proposal_text(proposal), reply_markup=_proposal_keyboard(proposal.token)
+    )
+
+
+async def _try_reminder_proposal(
+    message: Message, services: TelegramServices, user: User, text: str
+) -> bool:
+    """Deterministic reminder rule (SPEC §6): interpret and ask, never save yet."""
+    if services.reminders is None or not looks_like_reminder_request(text):
+        return False
+    proposal = services.reminders.propose(user, text)
+    if proposal is None:
+        await message.reply_text(messages.REMINDER_TIME_MISSING)
+        return True
+    await _show_proposal(message, proposal)
+    return True
+
+
+async def _try_reminder_edit(
+    message: Message, services: TelegramServices, user: User, telegram_user_id: int
+) -> bool:
+    """Consume the next text message as a replacement time after the Edit button."""
+    if services.reminders is None:
+        return False
+    token = services.reminder_edit_state.token_for(telegram_user_id)
+    if token is None:
+        return False
+    services.reminder_edit_state.clear(telegram_user_id)
+    if services.reminders.pending.get(token, user.id) is None:
+        await message.reply_text(messages.REMINDER_PROPOSAL_EXPIRED)
+        return True
+    proposal = services.reminders.repropose(user, token, message.text or "")
+    if proposal is None:
+        await message.reply_text(messages.REMINDER_EDIT_UNPARSEABLE)
+        return True
+    await _show_proposal(message, proposal)
+    return True
+
+
+async def _apply_proposal_action(
+    query: CallbackQuery, services: TelegramServices, user: User, action: str, token: str
+) -> None:
+    reminders = services.reminders
+    assert reminders is not None
+    if action == "ok":
+        proposal = reminders.pending.get(token, user.id)
+        reminder_id = await reminders.confirm(user, token)
+        if proposal is None or reminder_id is None:
+            await query.edit_message_text(messages.REMINDER_INVALID_LINK)
+            return
+        await query.edit_message_text(
+            messages.REMINDER_SAVED.format(
+                when=when_azerbaijani(proposal.due_at_utc, proposal.timezone_name)
+            )
+        )
+    elif action == "e":
+        if reminders.pending.get(token, user.id) is None:
+            await query.edit_message_text(messages.REMINDER_INVALID_LINK)
+            return
+        services.reminder_edit_state.request(user.telegram_user_id, token)
+        await query.edit_message_text(messages.REMINDER_EDIT_PROMPT)
+    elif action == "n":
+        discarded = reminders.discard(user, token)
+        await query.edit_message_text(
+            messages.REMINDER_DISCARDED if discarded else messages.REMINDER_INVALID_LINK
+        )
+    else:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def _active_user(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> tuple[TelegramServices, User, Message] | None:
+    """Resolve the private-chat caller to an active account, answering otherwise."""
+    identity = _identity(update)
+    message = update.effective_message
+    if identity is None or message is None:
+        return None
+    services = _services(context)
+    try:
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    except SQLAlchemyError:
+        logger.exception("Telegram caller lookup failed")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return None
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+        return None
+    if user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+        return None
+    return services, user, message
+
+
+async def handle_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_private(update):
+        return
+    resolved = await _active_user(update, context)
+    if resolved is None:
+        return
+    services, user, message = resolved
+    if services.reminders is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        rows: list[Reminder] = await services.reminders.list_active(user)
+    except (ApplicationError, SQLAlchemyError):
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    if not rows:
+        await message.reply_text(messages.REMINDER_NONE)
+        return
+    await message.reply_text(
+        messages.REMINDER_LIST_HEADER.format(count=len(rows)),
+    )
+    for index, reminder in enumerate(rows, start=1):
+        line = messages.REMINDER_LIST_ITEM.format(
+            index=index,
+            when=when_azerbaijani(reminder.due_at_utc, reminder.timezone),
+            text=reminder.text,
+        )
+        if reminder.status == ReminderStatus.PAUSED.value:
+            line += messages.REMINDER_LIST_PAUSED
+        await message.reply_text(
+            line,
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            messages.REMINDER_DISCARD_BUTTON,
+                            callback_data=f"rh:c:{reminder.id}",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+
+async def handle_reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    actor = update.effective_user
+    if query is None or actor is None or not _is_private(update):
+        return
+    await query.answer()
+    services = _services(context)
+    parts = (query.data or "").split(":")
+    if services.reminders is None or len(parts) != 3 or parts[0] not in {"rp", "rh"}:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        user = await services.users.get_by_telegram_id(actor.id)
+    except SQLAlchemyError:
+        logger.exception("Reminder callback lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    if user is None:
+        await query.edit_message_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await query.edit_message_text(_status_message(user))
+        return
+    try:
+        if parts[0] == "rp":
+            await _apply_proposal_action(query, services, user, parts[1], parts[2])
+        else:
+            cancelled = await services.reminders.cancel(user, int(parts[2]))
+            await query.edit_message_text(
+                messages.REMINDER_CANCELLED if cancelled else messages.REMINDER_NOT_CANCELLABLE
+            )
+    except (ApplicationError, SQLAlchemyError, ValueError) as error:
+        logger.error("Reminder callback failed | error_type=%s", type(error).__name__)
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_private(update):
+        return
+    message = update.effective_message
+    if message is None:
+        return
+    await _reply_long(message, messages.HELP_TEXT, _services(context).telegram_message_limit)
+
+
+def _delete_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.DATA_DELETE_YES_BUTTON, callback_data="rd:yes"),
+                InlineKeyboardButton(messages.DATA_DELETE_NO_BUTTON, callback_data="rd:no"),
+            ]
+        ]
+    )
+
+
+async def handle_delete_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_private(update):
+        return
+    identity = _identity(update)
+    resolved = await _active_user(update, context)
+    if resolved is None or identity is None:
+        return
+    services, _, message = resolved
+    if services.reminders is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    services.delete_confirmation_state.request(identity.telegram_user_id)
+    await message.reply_text(messages.DATA_DELETE_CONFIRM, reply_markup=_delete_keyboard())
+
+
+async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    actor = update.effective_user
+    if query is None or actor is None or not _is_private(update):
+        return
+    await query.answer()
+    services = _services(context)
+    if services.reminders is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    if not services.delete_confirmation_state.contains(actor.id):
+        await query.edit_message_text(messages.DATA_DELETE_NO_REQUEST)
+        return
+    services.delete_confirmation_state.clear(actor.id)
+    if query.data == "rd:no":
+        await query.edit_message_text(messages.DATA_DELETE_CANCELLED)
+        return
+    if query.data != "rd:yes":
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    user = await services.users.get_by_telegram_id(actor.id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await query.edit_message_text(messages.UNKNOWN_USER)
+        return
+    try:
+        counts = await services.reminders.delete_personal_data(user)
+    except (ApplicationError, SQLAlchemyError):
+        logger.exception("Personal data deletion failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    services.reminder_edit_state.clear(actor.id)
+    await query.edit_message_text(messages.DATA_DELETED.format(**counts))
 
 
 async def handle_extraction_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

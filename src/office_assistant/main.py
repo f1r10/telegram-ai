@@ -7,9 +7,11 @@ from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.reminders import ReminderService
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.business_tools.service import BusinessQueryService
+from office_assistant.core.clock import SystemClock
 from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.extraction.review import ExtractionReviewService
@@ -203,6 +205,7 @@ def main() -> None:
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
             ),
             web_evidence=web_service,
+            reminders=ReminderService(session_factory, clock=SystemClock()),
         )
         application = create_telegram_application(
             settings.telegram_bot_token.get_secret_value(), services

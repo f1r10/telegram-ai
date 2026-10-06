@@ -5,6 +5,7 @@ import logging
 import signal
 
 from office_assistant.ai.provider import OpenAILanguageModel
+from office_assistant.core.clock import SystemClock
 from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import load_settings
 from office_assistant.extraction.service import StructuredExtractionService
@@ -16,6 +17,7 @@ from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
+from office_assistant.reminders.dispatch import ReminderDispatchService
 
 
 async def run() -> None:
@@ -38,6 +40,11 @@ async def run() -> None:
     qdrant_store = None
     extraction_model = None
     extractor = None
+    reminders = ReminderDispatchService(
+        factory,
+        clock=SystemClock(),
+        lease_seconds=settings.worker_lease_seconds,
+    )
     if settings.structured_extraction_enabled and settings.openai_api_key is not None:
         extraction_model = OpenAILanguageModel(
             settings.openai_api_key.get_secret_value(),
@@ -106,6 +113,9 @@ async def run() -> None:
             )
             if extraction_claim is not None and extractor is not None:
                 await extractor.process(extraction_claim)
+                continue
+            await reminders.reclaim_stale()
+            if await reminders.claim_due() > 0:
                 continue
             if claim is None:
                 try:

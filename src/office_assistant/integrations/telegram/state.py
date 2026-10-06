@@ -1,4 +1,4 @@
-"""Bounded in-process state for password entry and failed attempts."""
+"""Bounded in-process state for password entry, auth failures and reminder flows."""
 
 from dataclasses import dataclass
 from time import monotonic
@@ -49,6 +49,44 @@ class PasswordAttemptLimiter:
 
 class PasswordEntryState:
     """Bounded set of users currently expected to send a password."""
+
+    def __init__(self, max_users: int = 1000) -> None:
+        self.max_users = max_users
+        self._waiting: set[int] = set()
+
+    def request(self, telegram_user_id: int) -> None:
+        if len(self._waiting) >= self.max_users:
+            self._waiting.pop()
+        self._waiting.add(telegram_user_id)
+
+    def contains(self, telegram_user_id: int) -> bool:
+        return telegram_user_id in self._waiting
+
+    def clear(self, telegram_user_id: int) -> None:
+        self._waiting.discard(telegram_user_id)
+
+
+class ReminderEditState:
+    """Bounded map of users currently expected to type a new reminder time."""
+
+    def __init__(self, max_users: int = 1000) -> None:
+        self.max_users = max_users
+        self._tokens: dict[int, str] = {}
+
+    def request(self, telegram_user_id: int, proposal_token: str) -> None:
+        if len(self._tokens) >= self.max_users:
+            self._tokens.pop(next(iter(self._tokens)))
+        self._tokens[telegram_user_id] = proposal_token
+
+    def token_for(self, telegram_user_id: int) -> str | None:
+        return self._tokens.get(telegram_user_id)
+
+    def clear(self, telegram_user_id: int) -> None:
+        self._tokens.pop(telegram_user_id, None)
+
+
+class DeleteConfirmationState:
+    """Bounded set of users with an open personal-data deletion confirmation."""
 
     def __init__(self, max_users: int = 1000) -> None:
         self.max_users = max_users
