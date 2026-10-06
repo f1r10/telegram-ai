@@ -75,6 +75,7 @@ class User(Base):
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, server_default="Asia/Baku")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -1120,3 +1121,86 @@ class StructuredExtractionCandidate(Base):
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ReminderStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    SENT = "SENT"
+    CANCELLED = "CANCELLED"
+
+
+class Reminder(Base):
+    """User-confirmed natural-language reminder (SPEC §5, §10).
+
+    ``due_at_utc`` is the authoritative UTC instant; ``timezone`` keeps the
+    user's IANA name so display stays correct. ``recurrence_rule`` and
+    ``next_run_at`` are reserved and unused in V1.
+    """
+
+    __tablename__ = "reminders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ACTIVE', 'PAUSED', 'SENT', 'CANCELLED')",
+            name="ck_reminders_status",
+        ),
+        Index("ix_reminders_due_claim", "status", "due_at_utc"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    due_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ReminderDeliveryStatus(StrEnum):
+    CLAIMED = "CLAIMED"
+    SENDING = "SENDING"
+    SENT = "SENT"
+    RETRY_PENDING = "RETRY_PENDING"
+    FAILED = "FAILED"
+
+
+class ReminderDelivery(Base):
+    """Delivery ledger row: one attempt sequence per reminder occurrence.
+
+    At-least-once policy: ``claimed -> sending -> sent``; failures cycle
+    through ``retry_pending`` and terminate in ``failed`` after max attempts.
+    """
+
+    __tablename__ = "reminder_deliveries"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('CLAIMED', 'SENDING', 'SENT', 'RETRY_PENDING', 'FAILED')",
+            name="ck_reminder_deliveries_status",
+        ),
+        UniqueConstraint("reminder_id", "scheduled_for", name="uq_reminder_delivery"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    reminder_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("reminders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
