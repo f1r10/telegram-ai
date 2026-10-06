@@ -1,8 +1,79 @@
+# Isolated working copy of the ai_assistand stack (Qoder session 2026-10-06).
+# Project name, container names, network and volumes are explicitly namespaced
+# with `qoder_` and host ports are hardcoded so this stack can never collide
+# with the original instance running from Documents\ChatGPT\ai_assistand.
+name: qoder_ai_assistand
+
 services:
   app:
+    container_name: qoder_app
     build:
       context: .
       dockerfile: Dockerfile
+    # Load local credentials directly; stale shell variables must not override them.
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      TELEGRAM_POLLING_ENABLED: ${TELEGRAM_POLLING_ENABLED:-false}
+      FILE_STORAGE_PATH: /data/storage
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_ALIAS: ${QDRANT_COLLECTION_ALIAS:-document_chunks}
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-document_chunks_v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      EMBEDDING_CACHE_PATH: /models/cache
+      CHUNKING_VERSION: ${CHUNKING_VERSION:-v1-medium-1800-180}
+      OPENAI_DEFAULT_MODEL: ${OPENAI_DEFAULT_MODEL:-gpt-6-luna}
+      OPENAI_STRONG_MODEL: ${OPENAI_STRONG_MODEL:-gpt-6.1-sol}
+      OPENAI_REQUEST_TIMEOUT_SECONDS: ${OPENAI_REQUEST_TIMEOUT_SECONDS:-30}
+      OPENAI_MAX_OUTPUT_TOKENS: ${OPENAI_MAX_OUTPUT_TOKENS:-700}
+      RAG_RETRIEVAL_LIMIT: ${RAG_RETRIEVAL_LIMIT:-5}
+      RAG_MAX_CONTEXT_TOKENS: ${RAG_MAX_CONTEXT_TOKENS:-3200}
+      CHAT_HISTORY_MAX_MESSAGES: ${CHAT_HISTORY_MAX_MESSAGES:-6}
+      CHAT_HISTORY_MAX_TOKENS: ${CHAT_HISTORY_MAX_TOKENS:-1200}
+      AI_RATE_LIMIT_PER_MINUTE: ${AI_RATE_LIMIT_PER_MINUTE:-12}
+      INTERNAL_TOOL_MAX_CALLS: ${INTERNAL_TOOL_MAX_CALLS:-4}
+      INTERNAL_RAG_LIMIT: ${INTERNAL_RAG_LIMIT:-5}
+      INTERNAL_RAG_MIN_SCORE: ${INTERNAL_RAG_MIN_SCORE:-0.55}
+      INTERNAL_RAG_IDENTIFIER_MIN_SCORE: ${INTERNAL_RAG_IDENTIFIER_MIN_SCORE:-0.30}
+      RECENT_SOURCE_CONTEXT_MESSAGES: ${RECENT_SOURCE_CONTEXT_MESSAGES:-6}
+      RECENT_SOURCE_CONTEXT_TTL_MINUTES: ${RECENT_SOURCE_CONTEXT_TTL_MINUTES:-60}
+      FILE_DELIVERY_MAX_BYTES: ${FILE_DELIVERY_MAX_BYTES:-26214400}
+      SEARXNG_BASE_URL: http://searxng:8080
+      SEARXNG_REQUEST_TIMEOUT_SECONDS: ${SEARXNG_REQUEST_TIMEOUT_SECONDS:-8}
+      TAVILY_REQUEST_TIMEOUT_SECONDS: ${TAVILY_REQUEST_TIMEOUT_SECONDS:-10}
+      WEB_SEARCH_DEFAULT_LIMIT: ${WEB_SEARCH_DEFAULT_LIMIT:-6}
+      WEB_SEARCH_MAX_LIMIT: ${WEB_SEARCH_MAX_LIMIT:-8}
+      WEB_SEARCH_CACHE_TTL_SECONDS: ${WEB_SEARCH_CACHE_TTL_SECONDS:-86400}
+      WEB_SEARCH_FRESH_CACHE_TTL_SECONDS: ${WEB_SEARCH_FRESH_CACHE_TTL_SECONDS:-900}
+      WEB_FETCH_TIMEOUT_SECONDS: ${WEB_FETCH_TIMEOUT_SECONDS:-10}
+      WEB_FETCH_MAX_BYTES: ${WEB_FETCH_MAX_BYTES:-2097152}
+      WEB_FETCH_MAX_REDIRECTS: ${WEB_FETCH_MAX_REDIRECTS:-3}
+      WEB_FETCH_MAX_PAGES: ${WEB_FETCH_MAX_PAGES:-2}
+      WEB_CONTEXT_MAX_TOKENS: ${WEB_CONTEXT_MAX_TOKENS:-3200}
+    depends_on:
+      model-cache-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - app_storage:/data/storage
+      - model_cache:/models
+
+  worker:
+    container_name: qoder_worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uv", "run", "--no-dev", "python", "-m", "office_assistant.workers.ingestion"]
     environment:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -12,17 +83,89 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       FILE_STORAGE_PATH: /data/storage
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION_ALIAS: ${QDRANT_COLLECTION_ALIAS:-document_chunks}
+      QDRANT_COLLECTION_NAME: ${QDRANT_COLLECTION_NAME:-document_chunks_v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      EMBEDDING_CACHE_PATH: /models/cache
+      CHUNKING_VERSION: ${CHUNKING_VERSION:-v1-medium-1800-180}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-2}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-300}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_REQUEST_TIMEOUT_SECONDS: ${OPENAI_REQUEST_TIMEOUT_SECONDS:-30}
+      STRUCTURED_EXTRACTION_ENABLED: ${STRUCTURED_EXTRACTION_ENABLED:-true}
+      STRUCTURED_EXTRACTION_MODEL: ${STRUCTURED_EXTRACTION_MODEL:-gpt-6-luna}
+      STRUCTURED_EXTRACTION_MAX_INPUT_CHARS: ${STRUCTURED_EXTRACTION_MAX_INPUT_CHARS:-12000}
+      STRUCTURED_EXTRACTION_MAX_OUTPUT_TOKENS: ${STRUCTURED_EXTRACTION_MAX_OUTPUT_TOKENS:-2200}
+      STRUCTURED_EXTRACTION_BATCH_SIZE: ${STRUCTURED_EXTRACTION_BATCH_SIZE:-30}
+      STRUCTURED_REVIEW_TTL_HOURS: ${STRUCTURED_REVIEW_TTL_HOURS:-72}
+    depends_on:
+      model-cache-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     volumes:
       - app_storage:/data/storage
+      - model_cache:/models
+
+  model-cache-init:
+    container_name: qoder_model_cache_init
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /models/cache && chown -R 10001:10001 /models"]
+    restart: "no"
+    volumes:
+      - model_cache:/models
+
+  qdrant:
+    container_name: qoder_qdrant
+    image: qdrant/qdrant:v1.19.0
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      # Isolated host port: original instance uses 16333/6333.
+      - "127.0.0.1:6335:6333"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  searxng:
+    container_name: qoder_searxng
+    image: searxng/searxng:2026.10.4-d48c4b555@sha256:76b0bf285aca014c7191fc4d9234c4bfb358624ac33d8883833d496c059ec072
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-replace-this-private-instance-secret}
+      FORCE_OWNERSHIP: "false"
+    ports:
+      # Isolated host port: original instance uses 18080.
+      - "127.0.0.1:18085:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng_cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
   postgres:
+    container_name: qoder_postgres
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      # Isolated host port: original instance uses 55432/5432.
+      - "127.0.0.1:5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +175,19 @@ services:
       retries: 10
       start_period: 5s
 
+networks:
+  default:
+    name: qoder_net
+
 volumes:
   app_storage:
+    name: qoder_app_storage
   postgres_data:
+    name: qoder_postgres_data
+  qdrant_data:
+    name: qoder_qdrant_data
+  model_cache:
+    name: qoder_model_cache
+  searxng_cache:
+    name: qoder_searxng_cache
 
