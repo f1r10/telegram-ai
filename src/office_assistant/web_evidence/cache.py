@@ -15,7 +15,10 @@ from office_assistant.web_evidence.models import (
     WebSearchResponse,
     WebSearchResult,
 )
-from office_assistant.web_evidence.normalization import cache_key, is_fresh_query
+from office_assistant.web_evidence.normalization import (
+    cache_key,
+    is_time_sensitive_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,7 @@ class WebSearchService:
         if response.results:
             ttl = (
                 self.fresh_ttl
-                if request.freshness or is_fresh_query(request.query)
+                if request.freshness or is_time_sensitive_query(request.query)
                 else self.stable_ttl
             )
             if ttl.total_seconds() > 0:

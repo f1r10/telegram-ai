@@ -10,8 +10,14 @@ from office_assistant.internal_evidence.query_normalization import strong_identi
 from office_assistant.web_evidence.models import WebSearchRequest
 
 _SPACE = re.compile(r"\s+")
-_FRESH_WORDS = re.compile(
-    r"\b(?:indi|hazırda|bu\s*gün|bugün|son\s+xəbər|latest|current|today|news|qiymət|qiymeti|qiyməti)\b",
+_EXPLICIT_FRESH_WORDS = re.compile(
+    r"\b(?:indi|hazırda|bu\s+gün|bugün|latest|current|today|news)\b|\bson\s+xəbər\b",
+    re.IGNORECASE,
+)
+# Prices and stock change often, so their cached answer must stay short-lived even when the
+# user did not ask for a time window.
+_TIME_SENSITIVE_WORDS = re.compile(
+    r"\b(?:qiymət|qiyməti|qiymətlər|stok|məhdud|satış|kurs|kurusu)\b",
     re.IGNORECASE,
 )
 _TRACKING_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -24,7 +30,18 @@ def normalize_web_query(value: str) -> str:
 
 
 def is_fresh_query(value: str) -> bool:
-    return bool(_FRESH_WORDS.search(normalize_web_query(value)))
+    """Only an explicit 'right now / latest' request narrows the search to one day."""
+
+    return bool(_EXPLICIT_FRESH_WORDS.search(normalize_web_query(value)))
+
+
+def is_time_sensitive_query(value: str) -> bool:
+    """Whether a cached answer for this query goes stale quickly."""
+
+    normalized = normalize_web_query(value)
+    return bool(
+        _TIME_SENSITIVE_WORDS.search(normalized) or _EXPLICIT_FRESH_WORDS.search(normalized)
+    )
 
 
 def matches_requested_identifier(query: str, title: str, snippet: str) -> bool:
