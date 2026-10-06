@@ -278,3 +278,43 @@ def test_file_follow_up_sends_original_bytes_and_safe_filename(tmp_path: Path) -
     handled = asyncio.run(_try_file_delivery(Message(), services, 123, "2-ci mənbəni göndər"))
     assert handled
     assert received == {"bytes": content, "filename": "source.pdf"}
+
+
+def test_colloquial_file_request_completes_the_turn_without_calling_the_model(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "catalog.pdf"
+    path.write_bytes(b"catalog-bytes")
+
+    class Delivery:
+        async def resolve_recent(
+            self, actor_telegram_user_id: int, citation_index: int | None
+        ) -> DeliverableFile:
+            assert citation_index is None
+            return DeliverableFile(path, "catalog.pdf", "application/pdf", 55)
+
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    services = _services(FakeUsers(user))
+    services.file_delivery = cast(SourceFileDeliveryService, Delivery())
+    services.rate_guard = InProcessRateGuard()
+    # Without the FILE_DELIVERY verb, this turn reached the evidence planner instead.
+    services.internal_evidence = cast(
+        object,
+        SimpleNamespace(answer=AsyncMock(side_effect=AssertionError("evidence model was called"))),
+    )  # type: ignore[assignment]
+    message = SimpleNamespace(
+        text="Faylı ver",
+        chat_id=123,
+        reply_text=AsyncMock(side_effect=AssertionError("answered with text")),
+        reply_document=AsyncMock(),
+    )
+    update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
+    context = SimpleNamespace(
+        bot_data={"phase2_services": services},
+        bot=SimpleNamespace(send_chat_action=AsyncMock()),
+    )
+    asyncio.run(
+        handle_password_text(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context))
+    )
+    assert message.reply_document.await_args.kwargs["filename"] == "catalog.pdf"  # type: ignore[union-attr]
+    services.internal_evidence.answer.assert_not_called()  # type: ignore[union-attr]

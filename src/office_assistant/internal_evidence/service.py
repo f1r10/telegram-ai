@@ -42,6 +42,14 @@ from office_assistant.internal_evidence.router import EvidencePlanner
 
 logger = logging.getLogger(__name__)
 NOT_FOUND_INTERNAL_AZ = "Bu məlumat daxili sistemdə tapılmadı."
+CLARIFICATION_CUSTOMER_AZ = "Bu əməliyyat üçün hansı müştərini nəzərdə tutduğunuzu dəqiqləşdirin."
+CLARIFICATION_GENERIC_AZ = (
+    "Dəqiq cavab vermək üçün əlavə dəqiqləşdirmə lazımdır. "
+    "Zəhmət olmasa nəzərdə tutduğunuz məsələni bir az daha aydın yazın."
+)
+CLARIFICATION_BY_REASON_CODE: dict[str, str] = {
+    "customer_required_for_proposal_comparison": CLARIFICATION_CUSTOMER_AZ,
+}
 MAX_INTERNAL_TOOL_ROUNDS = 3
 MAX_TOOL_CALLS_PER_TURN = 4
 
@@ -90,8 +98,9 @@ class InternalEvidenceService:
         router_usage = decision.response.usage if decision.response else TokenUsage()
         if decision.response:
             await self._save_usage(actor.id, "internal_router", decision.response)
-        if plan.requires_clarification:
-            answer = "Zəhmət olmasa müştərini dəqiqləşdirin."
+        if plan.requires_clarification or (plan.category == RoutingCategory.CLARIFICATION_REQUIRED):
+            # The reason code, not an assumption about the domain, decides the wording.
+            answer = CLARIFICATION_BY_REASON_CODE.get(plan.reason_code, CLARIFICATION_GENERIC_AZ)
             await self._persist_turn(actor.id, question, answer, ())
             return InternalAnswer(
                 answer=answer,

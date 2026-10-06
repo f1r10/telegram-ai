@@ -4,6 +4,35 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Clarification honesty and FILE_DELIVERY reachability (Master Spec Block 2, 2026-10-07)
+
+The live failure was "Faylı ver": the bot answered "Zəhmət olmasa müştərini dəqiqləşdirin." —
+it asked about a customer that the user never mentioned, because the question never reached the
+FILE_DELIVERY route and the planner's clarification branch printed one hardcoded sentence
+regardless of what it had actually found missing.
+
+- `internal_evidence/delivery.py`: `parse_file_delivery_request` now accepts the colloquial
+  delivery verb family `ver`/`verin`/`versən` alongside `göndər`/`at` (Master Spec §20). The
+  object requirement (`mənbə`, `fayl`, `pdf`, `sənəd`, `onu`, `bunu`) still gates the intent, so
+  "KA45-in qiymətini ver" and "məlumat ver" stay on the evidence route instead of being read as
+  file requests. The follow-up number resolver is unchanged, so "2ci mənbəni ver" resolves `[2]`.
+- `internal_evidence/service.py`: the clarification branch no longer invents an entity. It maps
+  `plan.reason_code` to the wording the plan justifies — only
+  `customer_required_for_proposal_comparison` asks for a customer — and every other reason falls
+  back to neutral Azerbaijani text that names nothing. A plan whose category is
+  `CLARIFICATION_REQUIRED` now also stops there even when the model forgot the boolean, so an
+  uncertain turn never proceeds to execute tools it just said it needed help with. The AMBIGUOUS
+  tool path (`_ambiguity_answer`, which lists the real candidates) is untouched.
+  Strings stay module-level in the service, matching the existing convention in this package
+  (`ai/service.py`, `web_evidence/service.py`); no domain module imports the Telegram layer.
+- Tests: 3 cases in `tests/unit/test_clarification_honesty.py` (neutral wording does not blame a
+  customer, customer wording only for its own reason code including the deterministic route,
+  category-only clarification stops before any tool or document call), 2 file-delivery parsing
+  cases (16 accepted colloquial forms, 6 rejected information requests), and 1 full-turn handler
+  case proving "Faylı ver" delivers the original file while the evidence model is never awaited.
+- Gates: 239 unit passed (was 234), 22 integration passed, `ruff check`, `ruff format --check`
+  (150 files), `pyright` 0 errors.
+
 ### Retrieval truth (Master Spec Block 1, 2026-10-07)
 
 Live evidence from the isolated stack: `/baza` turns logged

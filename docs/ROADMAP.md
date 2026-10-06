@@ -102,7 +102,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Block 1: retrieval truth — the read path resolves the live projection, a missing or failing
       Qdrant alias/collection is reported as unavailable instead of "nothing found", and local
       embedding models load at startup rather than inside the first user turn.
-- [ ] Block 2: clarification honesty and `FILE_DELIVERY` reachability.
+- [x] Block 2: clarification honesty and `FILE_DELIVERY` reachability — `ver`-family delivery
+      verbs are recognised before the evidence planner runs, and a clarification turn states the
+      element its reason code actually detected instead of always demanding a customer.
 - [ ] Block 3: multimodal router — an image attached to an explicit command or reply is carried into
       the turn as a first-class search parameter (Master Spec §22).
 - [ ] Block 4: web fallback and relevance gate (Master Spec §21).

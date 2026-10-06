@@ -170,7 +170,9 @@ class SourceFileDeliveryService:
 
 def parse_file_delivery_request(text: str) -> int | None | bool:
     folded = normalize_user_query(text)
-    has_action = bool(re.search(r"\b(?:gonder\w*|at)\b", folded))
+    # "ver" is a tolerated colloquial delivery verb (Master Spec §20), but the object
+    # requirement below keeps "KA45-in qiymətini ver" on the evidence route.
+    has_action = bool(re.search(r"\b(?:gonder\w*|at|ver\w*)\b", folded))
     has_object = bool(re.search(r"\b(?:menbe\w*|fayl\w*|pdf\w*|sened\w*|onu|bunu)\b", folded))
     intent = has_action and has_object
     if not intent:

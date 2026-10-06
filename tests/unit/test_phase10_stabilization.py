@@ -119,8 +119,30 @@ def test_file_delivery_accepts_common_ascii_colloquial_forms_without_model() -> 
         "pdf-i gonder": None,
         "onu at": None,
         "bunu gonder": None,
+        "faylı ver": None,
+        "fayl ver": None,
+        "1ci fayli ver": 1,
+        "2ci menbeni ver": 2,
+        "ikinci mənbəni verin": 2,
+        "pdf-i ver": None,
+        "onu ver": None,
     }
     assert {text: parse_file_delivery_request(text) for text in expected} == expected
+
+
+def test_ordinary_information_requests_are_not_mistaken_for_file_delivery() -> None:
+    # Master Spec §3.8 and §20: "ver" is tolerated for delivery, but it must not drag a
+    # plain business question into a file-delivery turn or a structured parameter prompt.
+    for text in (
+        "KA45-in qiymətini ver",
+        "məlumat ver",
+        "ABC MMC-nin son təklifini ver",
+        "ABC MMC bu ay nə qədər ödəyib",
+        "KA45 zəmanət şərtləri nədir?",
+        "bu mehsul bizde var?",
+    ):
+        assert parse_file_delivery_request(text) is False, text
+    assert deterministic_plan("KA45-in qiymətini ver") is not None
 
 
 def test_identifier_aware_relevance_prunes_weak_tails_and_keeps_code_aliases() -> None:
