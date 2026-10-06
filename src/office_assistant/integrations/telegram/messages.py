@@ -36,7 +36,31 @@ CANCEL_SUCCESS = "Açıq yadda saxlama sessiyası ləğv edildi."
 CANCEL_NO_SESSION = "Ləğv ediləcək açıq sessiya yoxdur."
 STORAGE_ERROR = "Fayl müvəqqəti saxlanılmadı. Zəhmət olmasa sonra yenidən cəhd edin."
 INGESTION_LIMIT = "Sessiya üçün texniki fayl sayı limitinə çatıldı."
+AI_NOT_CONFIGURED = "AI cavab xidməti konfiqurasiya edilməyib."
+AI_RATE_LIMITED = "Çox tez-tez sorğu göndərildi. Zəhmət olmasa bir qədər sonra yenidən cəhd edin."
+AI_INVALID_QUESTION = "Sual boş ola bilməz. Məsələn: /baza KA45 zəmanət müddəti nə qədərdir?"
+WEB_INVALID_QUESTION = "Sual boş ola bilməz. Məsələn: /internet Python 3.14 yenilikləri"
+WEB_UNAVAILABLE = "İnternet axtarışı hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
+AI_UNAVAILABLE = (
+    "Cavab yaratma xidməti hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
+)
+QDRANT_UNAVAILABLE = (
+    "Daxili bilik bazası hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
+)
+AI_SOURCE_VALIDATION_FAILED = (
+    "Cavabın mənbə yoxlaması uğursuz oldu. Zəhmət olmasa sualı yenidən verin."
+)
 
 APPROVE = "Təsdiqlə"
 REJECT = "Rədd et"
 DISABLE = "Deaktiv et"
+EXTRACTION_PROBLEMS = "Diqqət tələb edən namizədlər:"
+EXTRACTION_REJECTED = "Strukturlaşdırılmış namizədlər ləğv edildi. Mənbə faylları saxlanıldı."
+SOURCE_FILE_UNAVAILABLE = "Mənbə faylı tapılmadı və ya hazırda göndərilə bilmir."
+SOURCE_FILE_AMBIGUOUS = "Bir neçə fayl uyğundur. Mənbə nömrəsini qeyd edin."
+WEB_SOURCE_UNAVAILABLE = "Son cavabda uyğun internet linki tapılmadı."
+EXTRACTION_APPLIED = (
+    "Yaddaşa yazma tamamlandı.\n\n"
+    "Əlavə edildi: {applied}\nMövcud idi: {existing}\n"
+    "Admin baxışı tələb edir: {admin}\nTətbiq olunmadı: {failed}"
+)

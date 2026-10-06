@@ -1,0 +1,1 @@
+"""Candidate-first structured extraction."""

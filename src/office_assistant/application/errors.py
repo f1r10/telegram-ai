@@ -15,3 +15,15 @@ class InvalidStateTransition(ApplicationError):
 
 class AuthenticationConfigurationError(ApplicationError):
     """Authentication cannot run because required configuration is missing."""
+
+
+class DomainConflict(ApplicationError):
+    """A requested business identity or invariant conflicts with stored state."""
+
+
+class EntityNotFound(ApplicationError):
+    """A requested business entity does not exist."""
+
+
+class InvalidBusinessValue(ApplicationError):
+    """A business value failed deterministic validation."""

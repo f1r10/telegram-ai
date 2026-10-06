@@ -161,6 +161,7 @@ class IngestionSessionService:
         chat_id: int,
         message_id: int,
         update_id: int | None,
+        create_session: bool = False,
     ) -> bool:
         self._require_active(user)
         if not text_content.strip():
@@ -169,7 +170,9 @@ class IngestionSessionService:
             db_user = await self._active_user(session, user.telegram_user_id)
             ingestion_session = await self._existing_open_session(session, db_user.id)
             if ingestion_session is None:
-                return False
+                if not create_session:
+                    return False
+                ingestion_session, _ = await self._open_session(session, db_user.id)
             if await self._item_for_message(session, chat_id, message_id) is not None:
                 return True
             sequence_no = await self._next_sequence(session, ingestion_session.id)
@@ -194,6 +197,14 @@ class IngestionSessionService:
             )
             return True
 
+    async def has_open_session(self, user: User) -> bool:
+        """Check the session priority boundary without mutating ingestion state."""
+
+        self._require_active(user)
+        async with self.session_factory() as session:
+            db_user = await self._active_user(session, user.telegram_user_id)
+            return await self._existing_open_session(session, db_user.id) is not None
+
     async def commit(self, user: User) -> SessionSummary | None:
         self._require_active(user)
         moved: list[tuple[str, str]] = []
@@ -207,8 +218,8 @@ class IngestionSessionService:
                     return None
                 items = await self._items(session, ingestion_session.id)
                 file_items = [item for item in items if item.item_type == IngestionItemType.FILE]
-                if not file_items:
-                    raise InvalidStateTransition("A session must contain at least one file")
+                if not items:
+                    raise InvalidStateTransition("A session must contain at least one item")
                 for item in file_items:
                     if item.file_object_id is None:
                         raise InvalidStateTransition("File item has no file object")

@@ -1,0 +1,27 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - google
+      - duckduckgo
+      - wikipedia
+
+general:
+  instance_name: "Office Assistant private search"
+  debug: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 10.0

@@ -3,11 +3,16 @@
 import asyncio
 import logging
 
+from office_assistant.ai.provider import OpenAILanguageModel
+from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.user_management import UserManagementService
+from office_assistant.business_tools.registry import BusinessToolRegistry
+from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import Settings, load_settings
+from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.health import check_database_health
 from office_assistant.infrastructure.database.session import create_session_factory
@@ -15,6 +20,24 @@ from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.integrations.telegram.app import create_telegram_application
 from office_assistant.integrations.telegram.handlers import TelegramServices
 from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
+from office_assistant.internal_evidence.delivery import SourceFileDeliveryService
+from office_assistant.internal_evidence.document_search import (
+    DocumentRelevancePolicy,
+    InternalDocumentSearch,
+)
+from office_assistant.internal_evidence.router import EvidencePlanner
+from office_assistant.internal_evidence.service import InternalEvidenceService
+from office_assistant.internal_evidence.tool_adapter import OpenAIToolSchemaAdapter
+from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEmbedTextAdapter
+from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
+from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.web_evidence.cache import WebSearchService
+from office_assistant.web_evidence.fetcher import WebContentFetcher
+from office_assistant.web_evidence.providers import (
+    SearXNGWebSearchProvider,
+    TavilyWebSearchProvider,
+)
+from office_assistant.web_evidence.service import WebEvidenceService
 
 
 def bootstrap(settings: Settings | None = None) -> Settings:
@@ -63,6 +86,104 @@ def main() -> None:
             ttl_hours=settings.pending_session_ttl_hours,
             max_upload_bytes=settings.max_upload_bytes,
         )
+        language_model = None
+        qdrant_store = None
+        retrieval = None
+        internal_service = None
+        web_service = None
+        web_clients: list[object] = []
+        if settings.openai_api_key is not None:
+            language_model = OpenAILanguageModel(
+                settings.openai_api_key.get_secret_value(),
+                default_model=settings.openai_default_model,
+                strong_model=settings.openai_strong_model,
+                timeout_seconds=settings.openai_request_timeout_seconds,
+                max_output_tokens=settings.openai_max_output_tokens,
+            )
+            if settings.qdrant_url:
+                qdrant_store = QdrantKnowledgeStore(
+                    settings.qdrant_url,
+                    alias=settings.qdrant_collection_alias,
+                    collection=settings.qdrant_collection_name,
+                )
+                retrieval = KnowledgeRetrievalService(
+                    qdrant_store,
+                    FastEmbedTextAdapter(
+                        settings.embedding_model,
+                        settings.embedding_cache_path,
+                        batch_size=settings.embedding_batch_size,
+                    ),
+                    FastEmbedSparseAdapter(cache_dir=settings.embedding_cache_path),
+                )
+            ai_service = GroundedAnswerService(
+                session_factory,
+                retrieval,
+                language_model,
+                retrieval_limit=settings.rag_retrieval_limit,
+                max_context_tokens=settings.rag_max_context_tokens,
+                history_max_messages=settings.chat_history_max_messages,
+                history_max_tokens=settings.chat_history_max_tokens,
+            )
+            registry = BusinessToolRegistry(BusinessQueryService(session_factory))
+            internal_service = InternalEvidenceService(
+                session_factory,
+                registry,
+                InternalDocumentSearch(
+                    retrieval,
+                    DocumentRelevancePolicy(
+                        min_hybrid_score=settings.internal_rag_min_score,
+                        min_identifier_score=settings.internal_rag_identifier_min_score,
+                    ),
+                ),
+                EvidencePlanner(language_model, OpenAIToolSchemaAdapter(registry)),
+                language_model,
+                ai_service,
+                document_limit=settings.internal_rag_limit,
+                source_ttl_minutes=settings.recent_source_context_ttl_minutes,
+                source_context_messages=settings.recent_source_context_messages,
+                max_tool_calls=settings.internal_tool_max_calls,
+            )
+            if settings.searxng_base_url:
+                searxng = SearXNGWebSearchProvider(
+                    settings.searxng_base_url,
+                    timeout_seconds=settings.searxng_request_timeout_seconds,
+                )
+                web_clients.append(searxng)
+                tavily = None
+                if settings.tavily_api_key is not None:
+                    tavily = TavilyWebSearchProvider(
+                        settings.tavily_api_key.get_secret_value(),
+                        timeout_seconds=settings.tavily_request_timeout_seconds,
+                    )
+                    web_clients.append(tavily)
+                fetcher = WebContentFetcher(
+                    timeout_seconds=settings.web_fetch_timeout_seconds,
+                    max_bytes=settings.web_fetch_max_bytes,
+                    max_redirects=settings.web_fetch_max_redirects,
+                    max_text_chars=settings.web_context_max_tokens * 4,
+                )
+                web_clients.append(fetcher)
+                web_service = WebEvidenceService(
+                    session_factory,
+                    WebSearchService(
+                        session_factory,
+                        searxng,
+                        tavily,
+                        stable_ttl_seconds=settings.web_search_cache_ttl_seconds,
+                        fresh_ttl_seconds=settings.web_search_fresh_cache_ttl_seconds,
+                    ),
+                    fetcher,
+                    language_model,
+                    internal_service,
+                    default_limit=settings.web_search_default_limit,
+                    max_limit=settings.web_search_max_limit,
+                    max_fetch_pages=settings.web_fetch_max_pages,
+                    context_max_tokens=settings.web_context_max_tokens,
+                    source_ttl_minutes=settings.recent_source_context_ttl_minutes,
+                    source_context_messages=settings.recent_source_context_messages,
+                )
+        else:
+            ai_service = None
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
@@ -70,6 +191,18 @@ def main() -> None:
             limiter=PasswordAttemptLimiter(),
             ingestion=ingestion,
             storage=storage,
+            session_factory=session_factory,
+            ai=ai_service,
+            rate_guard=InProcessRateGuard(settings.ai_rate_limit_per_minute),
+            telegram_message_limit=settings.telegram_max_message_length,
+            extraction_reviews=ExtractionReviewService(session_factory, storage),
+            internal_evidence=internal_service,
+            file_delivery=SourceFileDeliveryService(
+                session_factory,
+                storage,
+                max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
+            ),
+            web_evidence=web_service,
         )
         application = create_telegram_application(
             settings.telegram_bot_token.get_secret_value(), services
@@ -77,6 +210,14 @@ def main() -> None:
         try:
             application.run_polling()
         finally:
+            if language_model is not None:
+                asyncio.run(language_model.close())
+            if qdrant_store is not None:
+                asyncio.run(qdrant_store.close())
+            for client in web_clients:
+                close = getattr(client, "close", None)
+                if close is not None:
+                    asyncio.run(close())
             asyncio.run(engine.dispose())
     elif settings.database_check_on_startup:
         asyncio.run(check_database_on_startup(settings))

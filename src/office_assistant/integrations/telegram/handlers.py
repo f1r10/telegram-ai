@@ -1,15 +1,25 @@
 """Thin Telegram handlers delegating to application services."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
+from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatType
+from telegram.constants import ChatAction, ChatType
+from telegram.error import NetworkError, TelegramError
 from telegram.ext import ContextTypes
 
+from office_assistant.ai.service import (
+    AIServiceError,
+    AnswerGenerationUnavailable,
+    GroundedAnswerService,
+    InProcessRateGuard,
+)
 from office_assistant.application.authentication import (
     AuthenticationResult,
     AuthenticationService,
@@ -19,10 +29,23 @@ from office_assistant.application.errors import ApplicationError, AuthorizationD
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
 from office_assistant.application.user_management import UserManagementService
+from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.integrations.telegram import messages
+from office_assistant.integrations.telegram.formatting import split_telegram_text
 from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
+from office_assistant.internal_evidence.delivery import (
+    FileDeliveryAmbiguous,
+    FileDeliveryError,
+    SourceFileDeliveryService,
+    parse_file_delivery_request,
+    parse_web_source_request,
+)
+from office_assistant.internal_evidence.models import InternalAnswer
+from office_assistant.internal_evidence.service import InternalEvidenceService
+from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
+from office_assistant.web_evidence.service import WebEvidenceService
 
 SERVICES_KEY = "phase2_services"
 logger = logging.getLogger(__name__)
@@ -36,6 +59,14 @@ class TelegramServices:
     limiter: PasswordAttemptLimiter
     ingestion: IngestionSessionService | None = None
     storage: LocalFileStorage | None = None
+    session_factory: async_sessionmaker[AsyncSession] | None = None
+    ai: GroundedAnswerService | None = None
+    rate_guard: InProcessRateGuard | None = None
+    telegram_message_limit: int = 4096
+    extraction_reviews: ExtractionReviewService | None = None
+    internal_evidence: InternalEvidenceService | None = None
+    file_delivery: SourceFileDeliveryService | None = None
+    web_evidence: WebEvidenceService | None = None
 
 
 def _services(context: ContextTypes.DEFAULT_TYPE) -> TelegramServices:
@@ -68,6 +99,110 @@ def _user_label(user: User) -> str:
     name = " ".join(part for part in (user.first_name, user.last_name) if part)
     username = f"@{user.telegram_username}" if user.telegram_username else "username yoxdur"
     return f"ID: {user.telegram_user_id} | {name or 'Ad yoxdur'} | {username} | {user.status}"
+
+
+async def _reply_long(message: object, text: str, limit: int) -> None:
+    for part in split_telegram_text(text, limit=limit):
+        for attempt in range(3):
+            try:
+                await message.reply_text(part)  # type: ignore[attr-defined]
+                break
+            except NetworkError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(2**attempt)
+
+
+async def _send_typing(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    # A cosmetic chat action must never prevent answering the user's question.
+    try:
+        await context.bot.send_chat_action(
+            chat_id=chat_id,
+            action=ChatAction.TYPING,
+            connect_timeout=3,
+            read_timeout=3,
+            write_timeout=3,
+            pool_timeout=3,
+        )
+    except TelegramError as error:
+        logger.warning("Telegram typing action skipped | error_type=%s", type(error).__name__)
+
+
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    error = context.error
+    logger.error(
+        "Telegram operation failed | error_type=%s",
+        type(error).__name__,
+        exc_info=(type(error), error, error.__traceback__) if error is not None else None,
+    )
+    if isinstance(update, Update) and _is_private(update) and update.effective_message:
+        try:
+            await _reply_long(update.effective_message, messages.TEMPORARY_ERROR, 4096)
+        except TelegramError as error:
+            logger.warning("Telegram error reply failed | error_type=%s", type(error).__name__)
+
+
+def _format_internal(result: InternalAnswer) -> str:
+    if not result.citations:
+        return result.answer
+    source_lines = [f"[{item.number}] {item.label}" for item in result.citations]
+    return f"{result.answer}\n\nMənbələr:\n" + "\n".join(source_lines)
+
+
+def _format_web(result: WebAnswer) -> str:
+    if not result.citations:
+        return result.answer
+    source_lines = [f"[{item.number}] {item.label}" for item in result.citations]
+    return f"{result.answer}\n\nMənbələr:\n" + "\n".join(source_lines)
+
+
+async def _try_file_delivery(
+    message: object,
+    services: TelegramServices,
+    actor_telegram_user_id: int,
+    text: str,
+) -> bool:
+    web_requested = parse_web_source_request(text)
+    if web_requested is not False:
+        if services.file_delivery is None:
+            await message.reply_text(messages.WEB_SOURCE_UNAVAILABLE)  # type: ignore[attr-defined]
+            return True
+        try:
+            item = await services.file_delivery.resolve_recent_url(
+                actor_telegram_user_id,
+                web_requested
+                if isinstance(web_requested, int) and not isinstance(web_requested, bool)
+                else None,
+            )
+            await message.reply_text(f"{item.title}\n{item.url}")  # type: ignore[attr-defined]
+        except FileDeliveryAmbiguous:
+            await message.reply_text(messages.SOURCE_FILE_AMBIGUOUS)  # type: ignore[attr-defined]
+        except (FileDeliveryError, StorageError):
+            await message.reply_text(messages.WEB_SOURCE_UNAVAILABLE)  # type: ignore[attr-defined]
+        return True
+    requested = parse_file_delivery_request(text)
+    if requested is False:
+        return False
+    if services.file_delivery is None:
+        await message.reply_text(messages.SOURCE_FILE_UNAVAILABLE)  # type: ignore[attr-defined]
+        return True
+    try:
+        item = await services.file_delivery.resolve_recent(
+            actor_telegram_user_id,
+            requested if isinstance(requested, int) and not isinstance(requested, bool) else None,
+        )
+        with item.path.open("rb") as stream:
+            await message.reply_document(  # type: ignore[attr-defined]
+                document=stream,
+                filename=item.filename,
+                read_timeout=60,
+                write_timeout=60,
+            )
+    except FileDeliveryAmbiguous:
+        await message.reply_text(messages.SOURCE_FILE_AMBIGUOUS)  # type: ignore[attr-defined]
+    except (FileDeliveryError, StorageError):
+        await message.reply_text(messages.SOURCE_FILE_UNAVAILABLE)  # type: ignore[attr-defined]
+    return True
 
 
 def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
@@ -125,7 +260,7 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.UNKNOWN_USER)
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
-            elif services.ingestion is not None:
+            elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
                     user,
                     text_content=message.text,
@@ -136,9 +271,34 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.INSTRUCTION_ADDED if added else messages.NO_OPEN_SESSION
                 )
+            elif await _try_file_delivery(
+                message, services, identity.telegram_user_id, message.text
+            ):
+                return
+            elif services.internal_evidence is not None and services.rate_guard is not None:
+                if not services.rate_guard.allow(user.id):
+                    await message.reply_text(messages.AI_RATE_LIMITED)
+                    return
+                await _send_typing(context, message.chat_id)
+                result = await services.internal_evidence.answer(user, message.text)
+                await _reply_long(
+                    message, _format_internal(result), services.telegram_message_limit
+                )
+            elif services.ai is not None and services.rate_guard is not None:
+                if not services.rate_guard.allow(user.id):
+                    await message.reply_text(messages.AI_RATE_LIMITED)
+                    return
+                await _send_typing(context, message.chat_id)
+                result = await services.ai.answer_general(user.id, message.text)
+                await _reply_long(message, result.answer, services.telegram_message_limit)
+            elif services.ai is None:
+                await message.reply_text(messages.AI_NOT_CONFIGURED)
             else:
                 await message.reply_text(messages.NO_OPEN_SESSION)
-        except (ApplicationError, SQLAlchemyError):
+        except AnswerGenerationUnavailable:
+            await _reply_long(message, messages.AI_UNAVAILABLE, services.telegram_message_limit)
+        except (ApplicationError, SQLAlchemyError, AIServiceError) as error:
+            logger.error("Telegram message failed | error_type=%s", type(error).__name__)
             await message.reply_text(messages.TEMPORARY_ERROR)
         return
     if services.limiter.is_blocked(identity.telegram_user_id):
@@ -225,7 +385,17 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
+    trailing_text = message.text.partition(" ")[2].strip() if message.text else ""
     try:
+        if trailing_text:
+            await services.ingestion.add_instruction(
+                user,
+                text_content=trailing_text,
+                chat_id=message.chat_id,
+                message_id=message.message_id,
+                update_id=update.update_id,
+                create_session=True,
+            )
         summary = await services.ingestion.commit(user)
     except (ApplicationError, SQLAlchemyError, StorageError):
         await message.reply_text(messages.TEMPORARY_ERROR)
@@ -240,6 +410,138 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             duplicates=summary.duplicate_count,
         )
     )
+
+
+async def handle_extraction_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    actor = update.effective_user
+    if query is None or actor is None or not _is_private(update):
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    services = _services(context)
+    if len(parts) != 3 or parts[0] != "xr" or services.extraction_reviews is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        run_id = UUID(parts[2])
+        if parts[1] == "a":
+            result = await services.extraction_reviews.approve(actor.id, run_id)
+            text = messages.EXTRACTION_APPLIED.format(
+                applied=result.applied,
+                existing=result.already_exists,
+                admin=result.needs_admin,
+                failed=result.failed,
+            )
+        elif parts[1] == "p":
+            problems = await services.extraction_reviews.problems(actor.id, run_id)
+            lines = [
+                f"{item.candidate_type}: {', '.join(item.validation_errors or [item.status])}"
+                for item in problems
+            ]
+            text = messages.EXTRACTION_PROBLEMS + ("\n" + "\n".join(lines) if lines else "")
+        elif parts[1] == "r":
+            await services.extraction_reviews.reject(actor.id, run_id)
+            text = messages.EXTRACTION_REJECTED
+        else:
+            raise ValueError("Unsupported review action")
+        await query.edit_message_text(text)
+    except (ApplicationError, ValueError):
+        await query.edit_message_text(messages.NO_PERMISSION)
+    except SQLAlchemyError:
+        logger.exception("Extraction review callback failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_private(update):
+        return
+    identity = _identity(update)
+    message = update.effective_message
+    if identity is None or message is None:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+        return
+    question = message.text.partition(" ")[2].strip() if message.text else ""
+    if not question:
+        await message.reply_text(messages.AI_INVALID_QUESTION)
+        return
+    if services.internal_evidence is None:
+        await message.reply_text(messages.AI_NOT_CONFIGURED)
+        return
+    if services.rate_guard is not None and not services.rate_guard.allow(user.id):
+        await message.reply_text(messages.AI_RATE_LIMITED)
+        return
+    try:
+        await _send_typing(context, message.chat_id)
+        result = await services.internal_evidence.answer(user, question, force_internal=True)
+        await _reply_long(message, _format_internal(result), services.telegram_message_limit)
+    except AnswerGenerationUnavailable:
+        await message.reply_text(messages.AI_UNAVAILABLE)
+    except AIServiceError:
+        await message.reply_text(messages.AI_SOURCE_VALIDATION_FAILED)
+    except SQLAlchemyError:
+        logger.exception("Baza database operation failed")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+
+
+async def _handle_web_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, combined: bool
+) -> None:
+    if not _is_private(update):
+        return
+    identity = _identity(update)
+    message = update.effective_message
+    if identity is None or message is None:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+        return
+    question = message.text.partition(" ")[2].strip() if message.text else ""
+    if not question:
+        await message.reply_text(messages.WEB_INVALID_QUESTION)
+        return
+    if services.web_evidence is None:
+        await message.reply_text(messages.WEB_UNAVAILABLE)
+        return
+    if services.rate_guard is not None and not services.rate_guard.allow(user.id):
+        await message.reply_text(messages.AI_RATE_LIMITED)
+        return
+    try:
+        await _send_typing(context, message.chat_id)
+        result = (
+            await services.web_evidence.answer_combined(user, question)
+            if combined
+            else await services.web_evidence.answer_internet(user, question)
+        )
+        await _reply_long(message, _format_web(result), services.telegram_message_limit)
+    except (WebEvidenceUnavailable, AnswerGenerationUnavailable):
+        await message.reply_text(messages.WEB_UNAVAILABLE)
+    except (AIServiceError, SQLAlchemyError):
+        logger.exception("Web command failed | combined=%s", combined)
+        await message.reply_text(messages.TEMPORARY_ERROR)
+    except Exception:
+        logger.exception("Unexpected web command failure | combined=%s", combined)
+        await message.reply_text(messages.TEMPORARY_ERROR)
+
+
+async def handle_internet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_web_command(update, context, combined=False)
+
+
+async def handle_tamaxtar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_web_command(update, context, combined=True)
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -9,7 +9,17 @@ from office_assistant.application.user_management import UserManagementService
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
+    AIConversation,
+    AIMessage,
+    AIUsage,
     AuditEvent,
+    DocumentParseRun,
+    FileObject,
+    IngestionJob,
+    IngestionSession,
+    IngestionSessionItem,
+    KnowledgeIndexJob,
+    OutboxEvent,
     SystemMetadata,
     User,
     UserRole,
@@ -39,6 +49,16 @@ async def _reset_phase2_data(settings: Settings) -> None:
     factory = create_session_factory(engine)
     try:
         async with factory.begin() as session:
+            await session.execute(delete(OutboxEvent))
+            await session.execute(delete(AIUsage))
+            await session.execute(delete(AIMessage))
+            await session.execute(delete(AIConversation))
+            await session.execute(delete(KnowledgeIndexJob))
+            await session.execute(delete(DocumentParseRun))
+            await session.execute(delete(IngestionJob))
+            await session.execute(delete(IngestionSessionItem))
+            await session.execute(delete(IngestionSession))
+            await session.execute(delete(FileObject))
             await session.execute(delete(AuditEvent))
             await session.execute(delete(User))
             await session.execute(

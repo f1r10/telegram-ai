@@ -1,21 +1,35 @@
+import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock
 
+import pytest
 from telegram import Update
 from telegram import User as TelegramUser
 from telegram.constants import ChatType
+from telegram.error import NetworkError
 from telegram.ext import ContextTypes
 
+from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram.app import create_telegram_application
 from office_assistant.integrations.telegram.handlers import (
     TelegramServices,
+    _reply_long,  # pyright: ignore[reportPrivateUsage]
+    _try_file_delivery,  # pyright: ignore[reportPrivateUsage]
+    handle_baza,
+    handle_internet,
+    handle_password_text,
     handle_start,
 )
 from office_assistant.integrations.telegram.messages import AUTH_PROMPT, WELCOME
 from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
+from office_assistant.internal_evidence.delivery import DeliverableFile, SourceFileDeliveryService
+from office_assistant.web_evidence.models import WebAnswer
 
 
 @dataclass
@@ -97,4 +111,111 @@ def test_start_welcomes_active_user_without_password() -> None:
 def test_telegram_application_constructs_without_network() -> None:
     application = create_telegram_application("test-token", _services(FakeUsers(None)))
 
-    assert sum(len(group) for group in application.handlers.values()) == 9
+    assert sum(len(group) for group in application.handlers.values()) == 13
+    assert application.error_handlers
+
+
+@pytest.mark.parametrize("grounded", [False, True])
+def test_typing_network_failure_does_not_discard_question(grounded: bool) -> None:
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    services = _services(FakeUsers(user))
+    answer = SimpleNamespace(answer="answer", insufficient_evidence=False, sources=[])
+    ai = SimpleNamespace(
+        answer_general=AsyncMock(return_value=answer),
+        answer_baza=AsyncMock(return_value=answer),
+    )
+    services.ai = ai  # type: ignore[assignment]
+    services.rate_guard = InProcessRateGuard()
+    internal = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=SimpleNamespace(answer="answer", citations=[], route="INTERNAL_HYBRID")
+        )
+    )
+    if grounded:
+        services.internal_evidence = internal  # type: ignore[assignment]
+    message = SimpleNamespace(
+        text="/baza question" if grounded else "question", chat_id=123, reply_text=AsyncMock()
+    )
+    update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
+    context = SimpleNamespace(
+        bot_data={"phase2_services": services},
+        bot=SimpleNamespace(send_chat_action=AsyncMock(side_effect=NetworkError("offline"))),
+    )
+    handler = handle_baza if grounded else handle_password_text
+    asyncio.run(handler(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
+    if grounded:
+        internal.answer.assert_awaited_once_with(user, "question", force_internal=True)
+    else:
+        ai.answer_general.assert_awaited_once_with(1, "question")
+    message.reply_text.assert_awaited_once()
+
+
+def test_reply_retries_only_failed_part(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "office_assistant.integrations.telegram.handlers.asyncio.sleep", AsyncMock()
+    )
+    message = SimpleNamespace(reply_text=AsyncMock(side_effect=[NetworkError("offline"), None]))
+    asyncio.run(_reply_long(message, "answer", 4096))
+    assert message.reply_text.await_count == 2
+
+
+def test_reply_network_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "office_assistant.integrations.telegram.handlers.asyncio.sleep", AsyncMock()
+    )
+    message = SimpleNamespace(reply_text=AsyncMock(side_effect=NetworkError("offline")))
+    with pytest.raises(NetworkError):
+        asyncio.run(_reply_long(message, "answer", 4096))
+    assert message.reply_text.await_count == 3
+
+
+def test_internet_command_uses_only_web_service() -> None:
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    services = _services(FakeUsers(user))
+    services.rate_guard = InProcessRateGuard()
+    services.web_evidence = cast(
+        object,
+        SimpleNamespace(answer_internet=AsyncMock(return_value=WebAnswer("web answer"))),
+    )  # type: ignore[assignment]
+    services.internal_evidence = cast(
+        object, SimpleNamespace(answer=AsyncMock(side_effect=AssertionError("internal called")))
+    )  # type: ignore[assignment]
+    message = SimpleNamespace(text="/internet KA45", chat_id=123, reply_text=AsyncMock())
+    update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
+    context = SimpleNamespace(
+        bot_data={"phase2_services": services},
+        bot=SimpleNamespace(send_chat_action=AsyncMock()),
+    )
+    asyncio.run(handle_internet(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
+    services.web_evidence.answer_internet.assert_awaited_once_with(user, "KA45")  # type: ignore[union-attr]
+    services.internal_evidence.answer.assert_not_called()  # type: ignore[union-attr]
+
+
+def test_file_follow_up_sends_original_bytes_and_safe_filename(tmp_path: Path) -> None:
+    content = b"original-pdf-bytes"
+    path = tmp_path / "blob.pdf"
+    path.write_bytes(content)
+
+    class Delivery:
+        async def resolve_recent(
+            self, actor_telegram_user_id: int, citation_index: int | None
+        ) -> DeliverableFile:
+            assert actor_telegram_user_id == 123
+            assert citation_index == 2
+            return DeliverableFile(path, "source.pdf", "application/pdf", 55)
+
+    received: dict[str, object] = {}
+
+    class Message:
+        async def reply_document(self, document: object, **kwargs: object) -> None:
+            received["bytes"] = document.read()  # type: ignore[attr-defined]
+            received["filename"] = kwargs["filename"]
+
+        async def reply_text(self, text: str) -> None:
+            raise AssertionError(text)
+
+    services = _services(FakeUsers(None))
+    services.file_delivery = cast(SourceFileDeliveryService, Delivery())
+    handled = asyncio.run(_try_file_delivery(Message(), services, 123, "2-ci mənbəni göndər"))
+    assert handled
+    assert received == {"bytes": content, "filename": "source.pdf"}
