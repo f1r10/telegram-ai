@@ -7,6 +7,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -31,7 +32,9 @@ from office_assistant.infrastructure.database.models import (
     User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ParserRegistry
+from office_assistant.processing.vision import ImageVisionExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,7 @@ class IngestionJobService:
         lease_seconds: int = 300,
         max_attempts: int = 3,
         registry: ParserRegistry | None = None,
+        vision: ImageVisionExtractor | None = None,
         index_collection_alias: str = "document_chunks",
         index_collection_name: str = "document_chunks_v1",
         index_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -65,6 +69,7 @@ class IngestionJobService:
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
         self.registry = registry or ParserRegistry()
+        self.vision = vision
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name
         self.index_embedding_model = index_embedding_model
@@ -162,7 +167,9 @@ class IngestionJobService:
             }:
                 statuses[file_id] = existing.status
                 continue
-            statuses[file_id] = await self._process_one(claim, file_id, item, context)
+            statuses[file_id] = await self._process_one(
+                claim, file_id, item, context, ingestion_session.user_id
+            )
         await self._complete_job(claim, statuses, ingestion_session.user_id)
 
     @staticmethod
@@ -185,6 +192,7 @@ class IngestionJobService:
         file_id: int,
         item: IngestionSessionItem,
         context: list[dict[str, object]],
+        user_id: int,
     ) -> str:
         run_id: int
         async with self.session_factory.begin() as session:
@@ -213,6 +221,10 @@ class IngestionJobService:
             parsed = await asyncio.to_thread(
                 parser.parse, path, source_file_id=file_id, media_type=media_type
             )
+            if parsed.requires_vision:
+                transcribed = await self._transcribe_image(claim, file_id, path, parsed, user_id)
+                if transcribed is not None:
+                    parsed = transcribed
             payload = parsed.as_dict()
             payload["session_items"] = context
             normalized_key = self.storage.write_derived_json(file_id, run_id, payload)
@@ -228,16 +240,17 @@ class IngestionJobService:
             logger.exception("File parser failed | job_id=%s file_id=%s", claim.job_id, file_id)
             return DocumentProcessingStatus.FAILED
 
+        deferred = parsed.requires_ocr or (parsed.requires_vision and not parsed.blocks)
         status = (
-            DocumentProcessingStatus.DEFERRED
-            if parsed.requires_ocr or parsed.requires_vision
-            else DocumentProcessingStatus.SUCCEEDED
+            DocumentProcessingStatus.DEFERRED if deferred else DocumentProcessingStatus.SUCCEEDED
         )
         async with self.session_factory.begin() as session:
             run = await session.get(DocumentParseRun, run_id, with_for_update=True)
             if run is None:
                 raise RuntimeError("Parse run disappeared before completion")
             run.status = status
+            run.parser_name = parsed.parser_name
+            run.parser_version = parsed.parser_version
             run.normalized_storage_key = normalized_key
             run.text_storage_key = text_key
             run.requires_ocr = parsed.requires_ocr
@@ -245,13 +258,52 @@ class IngestionJobService:
             run.warning_count = len(parsed.warnings)
             run.finished_at = datetime.now(UTC)
         logger.info(
-            "File processed | job_id=%s file_id=%s parser=%s status=%s",
+            "File processed | job_id=%s file_id=%s parser=%s status=%s blocks=%s",
             claim.job_id,
             file_id,
             parsed.parser_name,
             status,
+            len(parsed.blocks),
         )
         return status
+
+    async def _transcribe_image(
+        self,
+        claim: JobClaim,
+        file_id: int,
+        path: Path,
+        probe: ParsedDocument,
+        user_id: int,
+    ) -> ParsedDocument | None:
+        """Ask vision for an image, and stay honest when it cannot answer."""
+
+        if self.vision is None:
+            logger.warning(
+                "Vision extractor is not configured, image stays deferred | job_id=%s file_id=%s",
+                claim.job_id,
+                file_id,
+            )
+            return None
+        size_bytes = path.stat().st_size if path.exists() else -1
+        try:
+            return await self.vision.extract(
+                path=path,
+                media_type=probe.media_type,
+                source_file_id=file_id,
+                user_id=user_id,
+            )
+        except Exception as error:
+            # A vendor failure is not a parse failure: the run stays deferred and the reason is
+            # logged, so an unreadable photo is visible instead of silently indexed as nothing.
+            logger.warning(
+                "Vision extraction unavailable, image stays deferred | job_id=%s file_id=%s "
+                "size_bytes=%s error_type=%s",
+                claim.job_id,
+                file_id,
+                size_bytes,
+                type(error).__name__,
+            )
+            return None
 
     async def _failed_result(
         self,

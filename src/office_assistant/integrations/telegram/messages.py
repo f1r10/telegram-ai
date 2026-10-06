@@ -27,6 +27,13 @@ FILE_DUPLICATE = "\nBu faylın eyni məzmunu əvvəlcədən mövcuddur; yeni gö
 CAPTION_COMMAND_FILE_SKIPPED = (
     "Diqqət: açıq əmr istifadə edildiyi üçün bu mesajdakı fayl yadda saxlanılmadı."
 )
+INGESTION_COMPLETED = (
+    "Emal tamamlandı.\n"
+    "Fayllar: {total}\n"
+    "Uğurla emal olundu: {succeeded}\n"
+    "Mətni çıxarılmadı (OCR/şəkil): {deferred}\n"
+    "Xəta: {failed}"
+)
 INSTRUCTION_ADDED = "Təlimat müvəqqəti sessiyaya əlavə edildi."
 NO_OPEN_SESSION = "Açıq yadda saxlama sessiyanız yoxdur. Əvvəlcə fayl göndərin."
 SAVE_SUCCESS = (

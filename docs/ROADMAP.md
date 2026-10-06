@@ -94,7 +94,7 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Issue 3: a command typed in a file/photo caption routes to the command instead of ingestion.
 - [x] Issue 4: web search reports outages, logs why an answer said "nothing found", stops forcing a
       one-day window for price questions, and runs two DuckDuckGo paths inside a 12-second budget.
-- [ ] Issue 5: uploaded JPEG/PNG images are transcribed through vision (`decisions/0017`), indexed
+- [x] Issue 5: uploaded JPEG/PNG images are transcribed through vision (`decisions/0017`), indexed
       like any other document, and left visibly `DEFERRED` when the vendor fails.
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,

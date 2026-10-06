@@ -90,12 +90,11 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
                 ]
             )
         else:
-            text = (
-                "Emal tamamlandı.\n\n"
-                f"Fayllar: {payload.get('total', 0)}\n"
-                f"Uğurlu: {payload.get('succeeded', 0)}\n"
-                f"Deferred/OCR/vision: {payload.get('deferred', 0)}\n"
-                f"Xəta: {payload.get('failed', 0)}"
+            text = messages.INGESTION_COMPLETED.format(
+                total=payload.get("total", 0),
+                succeeded=payload.get("succeeded", 0),
+                deferred=payload.get("deferred", 0),
+                failed=payload.get("failed", 0),
             )
         try:
             sent = await bot.send_message(
