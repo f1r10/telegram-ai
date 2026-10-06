@@ -1,5 +1,6 @@
 """SearXNG primary and Tavily fallback provider adapters."""
 
+import logging
 from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import urlsplit
@@ -17,9 +18,26 @@ from office_assistant.web_evidence.models import (
 )
 from office_assistant.web_evidence.normalization import canonical_url
 
+logger = logging.getLogger(__name__)
+
 
 def _domain(url: str) -> str:
     return (urlsplit(url).hostname or "").casefold().rstrip(".")
+
+
+def _engine_failures(value: object) -> tuple[str, ...]:
+    """Read SearXNG's ``unresponsive_engines`` pairs such as ``["duckduckgo", "CAPTCHA"]``."""
+    if not isinstance(value, list):
+        return ()
+    failures: list[str] = []
+    for entry in cast(list[object], value):
+        if not isinstance(entry, (list, tuple)):
+            continue
+        parts = cast("list[object] | tuple[object, ...]", entry)
+        if len(parts) != 2:
+            continue
+        failures.append(f"{str(parts[0]).casefold()}:{str(parts[1]).casefold()}")
+    return tuple(failures)
 
 
 def _date(value: object) -> datetime | None:
@@ -86,10 +104,13 @@ class SearXNGWebSearchProvider:
                 raise ValueError("results is not a list")
         except (ValueError, TypeError) as error:
             raise WebProviderMalformed("SearXNG returned malformed JSON") from error
+        failures = _engine_failures(payload.get("unresponsive_engines"))
+        items = cast(list[object], raw_results)
+        returned = len(items)
         now = datetime.now(UTC)
         results: list[WebSearchResult] = []
         seen: set[str] = set()
-        for raw in cast(list[object], raw_results):
+        for raw in items:
             if not isinstance(raw, dict):
                 continue
             item = cast(dict[str, object], raw)
@@ -129,6 +150,22 @@ class SearXNGWebSearchProvider:
             )
             if len(results) >= request.max_results:
                 break
+        if not results and failures:
+            # HTTP 200 with every engine broken is a technical outage, not an empty index.
+            logger.warning(
+                "SearXNG search failed | returned=%s kept=0 failed_engines=%s freshness=%s",
+                returned,
+                ",".join(failures),
+                request.freshness or "-",
+            )
+            raise WebProviderUnavailable("SearXNG reported no working engine")
+        logger.info(
+            "SearXNG search completed | returned=%s kept=%s failed_engines=%s freshness=%s",
+            returned,
+            len(results),
+            ",".join(failures) or "-",
+            request.freshness or "-",
+        )
         return WebSearchResponse(provider=self.provider_name, results=results, retrieved_at=now)
 
 
@@ -196,10 +233,12 @@ class TavilyWebSearchProvider:
                 raise ValueError("results is not a list")
         except (httpx.HTTPStatusError, ValueError, TypeError) as error:
             raise WebProviderMalformed("Tavily returned malformed data") from error
+        items = cast(list[object], raw_results)
+        returned = len(items)
         now = datetime.now(UTC)
         results: list[WebSearchResult] = []
         seen: set[str] = set()
-        for raw in cast(list[object], raw_results):
+        for raw in items:
             if not isinstance(raw, dict):
                 continue
             item = cast(dict[str, object], raw)
@@ -222,4 +261,10 @@ class TavilyWebSearchProvider:
             )
             if len(results) >= request.max_results:
                 break
+        logger.info(
+            "Tavily search completed | kept=%s of %s freshness=%s",
+            len(results),
+            returned,
+            request.freshness or "-",
+        )
         return WebSearchResponse(provider=self.provider_name, results=results, retrieved_at=now)

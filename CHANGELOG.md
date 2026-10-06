@@ -49,6 +49,17 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   captionless files keep ingesting. Command arguments now come from
   text-or-caption through `_command_text`.
   7 new unit cases in `tests/unit/test_caption_command_routing.py`.
+- `web_evidence/providers.py` no longer reports a broken search as an empty
+  internet. SearXNG answers `HTTP 200` with `results: []` plus
+  `unresponsive_engines: [["duckduckgo", "CAPTCHA"], ["google", "access denied"]]`
+  when every engine fails, and the adapter read only `results`, so `/tamaxtar`
+  claimed no public source matched. The adapter now reads
+  `unresponsive_engines` (`_engine_failures`) and raises
+  `WebProviderUnavailable` when nothing was kept **and** at least one engine
+  failed, while a healthy empty result set stays an empty success. Both
+  providers log counts, failed engine names and freshness; the query text is
+  never logged (invariant 6).
+  11 new unit cases in `tests/unit/test_web_provider_outage.py`.
 
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 
