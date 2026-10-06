@@ -7,6 +7,9 @@ name: qoder_ai_assistand
 services:
   app:
     container_name: qoder_app
+    # A transient Telegram bootstrap timeout (getMe/deleteWebhook) exits the process, and
+    # without a policy the bot then stays offline until a human notices.
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
@@ -70,6 +73,7 @@ services:
 
   worker:
     container_name: qoder_worker
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
