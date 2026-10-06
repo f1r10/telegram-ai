@@ -5,6 +5,7 @@
 # pyright: reportArgumentType=false, reportUnknownMemberType=false
 
 import asyncio
+import base64
 import logging
 import re
 import time
@@ -48,6 +49,20 @@ class LanguageModel(Protocol):
     ) -> ModelResponse: ...
 
 
+class VisionLanguageModel(Protocol):
+    async def describe_image(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        image_bytes: bytes,
+        media_type: str,
+        output_schema: type[T],
+        request_type: str,
+        user_id: int,
+    ) -> ModelResponse: ...
+
+
 class OpenAILanguageModel:
     """Reusable Responses API client hidden behind the application protocol."""
 
@@ -59,6 +74,7 @@ class OpenAILanguageModel:
         *,
         default_model: str,
         strong_model: str,
+        vision_model: str | None = None,
         timeout_seconds: float = 30.0,
         max_output_tokens: int = 700,
         max_retries: int = 2,
@@ -66,6 +82,7 @@ class OpenAILanguageModel:
     ) -> None:
         self.default_model = default_model
         self.strong_model = strong_model
+        self.vision_model = vision_model or default_model
         self.timeout_seconds = timeout_seconds
         self.max_output_tokens = max_output_tokens
         self.max_retries = max_retries
@@ -85,7 +102,54 @@ class OpenAILanguageModel:
         request_type: str,
         user_id: int,
     ) -> ModelResponse:
-        model = self.default_model
+        return await self._generate_parsed(
+            model=self.default_model,
+            instructions=instructions,
+            input_blocks=list(input_messages),
+            output_schema=output_schema,
+            request_type=request_type,
+            user_id=user_id,
+        )
+
+    async def describe_image(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        image_bytes: bytes,
+        media_type: str,
+        output_schema: type[T],
+        request_type: str,
+        user_id: int,
+    ) -> ModelResponse:
+        data_url = f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        return await self._generate_parsed(
+            model=self.vision_model,
+            instructions=instructions,
+            input_blocks=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt},
+                        {"type": "input_image", "image_url": data_url, "detail": "auto"},
+                    ],
+                }
+            ],
+            output_schema=output_schema,
+            request_type=request_type,
+            user_id=user_id,
+        )
+
+    async def _generate_parsed(
+        self,
+        *,
+        model: str,
+        instructions: str,
+        input_blocks: list[dict[str, Any]],
+        output_schema: type[T],
+        request_type: str,
+        user_id: int,
+    ) -> ModelResponse:
         started = time.perf_counter()
         output_token_limit = _output_token_limit(self.max_output_tokens, request_type)
         for attempt in range(self.max_retries + 1):
@@ -93,7 +157,7 @@ class OpenAILanguageModel:
                 response: Any = await self._parse_once(
                     model=model,
                     instructions=instructions,
-                    input_messages=input_messages,
+                    input_blocks=input_blocks,
                     output_schema=output_schema,
                     request_type=request_type,
                     user_id=user_id,
@@ -123,7 +187,7 @@ class OpenAILanguageModel:
                         response = await self._parse_once(
                             model=model,
                             instructions=instructions,
-                            input_messages=input_messages,
+                            input_blocks=input_blocks,
                             output_schema=output_schema,
                             request_type=request_type,
                             user_id=user_id,
@@ -181,7 +245,7 @@ class OpenAILanguageModel:
         *,
         model: str,
         instructions: str,
-        input_messages: Sequence[dict[str, str]],
+        input_blocks: list[dict[str, Any]],
         output_schema: type[T],
         request_type: str,
         user_id: int,
@@ -191,7 +255,7 @@ class OpenAILanguageModel:
         return await self._client.responses.parse(
             model=model,
             instructions=instructions,
-            input=list(input_messages),
+            input=input_blocks,
             text_format=output_schema,
             max_output_tokens=max_output_tokens,
             store=False,
@@ -239,7 +303,7 @@ def error_code(error: Exception) -> str:
 
 
 def _output_token_limit(configured_limit: int, request_type: str) -> int:
-    if request_type in {"internet_synthesis", "combined_search_synthesis"}:
+    if request_type in {"internet_synthesis", "combined_search_synthesis", "image_transcription"}:
         return max(configured_limit, 1400)
     return configured_limit
 

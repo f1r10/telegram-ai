@@ -4,6 +4,21 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Image vision ingestion (Phase 13, ADR 0017)
+
+- `ai/provider.py` grew a vendor-neutral vision boundary: a `VisionLanguageModel`
+  protocol with one operation (`describe_image` with instructions, prompt, image
+  bytes, media type, output schema and user id) implemented by
+  `OpenAILanguageModel` through the Responses API `input_image` block. The retry,
+  output-token expansion and structured-validation behaviour is shared with text
+  generation through `_generate_parsed`, so an image call cannot quietly get weaker
+  error handling than a chat call. `vision_model` is configurable and falls back to
+  the default model; `image_transcription` requests start at the larger output
+  budget so a price-list photo is not clipped at 700 tokens. New
+  `ImageTranscriptionOutput` requires a description even when no text is visible,
+  so a photo yields content instead of an empty document. Image bytes are never
+  logged (invariant 6). 5 new unit cases in `tests/unit/test_vision_provider.py`.
+
 ### Live-test fixes (2026-10-06)
 
 - Citations no longer leak raw technical metadata to the user.

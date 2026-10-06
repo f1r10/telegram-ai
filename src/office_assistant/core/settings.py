@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     openai_strong_model: str = "gpt-6.1-sol"
     openai_request_timeout_seconds: float = 30.0
     openai_max_output_tokens: int = 700
+    vision_model: str = "gpt-4o-mini"
+    vision_max_image_bytes: int = 4 * 1024 * 1024
     rag_retrieval_limit: int = 5
     rag_max_context_tokens: int = 3200
     chat_history_max_messages: int = 6

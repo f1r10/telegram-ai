@@ -12,3 +12,11 @@ class GroundedModelOutput(BaseModel):
 
 class GeneralModelOutput(BaseModel):
     answer: str = Field(min_length=1, max_length=12000)
+
+
+class ImageTranscriptionOutput(BaseModel):
+    """What an image shows: text copied verbatim, plus a description so a text-less
+    photo still yields content instead of an empty result."""
+
+    transcription: str = Field(default="", max_length=8000)
+    description: str = Field(min_length=1, max_length=1000)
