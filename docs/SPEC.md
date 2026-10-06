@@ -36,10 +36,13 @@ In scope for V1: text messages in private chats; Azerbaijani UI; items 1–6 abo
 
 Out of scope for V1: group chats, voice, web admin panel, calendar integrations, recurring reminders (field reserved in schema), multi-tenant organizations, billing, SSO, multi-vendor LLM failover, autonomous browsing, any action on third-party systems.
 
-Amendment (2026-10-06, `docs/architecture/decisions/0017-vision-extraction-for-images.md`): uploaded
-raster images (JPEG/PNG photos of documents) are in scope for ingestion — their transcribed text
-becomes ordinary document content and knowledge-index material. Voice messages, scanned PDFs
-(page rasterization) and image embeddings remain out of scope.
+Amendment (2026-10-06, revised 2026-10-07, `docs/architecture/decisions/0017-vision-extraction-for-images.md`):
+uploaded raster images (JPEG/PNG photos of documents) are in scope as *query parameters* — read on
+demand for the question the user asked. Automatic transcription on upload, added on 2026-10-06, was
+withdrawn by the 2026-10-07 amendment to ADR 0017: an uploaded photo keeps a `DEFERRED` parse run and
+is not searchable knowledge until it is read for a turn or made durable through the explicit
+Phase 12A confirmation flow. Voice messages, scanned PDFs (page rasterization) and image embeddings
+remain out of scope.
 
 ## 3. Architecture
 

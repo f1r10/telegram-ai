@@ -4,6 +4,8 @@
 
 Accepted (2026-10-06). Supersedes the "images are out of scope" line in SPEC §2 and the
 "OCR, image …" entry in ROADMAP's out-of-scope list, for uploaded raster images only.
+Amended 2026-10-07: automatic transcription on upload is withdrawn (see Amendment below); decisions
+1, 2, 3, 5 and 6 stand unchanged, and decision 4 is replaced by on-demand reading.
 
 ## Context
 
@@ -68,3 +70,34 @@ acceptable; scanned PDFs stay out of scope; only uploaded image files are handle
   for a vision call on a photo.
 - **Storing image embeddings for multimodal retrieval**: out of scope; text transcription plus the
   existing hybrid index already answers the reported failure.
+
+## Amendment (2026-10-07): read images on demand, not on upload
+
+The owner approved replacing decision 4 with: **"Images should be read *on-demand* for a user's
+question, not automatically transcribed and egressed to a public vendor on every single upload.
+Keep the `DEFERRED` bookkeeping for uploaded images, but stop automatic vendor egress."**
+
+What changes:
+
+- `IngestionJobService` no longer holds a vision extractor and no longer sends image bytes anywhere.
+  `workers/ingestion.py` builds no vision model client, so the worker process has no vision vendor
+  connection at all.
+- A raster upload ends as it did before Phase 13: `parser_name="image-probe"`, `requires_vision=true`
+  and an empty derived text artifact, so nothing is chunked or embedded. The ingestion job still
+  succeeds and the completion notification still counts the file as unprocessed.
+- Reading moves to the turn that asks the question (Block 3B): `ImageVisionExtractor` is invoked from
+  the Telegram/`internal_evidence` path for the specific image the user attached or replied to. The
+  text is used as untrusted query expansion and answer context — it is never a citation of a company
+  source, and decision 5's `extraction/sources.py` skip still keeps it out of structured facts.
+
+Why: every photo triggered a vendor call whether or not anyone ever asked about it, which put cost
+and data egress on the write path. The user-visible need is "answer my question about this picture",
+and on-demand reading satisfies it with fewer calls.
+
+What this costs, stated plainly: **photographs uploaded after this amendment are not searchable
+knowledge.** `/baza` cannot find text inside an un-read photo, so the silent-invisibility problem
+this ADR was written to fix returns for the upload path. It is mitigated, not solved, by Block 3B
+(on-demand reading for the attached image) and by the Phase 12A image-asset flow, which is the
+explicit, user-confirmed way to make an image durable. Nothing that was already transcribed before
+this amendment is rewritten; those runs keep their `SUCCEEDED` status and their index entries.
+`VISION_MAX_IMAGE_BYTES` and `vision_model` settings stay in place for the on-demand path.

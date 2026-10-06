@@ -1,7 +1,7 @@
-"""Uploaded photos become searchable document text, or stay visibly deferred."""
+"""An uploaded photo is stored and stays visibly deferred; no bytes go to a vendor (ADR 0017)."""
 
 import asyncio
-import logging
+import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,8 +9,6 @@ from pathlib import Path
 import pytest
 from sqlalchemy import delete, select
 
-from office_assistant.ai.provider import ModelResponse, TokenUsage
-from office_assistant.ai.schemas import ImageTranscriptionOutput
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
@@ -36,35 +34,11 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
-from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.processing.worker_service import IngestionJobService
 
 pytestmark = pytest.mark.integration
 
 JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 128
-
-# The stub payload and the assertions share one source, so the test compares the bytes the
-# pipeline moved rather than re-typing them; the derived artifact is UTF-8 by contract.
-TRANSCRIBED_TEXT = "KA45 — 125 AZN"
-TRANSCRIBED_DESCRIPTION = "Qiymət siyahısı şəkli"
-
-
-class StubVisionModel:
-    def __init__(self, result: ImageTranscriptionOutput | None, error: Exception | None) -> None:
-        self.result = result
-        self.error = error
-
-    async def describe_image(self, **kwargs: object) -> ModelResponse:
-        if self.error is not None:
-            raise self.error
-        assert self.result is not None
-        return ModelResponse(
-            parsed=self.result,
-            model="stub-vision",
-            response_id=None,
-            usage=TokenUsage(),
-            latency_ms=5,
-        )
 
 
 def _settings_or_skip() -> Settings:
@@ -81,35 +55,11 @@ def _settings_or_skip() -> Settings:
     return settings
 
 
-def test_photo_transcribed_by_vision_is_indexed_as_document_text() -> None:
+def test_photo_upload_defers_without_reading_a_byte_of_vision_egress() -> None:
+    """The worker records the photo and stops; a vendor call would have to be re-added here."""
+
     settings = _settings_or_skip()
-    root = Path(settings.file_storage_path) / "phase13-vision-test"
-    model = StubVisionModel(
-        ImageTranscriptionOutput(
-            transcription=TRANSCRIBED_TEXT, description=TRANSCRIBED_DESCRIPTION
-        ),
-        None,
-    )
-    _run(settings, root, model, DocumentProcessingStatus.SUCCEEDED)
-
-
-def test_vision_failure_leaves_the_photo_deferred_not_failed(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    settings = _settings_or_skip()
-    root = Path(settings.file_storage_path) / "phase13-vision-failure-test"
-    model = StubVisionModel(None, RuntimeError("vision vendor is down"))
-
-    with caplog.at_level(logging.WARNING):
-        _run(settings, root, model, DocumentProcessingStatus.DEFERRED)
-
-    assert "Vision extraction unavailable" in caplog.text
-    assert "error_type=RuntimeError" in caplog.text
-
-
-def _run(
-    settings: Settings, root: Path, model: StubVisionModel, expected: DocumentProcessingStatus
-) -> None:
+    root = Path(settings.file_storage_path) / "phase13-defer-test"
     storage = LocalFileStorage(root)
 
     async def scenario() -> None:
@@ -149,9 +99,8 @@ def _run(
                 await session.flush()
                 staged_path, staged_key = storage.create_staging_path(".jpg")
                 staged_path.write_bytes(JPEG_BYTES)
-                active_key = storage.activate(staged_key)
                 file_object = FileObject(
-                    storage_key=active_key,
+                    storage_key=storage.activate(staged_key),
                     original_filename="telegram_photo_940113.jpg",
                     content_type="image/jpeg",
                     byte_size=len(JPEG_BYTES),
@@ -181,9 +130,8 @@ def _run(
                 await session.flush()
                 job_id = job.id
 
-            extractor = ImageVisionExtractor(model, max_image_bytes=4 * 1024 * 1024)
-            service = IngestionJobService(factory, storage, vision=extractor)
-            claim = await service.claim_next("vision-worker")
+            service = IngestionJobService(factory, storage)
+            claim = await service.claim_next("defer-worker")
             assert claim is not None
             await service.process(claim)
 
@@ -195,19 +143,19 @@ def _run(
                 ).scalar_one()
                 job_row = await session.get(IngestionJob, job_id)
                 assert job_row is not None
+                # The upload itself is a success: the file is kept and the reason is recorded.
                 assert job_row.status == IngestionJobStatus.SUCCEEDED
-                assert run.status == expected
+                assert run.status == DocumentProcessingStatus.DEFERRED
                 assert run.requires_vision is True
-                assert run.normalized_storage_key is not None
-                text = storage.path_for_key(run.text_storage_key or "").read_text(encoding="utf-8")
-                if expected == DocumentProcessingStatus.SUCCEEDED:
-                    assert run.parser_name == "vision-transcription"
-                    assert run.parser_version == "stub-vision"
-                    assert TRANSCRIBED_TEXT in text
-                    assert TRANSCRIBED_DESCRIPTION in text
-                else:
-                    assert run.parser_name == "image-probe"
-                    assert text == ""
+                assert run.parser_name == "image-probe"
+                assert run.text_storage_key is not None
+                assert storage.path_for_key(run.text_storage_key).read_text("utf-8") == ""
+                normalized = json.loads(
+                    storage.path_for_key(run.normalized_storage_key or "").read_text("utf-8")
+                )
+                # No content blocks means the normal chunk/embed path has nothing to index, so
+                # the photo cannot answer a /baza question until it is read on demand for one.
+                assert normalized["blocks"] == []
         finally:
             await clean()
             await engine.dispose()

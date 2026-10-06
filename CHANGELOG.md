@@ -4,6 +4,39 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### No vision egress at upload (Master Spec Block 3A, ADR 0017 amendment, 2026-10-07)
+
+Every accepted photo triggered a `gpt-4o-mini` call whether or not anyone ever asked about it:
+vendor cost and image egress sat on the write path. The owner approved the amendment "read images
+on demand for a user's question, not automatically … keep the `DEFERRED` bookkeeping, but stop
+automatic vendor egress".
+
+- `processing/worker_service.py`: `IngestionJobService` loses its `vision` dependency, the
+  `if parsed.requires_vision:` call site and the whole `_transcribe_image` method. A JPEG/PNG upload
+  now behaves exactly as it did before Phase 13: `parser_name="image-probe"`,
+  `requires_vision=true`, an empty derived text artifact, and a `DEFERRED` parse run. The ingestion
+  job still succeeds and the completion notification still counts the file as unprocessed.
+- `workers/ingestion.py`: no vision model client is constructed and none is closed, so the worker
+  process now holds no vision vendor connection at all. `ai/provider.py`, `processing/vision.py` and
+  the `vision_model`/`vision_max_image_bytes` settings are untouched — the primitive stays for the
+  on-demand path in Block 3B.
+- Tests: `tests/integration/test_phase13_vision.py` was rewritten to prove the new contract (photo
+  stored, run `DEFERRED`, `image-probe`, empty text, zero blocks in the normalized artifact, job
+  `SUCCEEDED`) and no longer passes a stub vision model to the worker; the 3 `_transcribe_image`
+  unit cases and their helpers were removed from `tests/unit/test_vision_extraction.py`, whose 5
+  remaining cases pin the extractor contract itself (verbatim blocks with page provenance, the byte
+  bound that refuses before any egress, the untrusted-data prompt, unusable payloads).
+- **Consequence, stated plainly: photos uploaded from now on are not searchable knowledge.** The
+  silent invisibility ADR 0017 was written against returns for the upload path, mitigated only by
+  Block 3B (on-demand reading of the attached image) and Block 5 (Phase 12A, the explicit
+  user-confirmed way to make an image durable). Previously transcribed `SUCCEEDED` runs are left as
+  they are; nothing was rewritten or re-indexed.
+- Docs: ADR 0017 gained its 2026-10-07 amendment section, SPEC §2 and ROADMAP's Issue 5 line were
+  revised to match, and OPEN-QUESTIONS Q2/Q19/Q20 now describe on-demand reading (including that no
+  transcription cache exists, so a repeated question repeats the call).
+
 ### Clarification honesty and FILE_DELIVERY reachability (Master Spec Block 2, 2026-10-07)
 
 The live failure was "Faylı ver": the bot answered "Zəhmət olmasa müştərini dəqiqləşdirin." —

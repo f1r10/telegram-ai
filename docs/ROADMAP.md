@@ -96,6 +96,8 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       one-day window for price questions, and runs two DuckDuckGo paths inside a 12-second budget.
 - [x] Issue 5: uploaded JPEG/PNG images are transcribed through vision (`decisions/0017`), indexed
       like any other document, and left visibly `DEFERRED` when the vendor fails.
+      *Amended 2026-10-07:* automatic transcription at upload was withdrawn by the ADR 0017
+      amendment; images are stored `DEFERRED` and read on demand (Block 3A below).
 
 ## Master Spec remediation blocks (2026-10-07, owner-approved order)
 
@@ -105,6 +107,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Block 2: clarification honesty and `FILE_DELIVERY` reachability — `ver`-family delivery
       verbs are recognised before the evidence planner runs, and a clarification turn states the
       element its reason code actually detected instead of always demanding a customer.
+- [x] Block 3A: no vendor egress at upload — the ingestion worker holds no vision client, a JPEG/PNG
+      upload ends in a `DEFERRED` `image-probe` run with an empty text artifact, and image reading
+      moves to the turn that asks about the image (ADR 0017 amendment).
 - [ ] Block 3: multimodal router — an image attached to an explicit command or reply is carried into
       the turn as a first-class search parameter (Master Spec §22).
 - [ ] Block 4: web fallback and relevance gate (Master Spec §21).

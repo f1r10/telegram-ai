@@ -1,22 +1,23 @@
-"""Vision transcription turns an image into indexable document content, or defers honestly."""
+"""The vision primitive transcribes an image and keeps its text untrusted.
+
+Phase 13 built this extractor for automatic transcription on upload. The 2026-10-07 amendment to
+ADR 0017 stopped that egress: nothing here is called by the ingestion worker anymore, so these
+tests pin the extractor contract that on-demand image reading is built on.
+"""
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import cast
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.provider import ModelResponse, TokenUsage
 from office_assistant.ai.schemas import ImageTranscriptionOutput
-from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.vision import (
     ImageVisionExtractor,
     VisionUnavailable,
 )
-from office_assistant.processing.worker_service import IngestionJobService, JobClaim
 
 JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 64
 
@@ -143,78 +144,3 @@ def test_unusable_payload_is_reported_as_unavailable(tmp_path: Path) -> None:
 
     with pytest.raises(VisionUnavailable, match="unusable"):
         _extract(tmp_path, WrongPayloadModel())
-
-
-def _service(vision: ImageVisionExtractor | None) -> IngestionJobService:
-    # Neither dependency is touched by _transcribe_image, which only uses the vision extractor.
-    return IngestionJobService(
-        cast(async_sessionmaker[AsyncSession], None),
-        cast(LocalFileStorage, None),
-        vision=vision,
-    )
-
-
-def _probe(tmp_path: Path) -> ParsedDocument:
-    return ParsedDocument(
-        7,
-        "image-probe",
-        "1.0",
-        "image/jpeg",
-        {"filename": "telegram_photo_123.jpg"},
-        [],
-        ["image/jpeg image requires vision extraction"],
-        requires_vision=True,
-    )
-
-
-def test_missing_vision_extractor_defers_with_a_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    claim = JobClaim(job_id=1, session_id=2, attempt=1)
-
-    with caplog.at_level(logging.WARNING):
-        result = asyncio.run(
-            _service(None)._transcribe_image(  # pyright: ignore[reportPrivateUsage]
-                claim, 7, _image(tmp_path), _probe(tmp_path), 3
-            )
-        )
-
-    assert result is None
-    assert "not configured" in caplog.text
-    assert "file_id=7" in caplog.text
-
-
-def test_vendor_failure_defers_instead_of_failing_the_run(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    model = FakeVisionModel(error=RuntimeError("vision vendor is down"))
-    extractor = _extractor(model)
-    claim = JobClaim(job_id=1, session_id=2, attempt=1)
-
-    with caplog.at_level(logging.WARNING):
-        result = asyncio.run(
-            _service(extractor)._transcribe_image(  # pyright: ignore[reportPrivateUsage]
-                claim, 7, _image(tmp_path), _probe(tmp_path), 3
-            )
-        )
-
-    assert result is None
-    assert "Vision extraction unavailable" in caplog.text
-    assert "error_type=RuntimeError" in caplog.text
-    assert "vision vendor is down" not in caplog.text
-
-
-def test_successful_vision_document_replaces_the_probe(tmp_path: Path) -> None:
-    model = FakeVisionModel(ImageTranscriptionOutput(transcription="BAQ-1997", description="Şəkil"))
-    extractor = _extractor(model)
-    claim = JobClaim(job_id=1, session_id=2, attempt=1)
-
-    result = asyncio.run(
-        _service(extractor)._transcribe_image(  # pyright: ignore[reportPrivateUsage]
-            claim, 7, _image(tmp_path), _probe(tmp_path), 3
-        )
-    )
-
-    assert result is not None
-    assert result.parser_name == "vision-transcription"
-    assert len(result.blocks) == 2

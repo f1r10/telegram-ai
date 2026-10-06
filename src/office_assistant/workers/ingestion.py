@@ -16,7 +16,6 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
-from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
 
@@ -26,18 +25,6 @@ async def run() -> None:
     configure_logging(settings.log_level)
     engine = create_database_engine(settings)
     factory = create_session_factory(engine)
-    vision_model: OpenAILanguageModel | None = None
-    vision: ImageVisionExtractor | None = None
-    if settings.openai_api_key is not None:
-        vision_model = OpenAILanguageModel(
-            settings.openai_api_key.get_secret_value(),
-            default_model=settings.openai_default_model,
-            strong_model=settings.openai_strong_model,
-            vision_model=settings.vision_model,
-            timeout_seconds=settings.openai_request_timeout_seconds,
-            max_output_tokens=settings.openai_max_output_tokens,
-        )
-        vision = ImageVisionExtractor(vision_model, max_image_bytes=settings.vision_max_image_bytes)
     service = IngestionJobService(
         factory,
         LocalFileStorage(settings.file_storage_path),
@@ -48,7 +35,6 @@ async def run() -> None:
         index_embedding_model=settings.embedding_model,
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
-        vision=vision,
     )
     indexer: KnowledgeIndexService | None = None
     qdrant_store = None
@@ -143,8 +129,6 @@ async def run() -> None:
             await qdrant_store.close()
         if extraction_model is not None:
             await extraction_model.close()
-        if vision_model is not None:
-            await vision_model.close()
         await engine.dispose()
         logger.info("Ingestion worker stopped | worker_id=%s", identity)
 
