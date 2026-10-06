@@ -161,16 +161,18 @@ def test_real_postgres_qdrant_hybrid_conflict_and_secure_file_follow_up(
     tmp_path: Path,
 ) -> None:
     settings = _settings_or_skip()
+    if not settings.qdrant_url:
+        pytest.skip("QDRANT_URL is not configured for integration tests")
     collection = f"phase10_test_{uuid4().hex[:10]}"
     store = QdrantKnowledgeStore(
-        "http://localhost:16333",
+        settings.qdrant_url,
         alias=collection,
         collection=f"{collection}_v1",
     )
 
     async def scenario() -> None:
         if not await store.health_check():
-            pytest.skip("Qdrant is not available on localhost:16333")
+            pytest.skip(f"Qdrant is not reachable at {settings.qdrant_url}")
         engine = create_database_engine(settings)
         factory = create_session_factory(engine)
         storage = LocalFileStorage(tmp_path / "storage")

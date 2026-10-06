@@ -97,5 +97,16 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Issue 5: uploaded JPEG/PNG images are transcribed through vision (`decisions/0017`), indexed
       like any other document, and left visibly `DEFERRED` when the vendor fails.
 
+## Master Spec remediation blocks (2026-10-07, owner-approved order)
+
+- [x] Block 1: retrieval truth — the read path resolves the live projection, a missing or failing
+      Qdrant alias/collection is reported as unavailable instead of "nothing found", and local
+      embedding models load at startup rather than inside the first user turn.
+- [ ] Block 2: clarification honesty and `FILE_DELIVERY` reachability.
+- [ ] Block 3: multimodal router — an image attached to an explicit command or reply is carried into
+      the turn as a first-class search parameter (Master Spec §22).
+- [ ] Block 4: web fallback and relevance gate (Master Spec §21).
+- [ ] Block 5: Phase 12A image-asset foundation (Master Spec §23).
+
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

@@ -27,6 +27,7 @@ from office_assistant.ai.service import (
     AnswerGenerationUnavailable,
     GroundedAnswerService,
     InProcessRateGuard,
+    RetrievalUnavailable,
 )
 from office_assistant.application.authentication import (
     AuthenticationResult,
@@ -69,6 +70,7 @@ from office_assistant.internal_evidence.delivery import (
 )
 from office_assistant.internal_evidence.models import InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
+from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
@@ -91,6 +93,7 @@ class TelegramServices:
     telegram_message_limit: int = 4096
     extraction_reviews: ExtractionReviewService | None = None
     internal_evidence: InternalEvidenceService | None = None
+    knowledge: KnowledgeRetrievalService | None = None
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
     reminders: ReminderService | None = None
@@ -370,6 +373,9 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.NO_OPEN_SESSION)
         except AnswerGenerationUnavailable:
             await _reply_long(message, messages.AI_UNAVAILABLE, services.telegram_message_limit)
+        except RetrievalUnavailable:
+            logger.exception("Free-text retrieval projection failed")
+            await message.reply_text(messages.QDRANT_UNAVAILABLE)
         except (ApplicationError, SQLAlchemyError, AIServiceError) as error:
             logger.error("Telegram message failed | error_type=%s", type(error).__name__)
             await message.reply_text(messages.TEMPORARY_ERROR)
@@ -833,6 +839,9 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _reply_long(message, _format_internal(result), services.telegram_message_limit)
     except AnswerGenerationUnavailable:
         await message.reply_text(messages.AI_UNAVAILABLE)
+    except RetrievalUnavailable:
+        logger.exception("Baza retrieval projection failed")
+        await message.reply_text(messages.QDRANT_UNAVAILABLE)
     except AIServiceError:
         await message.reply_text(messages.AI_SOURCE_VALIDATION_FAILED)
     except SQLAlchemyError:
@@ -877,6 +886,9 @@ async def _handle_web_command(
         await _reply_long(message, _format_web(result), services.telegram_message_limit)
     except (WebEvidenceUnavailable, AnswerGenerationUnavailable):
         await message.reply_text(messages.WEB_UNAVAILABLE)
+    except RetrievalUnavailable:
+        logger.exception("Web command internal projection failed | combined=%s", combined)
+        await message.reply_text(messages.COMBINED_INTERNAL_UNAVAILABLE)
     except (AIServiceError, SQLAlchemyError):
         logger.exception("Web command failed | combined=%s", combined)
         await message.reply_text(messages.TEMPORARY_ERROR)

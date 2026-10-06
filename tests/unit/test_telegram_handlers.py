@@ -1,8 +1,9 @@
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,7 +13,7 @@ from telegram.constants import ChatType
 from telegram.error import NetworkError
 from telegram.ext import ContextTypes
 
-from office_assistant.ai.service import InProcessRateGuard
+from office_assistant.ai.service import InProcessRateGuard, RetrievalUnavailable
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
@@ -25,8 +26,14 @@ from office_assistant.integrations.telegram.handlers import (
     handle_internet,
     handle_password_text,
     handle_start,
+    handle_tamaxtar,
 )
-from office_assistant.integrations.telegram.messages import AUTH_PROMPT, WELCOME
+from office_assistant.integrations.telegram.messages import (
+    AUTH_PROMPT,
+    COMBINED_INTERNAL_UNAVAILABLE,
+    QDRANT_UNAVAILABLE,
+    WELCOME,
+)
 from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
 from office_assistant.internal_evidence.delivery import DeliverableFile, SourceFileDeliveryService
 from office_assistant.web_evidence.models import WebAnswer
@@ -189,6 +196,58 @@ def test_internet_command_uses_only_web_service() -> None:
     asyncio.run(handle_internet(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
     services.web_evidence.answer_internet.assert_awaited_once_with(user, "KA45")  # type: ignore[union-attr]
     services.internal_evidence.answer.assert_not_called()  # type: ignore[union-attr]
+
+
+def _run_handler(
+    handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]],
+    services: TelegramServices,
+    text: str,
+) -> SimpleNamespace:
+    message = SimpleNamespace(text=text, chat_id=123, reply_text=AsyncMock())
+    update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
+    context = SimpleNamespace(
+        bot_data={"phase2_services": services},
+        bot=SimpleNamespace(send_chat_action=AsyncMock()),
+    )
+    asyncio.run(handler(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
+    return message
+
+
+@pytest.mark.parametrize(
+    ("handler", "text"),
+    [
+        (handle_baza, "/baza KA45 zəmanət müddəti nə qədərdir?"),
+        (handle_password_text, "KA45 zəmanət müddəti nə qədərdir?"),
+    ],
+)
+def test_broken_index_is_reported_as_unavailable_not_as_no_match(
+    handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]], text: str
+) -> None:
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    services = _services(FakeUsers(user))
+    services.rate_guard = InProcessRateGuard()
+    services.internal_evidence = cast(
+        object,
+        SimpleNamespace(answer=AsyncMock(side_effect=RetrievalUnavailable("projection missing"))),
+    )  # type: ignore[assignment]
+
+    message = _run_handler(handler, services, text)
+    assert message.reply_text.await_args.args[0] == QDRANT_UNAVAILABLE  # type: ignore[union-attr]
+
+
+def test_combined_command_names_the_unavailable_internal_source() -> None:
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    services = _services(FakeUsers(user))
+    services.rate_guard = InProcessRateGuard()
+    services.web_evidence = cast(
+        object,
+        SimpleNamespace(
+            answer_combined=AsyncMock(side_effect=RetrievalUnavailable("projection missing"))
+        ),
+    )  # type: ignore[assignment]
+
+    message = _run_handler(handle_tamaxtar, services, "/tamaxtar KA45-in qiyməti")
+    assert message.reply_text.await_args.args[0] == COMBINED_INTERNAL_UNAVAILABLE  # type: ignore[union-attr]
 
 
 def test_file_follow_up_sends_original_bytes_and_safe_filename(tmp_path: Path) -> None:

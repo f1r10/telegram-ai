@@ -4,6 +4,43 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Retrieval truth (Master Spec Block 1, 2026-10-07)
+
+Live evidence from the isolated stack: `/baza` turns logged
+`POST /collections/document_chunks/points/query 404 Not Found`, then answered
+"Bu məlumat daxili sistemdə tapılmadı." — a claim about a corpus that was never consulted
+(invariant: no source, no company claim). The same turns took 24 s because the embedding model
+downloaded inside the request path, which tripped a Telegram `TimedOut`.
+
+- `knowledge/qdrant_store.py`: `QdrantUnavailable` (previously declared and never raised) is now the
+  single projection failure type. `resolve_target()` probes the alias first and falls back to the
+  physical collection, because only the worker's indexing run publishes the alias — a projection that
+  exists under either name stays readable, and one that exists under neither raises instead of
+  silently returning `[]`. Every `query_points` and `delete` failure is translated rather than leaking
+  an SDK exception, so a transport error, a 5xx and an empty result set are three different outcomes.
+  `delete_file` is a no-op while no projection exists (there are no points to remove) instead of a 404.
+- `internal_evidence/service.py`: a document-search failure no longer degrades into
+  `NOT_FOUND_INTERNAL_AZ`. It is recorded for the turn and, when the turn would otherwise claim
+  absence, re-raised as `RetrievalUnavailable` with the original error as `__cause__`. Structured
+  business evidence still answers while the index is down, so one broken source cannot blank out the
+  other.
+- `integrations/telegram/handlers.py` + `messages.py`: `/baza`, free text and `/tamaxtar` map that
+  error to Azerbaijani degradations that name the failing source
+  (`Daxili bilik bazası hazırda əlçatan deyil…`), and the combined command points at `/internet`.
+  Neither path says "tapılmadı" while the index is unreachable.
+- `knowledge/embeddings.py`, `knowledge/retrieval.py`, `integrations/telegram/app.py`, `main.py`:
+  `KnowledgeRetrievalService.preflight()` loads both local models and resolves the projection, and
+  runs in the application's `post_init` — before any user turn. A preflight failure logs at error
+  level and never stops polling (invariant 8). FastEmbed's `_load()` became a public `load()`.
+- Tests: 12 cases in `tests/unit/test_retrieval_truth.py` (alias preference, alias-loss fallback,
+  missing projection, unreachable server, read failure, delete no-op, preflight warmth and non-fatal
+  preflight, plus the three service truth rules) and 3 handler mapping cases.
+  `tests/integration/test_phase5_qdrant.py` and `test_phase10_internal_evidence.py` read
+  `QDRANT_URL` instead of a hard-coded localhost port that had made them skip silently; the phase 5
+  case now deletes its own alias on a live server and proves reads still return the indexed points.
+- Gates: 234 unit passed, 22 integration passed (was 21 passed / 1 skipped), `ruff check`,
+  `ruff format --check` (149 files), `pyright` 0 errors.
+
 ### Image vision ingestion (Phase 13, ADR 0017)
 
 - `ai/provider.py` grew a vendor-neutral vision boundary: a `VisionLanguageModel`

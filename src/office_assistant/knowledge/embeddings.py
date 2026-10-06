@@ -45,7 +45,7 @@ class FastEmbedTextAdapter:
 
     @property
     def dimension(self) -> int:
-        return int(self._load().embedding_size)
+        return int(self.load().embedding_size)
 
     def embed_documents(self, texts: Iterable[str]) -> list[list[float]]:
         return self._vectors(texts, prefix="passage: ")
@@ -57,10 +57,11 @@ class FastEmbedTextAdapter:
         values = [prefix + text if "e5" in self._model_id.lower() else text for text in texts]
         return [
             list(map(float, vector))
-            for vector in self._load().embed(values, batch_size=self._batch_size)
+            for vector in self.load().embed(values, batch_size=self._batch_size)
         ]
 
-    def _load(self) -> Any:
+    def load(self) -> Any:
+        """Materialize the local model; call before serving traffic to hide cold start."""
         if self._model is None:
             self._model = TextEmbedding(
                 model_name=self._model_id,
@@ -82,15 +83,20 @@ class FastEmbedSparseAdapter:
     def model_id(self) -> str:
         return self._model_id
 
-    def embed(self, texts: Iterable[str]) -> list[tuple[list[int], list[float]]]:
+    def load(self) -> Any:
+        """Materialize the local sparse model; call before serving traffic."""
         if self._model is None:
             self._model = SparseTextEmbedding(
                 model_name=self._model_id,
                 cache_dir=self._cache_dir,
                 lazy_load=False,
             )
+        return self._model
+
+    def embed(self, texts: Iterable[str]) -> list[tuple[list[int], list[float]]]:
+        model = self.load()
         results = []
-        for vector in self._model.embed(list(texts), batch_size=32):
+        for vector in model.embed(list(texts), batch_size=32):
             results.append((list(map(int, vector.indices)), list(map(float, vector.values))))
         return results
 

@@ -5,6 +5,7 @@
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
 
 import asyncio
+import logging
 from typing import Any
 
 from telegram.ext import (
@@ -29,14 +30,31 @@ from office_assistant.integrations.telegram.handlers import (
     handle_user_callback,
 )
 from office_assistant.integrations.telegram.outbox import run_outbox_consumer
+from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 
 OUTBOX_TASK_KEY = "outbox_task"
 OUTBOX_STOP_KEY = "outbox_stop"
+logger = logging.getLogger(__name__)
+
+
+async def _preflight_knowledge(retrieval: KnowledgeRetrievalService) -> None:
+    """Load local embedding models and report the projection before users ask."""
+
+    try:
+        target = await retrieval.preflight()
+    except Exception as error:
+        logger.error("Knowledge preflight failed | error_type=%s", type(error).__name__)
+        return
+    logger.info("Knowledge projection ready | target=%s", target)
 
 
 async def _post_init(application: Application[Any, Any, Any, Any, Any, Any]) -> None:
     services = application.bot_data[SERVICES_KEY]
-    if isinstance(services, TelegramServices) and services.session_factory is not None:
+    if not isinstance(services, TelegramServices):
+        return
+    if services.knowledge is not None:
+        await _preflight_knowledge(services.knowledge)
+    if services.session_factory is not None:
         stop = asyncio.Event()
         application.bot_data[OUTBOX_STOP_KEY] = stop
         application.bot_data[OUTBOX_TASK_KEY] = asyncio.create_task(

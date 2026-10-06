@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.provider import LanguageModel, ModelResponse, TokenUsage
 from office_assistant.ai.schemas import GroundedModelOutput
-from office_assistant.ai.service import GroundedAnswerService
+from office_assistant.ai.service import GroundedAnswerService, RetrievalUnavailable
 from office_assistant.business_tools.models import BusinessSource, ToolExecutionContext
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.infrastructure.database.models import (
@@ -109,15 +109,16 @@ class InternalEvidenceService:
         structured, tool_calls = await self._collect_structured(actor, plan, question)
         documents: list[DocumentEvidence] = []
         warnings: list[str] = []
+        retrieval_error: Exception | None = None
         if plan.use_document_search:
             try:
                 documents = await self.document_search.search(
                     DocumentSearchInput(query=question, limit=self.document_limit)
                 )
             except Exception as error:
-                logger.warning(
-                    "Internal document retrieval unavailable | error_type=%s",
-                    type(error).__name__,
+                retrieval_error = error
+                logger.error(
+                    "Internal document retrieval failed | error_type=%s", type(error).__name__
                 )
                 warnings.append("document_search_unavailable")
         bundle = build_evidence_bundle(structured, documents, warnings)
@@ -136,6 +137,11 @@ class InternalEvidenceService:
             item.status in {"OK", "CONFLICT"} for item in bundle.structured_results
         )
         if not usable_structured and not bundle.document_results:
+            if retrieval_error is not None:
+                # The index was never consulted, so absence from it cannot be claimed.
+                raise RetrievalUnavailable(
+                    "Internal document evidence could not be retrieved"
+                ) from retrieval_error
             await self._persist_turn(actor.id, question, NOT_FOUND_INTERNAL_AZ, ())
             return InternalAnswer(
                 answer=NOT_FOUND_INTERNAL_AZ,

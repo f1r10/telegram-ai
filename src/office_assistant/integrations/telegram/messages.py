@@ -57,6 +57,10 @@ AI_UNAVAILABLE = (
 QDRANT_UNAVAILABLE = (
     "Daxili bilik bazası hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
 )
+COMBINED_INTERNAL_UNAVAILABLE = (
+    "Daxili bilik bazası hazırda əlçatan deyil, ona görə birləşdirilmiş cavab verə bilmirəm. "
+    "Yalnız internet cavabı üçün /internet əmrini göndərin."
+)
 AI_SOURCE_VALIDATION_FAILED = (
     "Cavabın mənbə yoxlaması uğursuz oldu. Zəhmət olmasa sualı yenidən verin."
 )

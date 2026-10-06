@@ -199,6 +199,7 @@ def main() -> None:
             telegram_message_limit=settings.telegram_max_message_length,
             extraction_reviews=ExtractionReviewService(session_factory, storage),
             internal_evidence=internal_service,
+            knowledge=retrieval,
             file_delivery=SourceFileDeliveryService(
                 session_factory,
                 storage,

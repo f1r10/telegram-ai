@@ -19,6 +19,16 @@ class KnowledgeRetrievalService:
         self.embedder = embedder
         self.sparse_embedder = sparse_embedder
 
+    async def preflight(self) -> str:
+        """Load local models and resolve the live projection before the first user turn.
+
+        Model loading is the expensive part of the first query; running it here keeps
+        cold-start latency out of the request path.
+        """
+        self.embedder.load()
+        self.sparse_embedder.load()
+        return await self.store.resolve_target()
+
     async def search_internal_knowledge(
         self,
         query: str,

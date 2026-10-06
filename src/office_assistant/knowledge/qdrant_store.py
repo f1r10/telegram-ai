@@ -33,6 +33,42 @@ class QdrantKnowledgeStore:
             return False
         return True
 
+    async def resolve_target(self) -> str:
+        """Return the live projection name reads must use, or fail loudly.
+
+        The worker creates the alias during its first indexing run, so a fresh
+        projection can hold points only under its physical collection name.
+        """
+        target = await self._target()
+        if target is None:
+            raise QdrantUnavailable(
+                f"Retrieval projection is missing | alias={self.alias} collection={self.collection}"
+            )
+        return target
+
+    async def _target(self) -> str | None:
+        for name in (self.alias, self.collection):
+            try:
+                await self.client.get_collection(name)
+            except Exception as error:
+                if getattr(error, "status_code", None) == 404:
+                    continue
+                raise QdrantUnavailable(
+                    f"Qdrant is unreachable | error_type={type(error).__name__}"
+                ) from error
+            return name
+        return None
+
+    async def _points(self, **kwargs: Any) -> Sequence[Any]:
+        target = await self.resolve_target()
+        try:
+            response = await self.client.query_points(target, timeout=self.timeout, **kwargs)
+        except Exception as error:
+            raise QdrantUnavailable(
+                f"Qdrant read failed | error_type={type(error).__name__}"
+            ) from error
+        return response.points
+
     async def ensure_collection(self, dimension: int) -> None:
         try:
             await self.client.get_collection(self.collection)
@@ -108,32 +144,41 @@ class QdrantKnowledgeStore:
             )
 
     async def delete_file(self, file_id: int) -> None:
-        await self.client.delete(
-            self.alias,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[
-                        models.FieldCondition(key="file_id", match=models.MatchValue(value=file_id))
-                    ]
-                )
-            ),
-            wait=True,
-            timeout=self.timeout,
-        )
+        target = await self._target()
+        if target is None:
+            # Nothing is indexed, so there are no points left to remove.
+            return
+        try:
+            await self.client.delete(
+                target,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="file_id", match=models.MatchValue(value=file_id)
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+                timeout=self.timeout,
+            )
+        except Exception as error:
+            raise QdrantUnavailable(
+                f"Qdrant delete failed | error_type={type(error).__name__}"
+            ) from error
 
     async def search_dense(
         self, vector: list[float], *, limit: int, filters: RetrievalFilter | None = None
     ) -> list[RetrievedChunk]:
-        response = await self.client.query_points(
-            self.alias,
+        points = await self._points(
             query=vector,
             using="dense",
             query_filter=self._filter(filters),
             limit=limit,
             with_payload=True,
-            timeout=self.timeout,
         )
-        return self._results(response.points, "dense")
+        return self._results(points, "dense")
 
     async def search_sparse(
         self,
@@ -142,16 +187,14 @@ class QdrantKnowledgeStore:
         limit: int,
         filters: RetrievalFilter | None = None,
     ) -> list[RetrievedChunk]:
-        response = await self.client.query_points(
-            self.alias,
+        points = await self._points(
             query=models.SparseVector(indices=vector[0], values=vector[1]),
             using="bm25",
             query_filter=self._filter(filters),
             limit=limit,
             with_payload=True,
-            timeout=self.timeout,
         )
-        return self._results(response.points, "bm25")
+        return self._results(points, "bm25")
 
     async def search_hybrid(
         self,
@@ -161,8 +204,7 @@ class QdrantKnowledgeStore:
         limit: int,
         filters: RetrievalFilter | None = None,
     ) -> list[RetrievedChunk]:
-        response = await self.client.query_points(
-            self.alias,
+        points = await self._points(
             prefetch=[
                 models.Prefetch(query=dense, using="dense", limit=max(limit * 3, 10)),
                 models.Prefetch(
@@ -175,9 +217,8 @@ class QdrantKnowledgeStore:
             query_filter=self._filter(filters),
             limit=limit,
             with_payload=True,
-            timeout=self.timeout,
         )
-        return self._results(response.points, "hybrid")
+        return self._results(points, "hybrid")
 
     @staticmethod
     def _filter(filters: RetrievalFilter | None) -> models.Filter | None:

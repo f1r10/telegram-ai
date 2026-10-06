@@ -1,7 +1,9 @@
 import asyncio
 
 import pytest
+from qdrant_client import models
 
+from office_assistant.core.settings import load_settings
 from office_assistant.knowledge.models import DocumentChunk, RetrievalFilter
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 
@@ -9,15 +11,18 @@ pytestmark = pytest.mark.integration
 
 
 def test_qdrant_collection_alias_hybrid_filter_and_delete() -> None:
+    url = load_settings().qdrant_url
+    if not url:
+        pytest.skip("QDRANT_URL is not configured for integration tests")
     store = QdrantKnowledgeStore(
-        "http://localhost:16333",
+        url,
         alias="phase5_test_chunks",
         collection="phase5_test_chunks_v1",
     )
 
     async def scenario() -> None:
         if not await store.health_check():
-            pytest.skip("Qdrant is not available on localhost:16333")
+            pytest.skip(f"Qdrant is not reachable at {url}")
         await store.ensure_collection(3)
         chunks = [
             DocumentChunk(
@@ -63,6 +68,14 @@ def test_qdrant_collection_alias_hybrid_filter_and_delete() -> None:
             result.source_file_id != 1
             for result in await store.search_dense([1.0, 0.0, 0.0], limit=5)
         )
+        # A lost alias must not turn a populated projection into "nothing found".
+        await store.client.update_collection_aliases(
+            [models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=store.alias))]
+        )
+        assert await store.resolve_target() == store.collection
+        assert await store.search_hybrid([1.0, 0.0, 0.0], ([1], [1.0]), limit=2)
+        await store.ensure_collection(3)
+        assert await store.resolve_target() == store.alias
         await store.client.delete_collection(store.collection)
 
     try:
