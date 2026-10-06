@@ -81,6 +81,20 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   short TTL for volatile subjects (`qiymət`, `qiymətlər`, `stok`, `satış`,
   `kurs`) that the cache also consumes.
   16 new unit cases in `tests/unit/test_web_freshness_and_telemetry.py`.
+- Web search infrastructure (4d): two DuckDuckGo paths and a 12-second budget.
+  `searxng/settings.yml` keeps `duckduckgo web` alongside `duckduckgo` — this
+  SearXNG build (2026.10.4) has no `backend: api/lite` knob on the `duckduckgo`
+  engine, and `duckduckgo web` is the shipped equivalent second access path
+  (`duckduckgo.com` + its JSON API paging instead of `html.duckduckgo.com`), so a
+  CAPTCHA on one endpoint no longer blanks the search. Timeouts became a ladder:
+  per-engine `request_timeout` 6.0 -> 9.0, `max_request_timeout` 10.0 -> 11.0,
+  and the client `searxng_request_timeout_seconds` 8.0 -> 12.0
+  (`core/settings.py`, `docker-compose.yml`, `.env.example`), so SearXNG always
+  answers inside the client's patience and reports dead engines instead of the
+  client aborting. Verified live: `duckduckgo web` 10 results/1.1s,
+  `duckduckgo` 10 results/0.9s, and `google` still returns
+  `unresponsive_engines: [["google", "access denied"]]` (kept as a spare; with the
+  4a change its failure alone cannot produce a false "nothing found").
 
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 

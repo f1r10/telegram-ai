@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     web_search_primary_provider: str = "searxng"
     searxng_base_url: str | None = "http://searxng:8080"
-    searxng_request_timeout_seconds: float = 8.0
+    searxng_request_timeout_seconds: float = 12.0
     tavily_api_key: SecretStr | None = None
 
     @field_validator("tavily_api_key", mode="before")

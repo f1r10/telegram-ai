@@ -3,6 +3,9 @@ use_default_settings:
     keep_only:
       - google
       - duckduckgo
+      # Second DuckDuckGo access path: duckduckgo.com plus its JSON API paging,
+      # instead of the html.duckduckgo.com endpoint the `duckduckgo` engine scrapes.
+      - duckduckgo web
       - wikipedia
 
 general:
@@ -22,6 +25,15 @@ server:
   limiter: false
   image_proxy: false
 
+engines:
+  - name: duckduckgo web
+    disabled: false
+
 outgoing:
-  request_timeout: 6.0
-  max_request_timeout: 10.0
+  # Timeout ladder: engine (9s) < SearXNG budget (11s) < the client's 12s
+  # (SEARXNG_REQUEST_TIMEOUT_SECONDS). A single engine cannot consume the whole
+  # budget, and SearXNG always answers before the client gives up, so a dead
+  # engine reaches the adapter as `unresponsive_engines` instead of a client-side
+  # timeout the adapter cannot distinguish from an empty index.
+  request_timeout: 9.0
+  max_request_timeout: 11.0
