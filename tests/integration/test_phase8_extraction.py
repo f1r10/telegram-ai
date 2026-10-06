@@ -2,6 +2,7 @@ import asyncio
 import re
 from pathlib import Path
 from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import delete, func, select, update
@@ -20,6 +21,7 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     CandidateStatus,
     Customer,
+    ExtractionReviewStatus,
     IngestionJob,
     IngestionJobStatus,
     IngestionSession,
@@ -42,7 +44,7 @@ from office_assistant.infrastructure.database.models import (
     UserStatus,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
-from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 
 pytestmark = pytest.mark.integration
 
@@ -242,6 +244,17 @@ def test_text_only_extraction_review_commit_is_authorized_and_idempotent(tmp_pat
             with pytest.raises(AuthorizationDenied):
                 await reviews.approve(other.telegram_user_id, run_id)
             assert (await reviews.summary(admin.telegram_user_id, run_id))["total"] == 7
+            original_apply = reviews._apply_safe  # pyright: ignore[reportPrivateUsage]
+            aborted = AsyncMock(side_effect=StorageError("storage unavailable"))
+            reviews._apply_safe = aborted  # pyright: ignore[reportPrivateUsage]
+            with pytest.raises(StorageError):
+                await reviews.approve(owner.telegram_user_id, run_id)
+            assert aborted.await_count == 1
+            async with factory() as session:
+                stranded = await session.get(StructuredExtractionRun, run_id)
+                assert stranded is not None
+                assert stranded.review_status == ExtractionReviewStatus.PARTIAL
+            reviews._apply_safe = original_apply  # pyright: ignore[reportPrivateUsage]
             await asyncio.gather(
                 reviews.approve(owner.telegram_user_id, run_id),
                 reviews.approve(owner.telegram_user_id, run_id),

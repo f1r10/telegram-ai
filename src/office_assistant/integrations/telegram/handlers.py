@@ -31,7 +31,11 @@ from office_assistant.application.authentication import (
     AuthenticationService,
     TelegramIdentity,
 )
-from office_assistant.application.errors import ApplicationError, AuthorizationDenied
+from office_assistant.application.errors import (
+    ApplicationError,
+    AuthorizationDenied,
+    DomainConflict,
+)
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
 from office_assistant.application.reminders import ReminderProposal, ReminderService
@@ -746,8 +750,13 @@ async def handle_extraction_callback(update: Update, context: ContextTypes.DEFAU
         else:
             raise ValueError("Unsupported review action")
         await query.edit_message_text(text)
-    except (ApplicationError, ValueError):
+    except AuthorizationDenied:
         await query.edit_message_text(messages.NO_PERMISSION)
+    except DomainConflict:
+        await query.edit_message_text(messages.EXTRACTION_REVIEW_UNAVAILABLE)
+    except (ApplicationError, ValueError) as error:
+        logger.error("Extraction review failed | error_type=%s", type(error).__name__)
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
     except SQLAlchemyError:
         logger.exception("Extraction review callback failed")
         await query.edit_message_text(messages.TEMPORARY_ERROR)

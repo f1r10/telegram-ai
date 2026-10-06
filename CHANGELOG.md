@@ -17,6 +17,25 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   Numbering and conflict dedup are unchanged; the same document cited for two
   different blocks now appears twice under the same name, which is accepted.
   4 new unit cases in `tests/unit/test_phase10_evidence_unit.py`.
+- Extraction review callbacks no longer report a permission problem for every
+  failure. `handle_extraction_callback` collapsed all `ApplicationError` and
+  `ValueError` into `Bu əməliyyat üçün icazəniz yoxdur.`, so an administrator
+  tapping "Yaddaşa yaz" after a successful save was told they had no permission
+  when the real cause was a missing or already finished review. Mapping is now
+  `AuthorizationDenied -> NO_PERMISSION`, `DomainConflict ->
+  EXTRACTION_REVIEW_UNAVAILABLE` (new Azerbaijani string), everything else ->
+  `TEMPORARY_ERROR` with a logged error type.
+- `extraction/review.py`: `approve()` committed the run as `APPLYING` and then
+  called `_apply_safe()` outside that transaction, so any error escaping the
+  per-candidate loop left the run in `APPLYING` permanently and every later tap
+  returned the empty counts of that half-finished attempt. An aborted attempt now
+  moves the run to `PARTIAL` with a `STRUCTURED_REVIEW_APPLY_ABORTED` audit row so
+  a retry re-runs the application, and per-candidate and per-proposal guards cover
+  every `ApplicationError` (a rejected candidate becomes `CONFLICT` and is logged)
+  instead of aborting the whole run.
+- 5 new unit cases in `tests/unit/test_extraction_review_ux.py`; the Phase 8
+  integration scenario now also proves an aborted apply leaves `PARTIAL`, not
+  `APPLYING`, and that the subsequent approvals still apply all candidates.
 
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 

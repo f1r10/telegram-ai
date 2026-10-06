@@ -1,5 +1,6 @@
 """Authorized, idempotent review and Phase 7 service application."""
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -12,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from office_assistant.application.business_common import require_actor
 from office_assistant.application.business_events import BusinessEventService
 from office_assistant.application.customers import CustomerService
-from office_assistant.application.errors import AuthorizationDenied, DomainConflict
+from office_assistant.application.errors import (
+    ApplicationError,
+    AuthorizationDenied,
+    DomainConflict,
+)
 from office_assistant.application.payments import PaymentService
 from office_assistant.application.pricing import PricingService
 from office_assistant.application.products import ProductService
@@ -37,6 +42,8 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.repositories.pricing import PriceRepository
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +162,24 @@ class ExtractionReviewService:
                     entity_id=str(run.id),
                 )
             )
-        await self._apply_safe(actor_telegram_user_id, run_id)
+        try:
+            await self._apply_safe(actor_telegram_user_id, run_id)
+        except BaseException:
+            # A run left in APPLYING makes every later tap return empty counts.
+            logger.exception("Extraction apply aborted | run_id=%s", run_id)
+            async with self.session_factory.begin() as session:
+                aborted = await session.get(StructuredExtractionRun, run_id, with_for_update=True)
+                if aborted is not None and aborted.review_status == ExtractionReviewStatus.APPLYING:
+                    aborted.review_status = ExtractionReviewStatus.PARTIAL
+                    session.add(
+                        AuditEvent(
+                            actor_user_id=actor.id,
+                            action="STRUCTURED_REVIEW_APPLY_ABORTED",
+                            entity_type="structured_extraction_run",
+                            entity_id=str(run_id),
+                        )
+                    )
+            raise
         async with self.session_factory.begin() as session:
             run = await session.get(StructuredExtractionRun, run_id, with_for_update=True)
             if run is None:
@@ -229,7 +253,12 @@ class ExtractionReviewService:
                 entity_type, entity_id, no_change = await self._apply_one(
                     actor_telegram_user_id, candidate, ordered, source_map
                 )
-            except (DomainConflict, ValueError, KeyError):
+            except (ApplicationError, ValueError, KeyError) as error:
+                logger.warning(
+                    "Extraction candidate not applied | candidate_type=%s error_type=%s",
+                    candidate.candidate_type,
+                    type(error).__name__,
+                )
                 await self._mark(candidate.id, CandidateStatus.CONFLICT)
                 continue
             await self._mark(
@@ -304,7 +333,12 @@ class ExtractionReviewService:
                     documents=documents,
                     items=item_inputs,
                 )
-            except (DomainConflict, ValueError, KeyError):
+            except (ApplicationError, ValueError, KeyError) as error:
+                logger.warning(
+                    "Extraction proposal not applied | run_candidate_id=%s error_type=%s",
+                    proposal.id,
+                    type(error).__name__,
+                )
                 await self._mark(proposal.id, CandidateStatus.CONFLICT)
                 for item in items:
                     await self._mark(item.id, CandidateStatus.CONFLICT)
