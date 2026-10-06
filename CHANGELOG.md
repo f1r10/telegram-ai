@@ -4,6 +4,20 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Live-test fixes (2026-10-06)
+
+- Citations no longer leak raw technical metadata to the user.
+  `internal_evidence/service.py:_citation_label` rendered `json.dumps(locator)`,
+  so a `/baza` answer ended with
+  `[1] Sənəd — Price list Diller.xlsx — {"blocks": [{"sheet": "Sheet1", ...}]}`.
+  The user-facing label is now the document name alone, falling back to the
+  Azerbaijani class name (`Sənəd` / `Biznes bazası`) when no filename exists.
+  Locator precision is retained only on the model-facing evidence prompt line
+  (`_prompt_source`), so grounded synthesis still sees the exact sheet/page.
+  Numbering and conflict dedup are unchanged; the same document cited for two
+  different blocks now appears twice under the same name, which is accepted.
+  4 new unit cases in `tests/unit/test_phase10_evidence_unit.py`.
+
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 
 Step A (data layer and parsing):

@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from typing import cast
 
@@ -10,6 +11,7 @@ from office_assistant.internal_evidence.benchmark import (
 from office_assistant.internal_evidence.delivery import parse_file_delivery_request
 from office_assistant.internal_evidence.models import (
     DocumentEvidence,
+    EvidenceBundle,
     EvidencePlan,
     PlannedToolCall,
     RoutingCategory,
@@ -17,6 +19,7 @@ from office_assistant.internal_evidence.models import (
 )
 from office_assistant.internal_evidence.router import deterministic_plan
 from office_assistant.internal_evidence.service import (
+    _bundle_prompt,  # pyright: ignore[reportPrivateUsage]
     _validated_synthesis,  # pyright: ignore[reportPrivateUsage]
     build_evidence_bundle,
 )
@@ -170,3 +173,62 @@ def test_phase10_benchmark_contract_scores_all_required_metrics() -> None:
     assert metrics.conflict_surfacing_rate == 1.0
     assert metrics.no_source_hallucination_rate == 0.0
     assert metrics.file_reference_resolution_rate == 1.0
+
+
+def _document_bundle() -> EvidenceBundle:
+    structured = StructuredEvidence(
+        tool_name="resolve_product_price",
+        status="OK",
+        data={"price": {"amount": "125.0000", "currency": "AZN"}},
+        sources=[
+            BusinessSource(
+                source_type="TOOL",
+                filename="Price list Diller.xlsx",
+                file_id=10,
+                locator={"blocks": [{"sheet": "Sheet1", "range": "A30:C30"}]},
+            )
+        ],
+    )
+    document = DocumentEvidence(
+        chunk_id="chunk-1",
+        text="KA45 qiyməti 110 AZN-dir.",
+        file_id=11,
+        filename="Zəmanət şərtləri.pdf",
+        locator={"page": 7},
+        retrieval_method="hybrid",
+        score=0.9,
+    )
+    return build_evidence_bundle([structured], [document])
+
+
+def test_user_citations_show_only_the_document_name() -> None:
+    bundle = _document_bundle()
+    rendered = "\n".join(f"[{item.number}] {item.label}" for item in bundle.citations)
+    assert rendered == "[1] Price list Diller.xlsx\n[2] Zəmanət şərtləri.pdf"
+
+
+def test_citation_label_falls_back_to_the_azerbaijani_class_name() -> None:
+    structured = StructuredEvidence(
+        tool_name="resolve_product_price",
+        status="OK",
+        data={"price": {"amount": "125.0000", "currency": "AZN"}},
+        sources=[BusinessSource(source_type="TOOL", locator={"record_id": 4})],
+    )
+    bundle = build_evidence_bundle([structured], [])
+    assert [item.label for item in bundle.citations] == ["Biznes bazası"]
+
+
+def test_no_technical_metadata_reaches_the_rendered_citation_list() -> None:
+    bundle = _document_bundle()
+    rendered = "\n".join(item.label for item in bundle.citations)
+    for token in ("{", "}", "[", "]", "blocks", "sheet", "Sheet1", "range", "A30:C30", "page"):
+        assert token not in rendered
+
+
+def test_evidence_prompt_keeps_the_exact_locator_for_the_model() -> None:
+    bundle = _document_bundle()
+    prompt = _bundle_prompt(bundle)
+    assert "A30:C30" in prompt and "Sheet1" in prompt
+    for citation in bundle.citations:
+        assert citation.locator is not None
+        assert json.dumps(citation.locator, ensure_ascii=False) in prompt

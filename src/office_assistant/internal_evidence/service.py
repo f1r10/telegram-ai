@@ -467,7 +467,7 @@ def build_evidence_bundle(
                     filename=source.filename,
                     file_id=source.file_id,
                     locator=source.locator,
-                    label=_citation_label("Biznes bazası", source.filename, source.locator),
+                    label=_citation_label("Biznes bazası", source.filename),
                     record_identity=record_identity,
                     origin_type=source.source_type,
                 )
@@ -487,7 +487,7 @@ def build_evidence_bundle(
                 filename=item.filename,
                 file_id=item.file_id,
                 locator=item.locator,
-                label=_citation_label("Sənəd", item.filename, item.locator),
+                label=_citation_label("Sənəd", item.filename),
                 origin_type="DOCUMENT",
             )
         )
@@ -569,13 +569,22 @@ def _citation_key(
     )
 
 
+def _prompt_source(citation: UnifiedCitation) -> str:
+    # The model keeps the exact locator; the user-facing label never shows it.
+    if citation.locator is None:
+        return citation.label
+    locator = json.dumps(citation.locator, ensure_ascii=False, default=str)
+    return f"{citation.label} — {locator}"
+
+
 def _bundle_prompt(bundle: EvidenceBundle) -> str:
     payloads = bundle.evidence_payloads
     blocks: list[str] = []
     for citation in bundle.citations:
         blocks.append(
             f"[EVIDENCE {citation.evidence_id}]\nclass: {citation.source_class}\n"
-            f"source: {citation.label}\ndata:\n{payloads.get(citation.evidence_id, '')}"
+            f"source: {_prompt_source(citation)}\n"
+            f"data:\n{payloads.get(citation.evidence_id, '')}"
         )
     if bundle.conflicts:
         blocks.append("[APPLICATION CONFLICTS]\n" + bundle.model_dump_json(include={"conflicts"}))
@@ -790,10 +799,5 @@ def _money_values(text: str) -> list[tuple[Decimal, str]]:
     return list(dict.fromkeys(values))
 
 
-def _citation_label(prefix: str, filename: str | None, locator: object) -> str:
-    parts = [prefix]
-    if filename:
-        parts.append(filename)
-    if locator:
-        parts.append(json.dumps(locator, ensure_ascii=False, default=str))
-    return " — ".join(parts)
+def _citation_label(prefix: str, filename: str | None) -> str:
+    return filename or prefix
