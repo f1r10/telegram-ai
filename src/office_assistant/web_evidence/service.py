@@ -4,6 +4,7 @@ import logging
 import re
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -94,6 +95,16 @@ class WebEvidenceService:
         started = time.perf_counter()
         evidence, response, fetch_count = await self._collect(question)
         if not evidence:
+            logger.warning(
+                "Web search produced no evidence | mode=internet provider=%s cache_hit=%s "
+                "results=%s fetch_count=%s fallback_used=%s latency_ms=%s",
+                response.provider,
+                response.cache_hit,
+                len(response.results),
+                fetch_count,
+                response.fallback_used,
+                round((time.perf_counter() - started) * 1000),
+            )
             await self._persist_turn(actor.id, "internet", question, WEB_NOT_FOUND_AZ, ())
             return WebAnswer(
                 WEB_NOT_FOUND_AZ,
@@ -143,6 +154,17 @@ class WebEvidenceService:
         internal = await self.internal.answer(actor, question, force_internal=True)
         evidence, response, fetch_count = await self._collect(question)
         if not evidence:
+            logger.warning(
+                "Web search produced no evidence | mode=combined provider=%s cache_hit=%s "
+                "results=%s fetch_count=%s fallback_used=%s internal_citations=%s latency_ms=%s",
+                response.provider,
+                response.cache_hit,
+                len(response.results),
+                fetch_count,
+                response.fallback_used,
+                len(internal.citations),
+                round((time.perf_counter() - started) * 1000),
+            )
             answer = clean_answer_language(f"{internal.answer}\n\nİnternet: {WEB_NOT_FOUND_AZ}")
             await self._persist_turn(actor.id, "combined", question, answer, internal.citations)
             return WebAnswer(answer, internal.citations, response.provider, response.cache_hit)
@@ -186,21 +208,39 @@ class WebEvidenceService:
         self, question: str
     ) -> tuple[list[ExternalWebEvidence], WebSearchResponse, int]:
         query = normalize_web_query(question)
+        freshness: Literal["day", "month", "year"] | None = "day" if is_fresh_query(query) else None
+        evidence, response, fetch_count = await self._gather(query, freshness)
+        if not evidence and freshness is not None:
+            # A same-day window is a guess; an empty guess must not hide older public evidence.
+            logger.info(
+                "Fresh web search produced no evidence, retrying without a time window "
+                "| provider=%s results=%s",
+                response.provider,
+                len(response.results),
+            )
+            evidence, response, fetch_count = await self._gather(query, None)
+        return evidence, response, fetch_count
+
+    async def _gather(
+        self, query: str, freshness: Literal["day", "month", "year"] | None
+    ) -> tuple[list[ExternalWebEvidence], WebSearchResponse, int]:
         request = WebSearchRequest(
             query=query,
             max_results=self.default_limit,
             language="az",
-            freshness="day" if is_fresh_query(query) else None,
+            freshness=freshness,
         )
         try:
             response = await self.search.search(request)
         except WebProviderError as error:
             raise WebEvidenceUnavailable("External search providers failed") from error
         evidence: list[ExternalWebEvidence] = []
+        dropped = 0
         fetch_count = 0
         remaining = self.context_chars
         for result in response.results:
             if not matches_requested_identifier(query, result.title, result.snippet):
+                dropped += 1
                 continue
             content: str | None = None
             truncated = False
@@ -239,6 +279,13 @@ class WebEvidenceService:
                     provider=result.provider,
                     truncated=truncated,
                 )
+            )
+        if dropped:
+            logger.info(
+                "Web results dropped by relevance gate | dropped=%s kept=%s freshness=%s",
+                dropped,
+                len(evidence),
+                freshness or "-",
             )
         return evidence, response, fetch_count
 

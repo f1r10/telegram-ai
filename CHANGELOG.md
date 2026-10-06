@@ -60,6 +60,27 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   providers log counts, failed engine names and freshness; the query text is
   never logged (invariant 6).
   11 new unit cases in `tests/unit/test_web_provider_outage.py`.
+- `web_evidence/service.py` now explains every "nothing found". A `WEB_NOT_FOUND_AZ`
+  answer was indistinguishable from a cache miss, a relevance-gate wipe or a dead
+  engine, so an operator had no way to tell which. Each empty-evidence answer logs
+  provider, cache hit, result count, page fetch count, fallback use and latency,
+  and the combined path adds the internal citation count (the internal half is
+  still answered). Two silent decisions became visible or reversible: the
+  relevance gate logs `dropped=N kept=M`, and because a one-day window is a guess,
+  a fresh query that comes back empty is retried once without a time window before
+  the user is told nothing was found. A provider outage keeps raising
+  `WebEvidenceUnavailable` and never becomes a "nothing found" claim.
+  Split out of `_collect` into `_gather(query, freshness)`; no behaviour change for
+  non-fresh queries.
+- Freshness tuning separated from cache lifetime. `is_fresh_query` matched
+  `qiymət`/`qiyməti`, so every price question forced SearXNG's `time_range=day`
+  and lost last week's price pages; it also drove the cache TTL, so the two
+  concerns could not be tuned apart. `is_fresh_query` now only accepts an explicit
+  right-now/latest request (`indi`, `hazırda`, `bu gün`, `son xəbər`, `latest`,
+  `current`, `today`, `news`), while the new `is_time_sensitive_query` keeps the
+  short TTL for volatile subjects (`qiymət`, `qiymətlər`, `stok`, `satış`,
+  `kurs`) that the cache also consumes.
+  16 new unit cases in `tests/unit/test_web_freshness_and_telemetry.py`.
 
 ### Phase 12 — Reminders, `/help`, `/verilerimi_sil` (2026-10-06)
 
