@@ -4,6 +4,60 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Web search: unusable results trigger the fallback, an outage costs only the web half (2026-10-07)
+
+Block 4 of the Master Spec remediation (§21). The owner's reproduction held up under checking: `KA45
+qiyməti` against the local SearXNG returned a page of hits that the relevance gate rejected in full,
+and because the fallback trigger looked only at the *raw* hit count, Tavily was never consulted — the
+user was told nothing was found while a second provider sat idle. ADR 0015 had already approved
+falling back on "no usable result"; the code had implemented "no result".
+
+- `web_evidence/models.py`: `ResultUsability`, a caller-supplied predicate over one `WebSearchResult`.
+  Usability depends on the question, so the answer layer owns it and the search layer only asks.
+- `web_evidence/cache.py`: `search(..., usable=...)`. The cache read, the primary's page and the
+  fallback decision all run that one predicate, so a stored page holding nothing usable is re-searched
+  instead of served, and a fully rejected page falls back exactly as an empty one does. The fallback
+  stays serial and at most once per request (§21.3 forbids fan-out). One INFO line per engagement
+  carries the reason (`no_usable_results`, or the provider error type), the primary's name and hit
+  counts — never the query or answer text (invariant 6).
+- `web_evidence/normalization.py`: `is_within_window`. A hit carrying its own publication date outside
+  the requested `day`/`month`/`year` window is no longer usable, because a dated page outside the
+  window was never current information. An undated hit stays: the live check found `publishedDate` on
+  0 of 6 SearXNG hits, and absence of a date is not proof of age. `service.py` composes it with the
+  identifier gate, so the window-widening retry (`day` → no window) now also fires on
+  stale-but-present hits. Recorded as OPEN-QUESTIONS Q25 and a partly answered Q18.
+- A cache hit reports `fallback_used` honestly (`provider != primary provider`); previously a Tavily
+  answer re-read from cache was counted as SearXNG, which broke the SPEC's fallback-usage counter.
+- `answer_combined` no longer discards a finished internal answer when the providers fail. It returns
+  the internal text plus `İnternet axtarışı hazırda əlçatan deyil; cavab yalnız daxili
+  mənbələrdəndir.` and persists that turn. `/internet` still reports the outage through
+  `messages.WEB_UNAVAILABLE`, and no path invents a result (invariant 8).
+- Left alone deliberately: the gate's identifier rule (it behaved correctly on live data), both
+  provider adapters, and `/internet`'s image handling — reading a picture for `/internet` stays off by
+  the owner's decision, so OPEN-QUESTIONS Q23 is closed as answered.
+- Deviation to record: `WEB_UNAVAILABLE_AZ` sits beside `WEB_NOT_FOUND_AZ` in the web service instead
+  of in the Telegram messages module, following that module's existing convention; the domain service
+  must not import the Telegram layer.
+
+Deploy note, stated plainly: `TAVILY_API_KEY` is empty in this stack, so the fallback is *not*
+configured in production yet and an unusable page still ends as "nothing found" until the owner sets
+the key in `.env`. No compose edit was made: `app` already receives `.env` through `env_file`, the
+worker never searches the web, and naming the variable under `environment:` would let an empty shell
+value override the file.
+
+Tests: 20 new cases in `tests/unit/test_web_fallback.py` (unusable page → one fallback call; usable
+primary page never reaches it; no-fallback and both-provider-down paths; unusable cache entry
+re-searched; `fallback_used` on both cache origins; log without query text; window arithmetic
+including a naive timestamp read as UTC; the gate arriving at the search layer as `usable`; the
+stale-hit window widening; the degraded combined answer). Live check against the real local SearXNG
+with a stub fallback: 6 raw hits, 0 usable, fallback called once with `KA45 qiyməti`, reported
+`provider=tavily fallback_used=True`. That run had no database session, and the cache failures
+surfaced only as `Web cache read skipped | error_type=TypeError` warnings while the search completed —
+§21.4's "a cache problem must not stop searching", observed rather than asserted.
+
+Gates: `pytest -m "not integration"` 280 passed (was 260), `pytest -m integration` 23 passed, ruff
+check and format clean over 154 files, pyright 0 errors.
+
 ### DB pool: connections heal themselves, clock skew speaks up (2026-10-07)
 
 Follow-up to the outage above, now approved. A recreate of `qoder_postgres` invalidates sockets in

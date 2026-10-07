@@ -1,5 +1,6 @@
 """Provider-neutral web search and evidence contracts."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
@@ -46,6 +47,11 @@ class WebSearchProvider(Protocol):
     provider_name: str
 
     async def search(self, request: WebSearchRequest) -> WebSearchResponse: ...
+
+
+# The caller owns this decision because usability depends on the question; the search layer only
+# asks whether a page of hits is worth anything before it reaches for the fallback provider.
+ResultUsability = Callable[[WebSearchResult], bool]
 
 
 class ExternalWebEvidence(StrictModel):

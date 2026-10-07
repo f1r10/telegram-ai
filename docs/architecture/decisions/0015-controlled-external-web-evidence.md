@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted for Phase 11.
+Accepted for Phase 11. Amended 2026-10-07 (Block 4) to record how the approved
+"no usable result" trigger, the freshness window and the degraded combined answer
+are implemented; the decision itself is unchanged.
 
 ## Decision
 
@@ -17,12 +19,28 @@ Each fallback is attempted at most once, including when the primary returns no
 results. With no configured fallback, an empty primary result is reported as no
 public evidence; it must not produce an invalid empty Bearer header.
 
+"No usable result" is measured after the relevance gate, not at the raw hit count:
+the answer layer passes its own usability test into the search layer, so a page of
+hits that the gate rejects reaches the fallback exactly as an empty page does. The
+cache read uses the same test, so a stored page with nothing usable is re-searched
+instead of served. Usability stays the caller's decision because it depends on the
+question; the search layer never redefines it. Each engagement logs one reason
+(`no_usable_results`, or the provider error type) with hit counts and never the
+query or answer text.
+
 Before fetching pages or synthesizing answers, identifier-bearing queries require
 an exact normalized identifier match in each result's title or snippet. This gate
 also applies to cached results. It conservatively drops hits with no visible
 identifier; matching an identifier alone does not establish manufacturer identity.
+The gate further requires that a hit carrying its own publication date fall inside
+the requested time window, because a dated hit outside the window was never current
+information; an undated hit stays, since absence of a date is not proof of age.
 Without accepted web evidence, combined answers retain the internal answer and
-citations and report that suitable public evidence was not found.
+citations and report that suitable public evidence was not found. When the search
+providers themselves fail, a combined answer still delivers the internal half and
+states that the internet part was unavailable, rather than discarding work already
+done; an external-only answer reports the outage. Which provider answered is
+reported even when the answer came from the cache.
 
 User-facing answers use Azerbaijani source names rather than internal class labels.
 Mixed Latin/Cyrillic word repair is limited to known letter substitutions and

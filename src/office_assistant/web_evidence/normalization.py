@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 import unicodedata
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from office_assistant.internal_evidence.query_normalization import strong_identifiers
@@ -42,6 +44,27 @@ def is_time_sensitive_query(value: str) -> bool:
     return bool(
         _TIME_SENSITIVE_WORDS.search(normalized) or _EXPLICIT_FRESH_WORDS.search(normalized)
     )
+
+
+# An undated hit stays: absence of a date is not proof of age, and SearXNG rarely supplies one.
+_WINDOW_DAYS: dict[str, int] = {"day": 1, "month": 31, "year": 366}
+
+
+def is_within_window(
+    published_at: datetime | None,
+    freshness: Literal["day", "month", "year"] | None,
+    *,
+    now: datetime,
+) -> bool:
+    """Whether a hit's own publication date satisfies the requested time window."""
+
+    if published_at is None or freshness is None:
+        return True
+    window = _WINDOW_DAYS.get(freshness)
+    if window is None:
+        return True
+    start = published_at if published_at.tzinfo else published_at.replace(tzinfo=UTC)
+    return start >= now - timedelta(days=window)
 
 
 def matches_requested_identifier(query: str, title: str, snippet: str) -> bool:

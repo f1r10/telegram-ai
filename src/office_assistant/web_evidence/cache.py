@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.infrastructure.database.models import WebSearchCache
 from office_assistant.web_evidence.models import (
+    ResultUsability,
     WebProviderError,
     WebSearchProvider,
     WebSearchRequest,
@@ -39,22 +40,39 @@ class WebSearchService:
         self.stable_ttl = timedelta(seconds=max(stable_ttl_seconds, 0))
         self.fresh_ttl = timedelta(seconds=max(fresh_ttl_seconds, 0))
 
-    async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+    async def search(
+        self, request: WebSearchRequest, *, usable: ResultUsability | None = None
+    ) -> WebSearchResponse:
         key, normalized = cache_key(request)
         cached = await self._read_cache(key)
-        if cached is not None:
-            return cached.model_copy(update={"cache_hit": True})
+        if cached is not None and _has_usable(cached.results, usable):
+            return cached.model_copy(
+                update={
+                    "cache_hit": True,
+                    "fallback_used": cached.provider != self.primary.provider_name,
+                }
+            )
         fallback_used = False
         try:
             response = await self.primary.search(request)
-        except WebProviderError:
+        except WebProviderError as error:
             if self.fallback is None:
                 raise
             fallback_used = True
+            logger.info(
+                "Web fallback engaged | reason=%s primary=%s",
+                type(error).__name__,
+                self.primary.provider_name,
+            )
             response = await self.fallback.search(request)
         else:
-            if not response.results and self.fallback is not None:
+            if not _has_usable(response.results, usable) and self.fallback is not None:
                 fallback_used = True
+                logger.info(
+                    "Web fallback engaged | reason=no_usable_results primary=%s raw_results=%s",
+                    self.primary.provider_name,
+                    len(response.results),
+                )
                 response = await self.fallback.search(request)
         response = response.model_copy(update={"fallback_used": fallback_used})
         if response.results:
@@ -116,3 +134,9 @@ class WebSearchService:
                 )
         except Exception as error:
             logger.warning("Web cache write skipped | error_type=%s", type(error).__name__)
+
+
+def _has_usable(results: list[WebSearchResult], usable: ResultUsability | None) -> bool:
+    if usable is None:
+        return bool(results)
+    return any(usable(item) for item in results)

@@ -115,7 +115,11 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       on demand for that question only and cited as `IMAGE_UNTRUSTED` (Master Spec §22, §3.1). The
       caption router no longer discards the file: `/baza` and `/tamaxtar` keep the attachment, and
       `/saxla` stores it first and then runs.
-- [ ] Block 4: web fallback and relevance gate (Master Spec §21).
+- [x] Block 4: web fallback and relevance gate — a page of hits that the gate rejects now reaches
+      Tavily exactly as an empty page does (the answer layer hands its usability test to the search
+      layer, cache reads included), a hit dated outside the requested window no longer counts as
+      current, a failed web search leaves `/tamaxtar` with its internal answer plus an honest
+      Azerbaijani line, and `fallback_used` survives a cache hit (Master Spec §21, `decisions/0015`).
 - [ ] Block 5: Phase 12A image-asset foundation (Master Spec §23).
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,

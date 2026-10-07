@@ -35,16 +35,19 @@ from office_assistant.web_evidence.models import (
     WebProviderError,
     WebSearchRequest,
     WebSearchResponse,
+    WebSearchResult,
 )
 from office_assistant.web_evidence.normalization import (
     clean_answer_language,
     is_fresh_query,
+    is_within_window,
     matches_requested_identifier,
     normalize_web_query,
 )
 
 logger = logging.getLogger(__name__)
 WEB_NOT_FOUND_AZ = "İctimai internet mənbələrində uyğun məlumat tapılmadı."
+WEB_UNAVAILABLE_AZ = "İnternet axtarışı hazırda əlçatan deyil; cavab yalnız daxili mənbələrdəndir."
 
 PRESENTATION_POLICY = """
 Azərbaycan dilində izahı latın əlifbası ilə yaz; sözlərə kiril hərfləri qarışdırma.
@@ -161,7 +164,18 @@ class WebEvidenceService:
         internal = await self.internal.answer(
             actor, question, force_internal=True, image_readings=image_readings
         )
-        evidence, response, fetch_count = await self._collect(question)
+        try:
+            evidence, response, fetch_count = await self._collect(question)
+        except WebEvidenceUnavailable:
+            # The internal half is still an answer, so only the web line is reported missing.
+            logger.warning(
+                "Web search unavailable for combined answer | internal_citations=%s latency_ms=%s",
+                len(internal.citations),
+                round((time.perf_counter() - started) * 1000),
+            )
+            answer = clean_answer_language(f"{internal.answer}\n\n{WEB_UNAVAILABLE_AZ}")
+            await self._persist_turn(actor.id, "combined", question, answer, internal.citations)
+            return WebAnswer(answer, internal.citations)
         if not evidence:
             logger.warning(
                 "Web search produced no evidence | mode=combined provider=%s cache_hit=%s "
@@ -239,8 +253,17 @@ class WebEvidenceService:
             language="az",
             freshness=freshness,
         )
+        checked_at = datetime.now(UTC)
+
+        def usable(result: WebSearchResult) -> bool:
+            """A hit counts when it names what was asked about and is dated inside the window."""
+
+            return matches_requested_identifier(
+                query, result.title, result.snippet
+            ) and is_within_window(result.published_at, freshness, now=checked_at)
+
         try:
-            response = await self.search.search(request)
+            response = await self.search.search(request, usable=usable)
         except WebProviderError as error:
             raise WebEvidenceUnavailable("External search providers failed") from error
         evidence: list[ExternalWebEvidence] = []
@@ -248,7 +271,7 @@ class WebEvidenceService:
         fetch_count = 0
         remaining = self.context_chars
         for result in response.results:
-            if not matches_requested_identifier(query, result.title, result.snippet):
+            if not usable(result):
                 dropped += 1
                 continue
             content: str | None = None
