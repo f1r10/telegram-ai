@@ -5,7 +5,10 @@ from sqlalchemy import delete, text
 
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
-from office_assistant.infrastructure.database.health import check_database_health
+from office_assistant.infrastructure.database.health import (
+    check_database_health,
+    measure_clock_drift,
+)
 from office_assistant.infrastructure.database.models import SystemMetadata
 from office_assistant.infrastructure.database.session import create_session_factory
 
@@ -100,6 +103,50 @@ def test_alembic_schema_is_at_head() -> None:
                     )
                 )
                 assert table.scalar_one() == "system_metadata"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_the_pool_replaces_a_socket_the_server_closed() -> None:
+    settings = _settings_or_skip()
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        witness = create_database_engine(settings)
+        try:
+            async with engine.connect() as connection:
+                pid = (await connection.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            async with witness.connect() as killer:
+                terminated = await killer.execute(
+                    text("SELECT pg_terminate_backend(:pid)"),
+                    {"pid": pid},
+                )
+                assert terminated.scalar_one() is True
+
+            # A pooled socket the server closed must be replaced at checkout, not raised on.
+            async with engine.connect() as connection:
+                assert (await connection.execute(text("SELECT 1"))).scalar_one() == 1
+            async with engine.connect() as connection:
+                reopened = (await connection.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+            assert reopened != pid
+        finally:
+            await engine.dispose()
+            await witness.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_the_process_clock_agrees_with_the_database_clock() -> None:
+    settings = _settings_or_skip()
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        try:
+            drift = await measure_clock_drift(engine, threshold_seconds=5)
+            assert not drift.is_suspect
+            assert abs(drift.seconds) < 1
         finally:
             await engine.dispose()
 

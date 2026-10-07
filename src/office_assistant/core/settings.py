@@ -24,8 +24,10 @@ class Settings(BaseSettings):
     postgres_pool_size: int = 5
     postgres_max_overflow: int = 2
     postgres_pool_timeout: float = 10.0
+    postgres_pool_recycle_seconds: int = 900
     postgres_echo: bool = False
     database_check_on_startup: bool = False
+    clock_drift_warning_seconds: float = 120.0
     telegram_bot_token: SecretStr | None = None
     telegram_access_password: SecretStr | None = None
     telegram_polling_enabled: bool = False

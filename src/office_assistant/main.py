@@ -16,7 +16,10 @@ from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.engine import create_database_engine
-from office_assistant.infrastructure.database.health import check_database_health
+from office_assistant.infrastructure.database.health import (
+    check_clock_drift,
+    check_database_health,
+)
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.integrations.telegram.app import create_telegram_application
@@ -74,6 +77,8 @@ def main() -> None:
     if settings.telegram_polling_enabled:
         if settings.telegram_bot_token is None:
             raise SystemExit("TELEGRAM_BOT_TOKEN is required when polling is enabled")
+        # Throwaway engine: a pooled socket must not belong to this loop but to run_polling's.
+        asyncio.run(check_startup_clock(settings))
         engine = create_database_engine(settings)
         session_factory = create_session_factory(engine)
         access_password = (
@@ -247,6 +252,17 @@ async def check_database_on_startup(settings: Settings) -> None:
             )
             raise SystemExit(1)
         logging.getLogger(__name__).info("Database health check passed")
+        await check_clock_drift(engine, threshold_seconds=settings.clock_drift_warning_seconds)
+    finally:
+        await engine.dispose()
+
+
+async def check_startup_clock(settings: Settings) -> None:
+    """Compare this process's clock to the system of record before the first turn is served."""
+
+    engine = create_database_engine(settings)
+    try:
+        await check_clock_drift(engine, threshold_seconds=settings.clock_drift_warning_seconds)
     finally:
         await engine.dispose()
 

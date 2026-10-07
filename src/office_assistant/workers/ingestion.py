@@ -10,6 +10,7 @@ from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import load_settings
 from office_assistant.extraction.service import StructuredExtractionService
 from office_assistant.infrastructure.database.engine import create_database_engine
+from office_assistant.infrastructure.database.health import check_clock_drift
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEmbedTextAdapter
@@ -24,6 +25,8 @@ async def run() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
     engine = create_database_engine(settings)
+    # The writer of leases and reminder deadlines must agree with the server that stamps them.
+    await check_clock_drift(engine, threshold_seconds=settings.clock_drift_warning_seconds)
     factory = create_session_factory(engine)
     service = IngestionJobService(
         factory,

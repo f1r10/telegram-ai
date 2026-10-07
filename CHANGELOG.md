@@ -4,6 +4,36 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### DB pool: connections heal themselves, clock skew speaks up (2026-10-07)
+
+Follow-up to the outage above, now approved. A recreate of `qoder_postgres` invalidates sockets in
+processes that stayed up, and the worker paid for it with `asyncpg InterfaceError: connection is
+closed` on its queue claim.
+
+- `infrastructure/database/engine.py`: `pool_pre_ping=True`, so a connection the server already
+  closed is replaced at checkout instead of reaching the query; `pool_recycle` from the new
+  `POSTGRES_POOL_RECYCLE_SECONDS` (default 900) bounds how long an unverified socket can sit idle.
+- `infrastructure/database/health.py`: `measure_clock_drift` compares the process clock to
+  `SELECT now()` at the round-trip midpoint (a lease written in Python and a `created_at` stamped by
+  the server share tables, so skew shifts every expiry), and `check_clock_drift` logs one WARNING past
+  `CLOCK_DRIFT_WARNING_SECONDS` (default 120) rather than exiting. An unreachability — including the
+  `socket.gaierror` class seen in production — logs `Startup clock check skipped` and returns `None`.
+- `main.py` runs the check on a throwaway engine before `run_polling()`, because a connection opened
+  in that temporary loop would not belong to the loop the handlers run in; `check_database_on_startup`
+  gains the same comparison, and `workers/ingestion.py` awaits it inside its own loop.
+- Scope, stated plainly: this check catches a process whose clock disagrees with the system of record
+  (separate host, restored container, wrong timezone handling). It cannot catch a whole-VM clock
+  freeze, where the app and PostgreSQL drift together — that case is covered by the restart policies
+  in `704f4d4`, not here.
+- Tests: `tests/unit/test_database_resilience.py` (8 cases — pool settings, drift sign, warn-not-exit,
+  `gaierror` swallowed) plus two integration cases. The recovery case parks a pooled connection, kills
+  its backend with `pg_terminate_backend` from a second engine, and asserts a *different* backend pid
+  answers afterwards; the same sequence with `pool_pre_ping=False` was verified to raise
+  `asyncpg.exceptions.InternalClientError`, so the test fails without the fix.
+
+Gates: `pytest -m "not integration"` 260 passed, `pytest -m integration` 23 passed, ruff check and
+format clean over 153 files, pyright 0 errors.
+
 ### Deploy: dependencies restart too (2026-10-07)
 
 After the Block 3 deploy the `app` and `worker` containers were seen crash-looping with
@@ -29,9 +59,9 @@ asymmetry turned a host suspend into an app that could not reach an index nobody
   logged `Ingestion worker started` with no traceback, and Telegram polling continued.
 - Side effect worth knowing: recreating `postgres` invalidates pooled connections in processes that
   stayed up. The worker took one `asyncpg InterfaceError: connection is closed` on its queue claim and
-  recovered on restart; the app was restarted to get a clean pool. `create_async_engine` here has no
-  `pool_pre_ping`, so a database restart always costs a long-lived process its first query. Proposed
-  follow-up, not yet approved.
+  recovered on restart; the app was restarted to get a clean pool. `create_async_engine` here had no
+  `pool_pre_ping`, so a database restart always cost a long-lived process its first query. Fixed in
+  the section above.
 - The same VM suspend froze the guest clock ~19 hours behind UTC, which is why log lines during the
   deploy were stamped `2026-10-06 23:04` while the engine said `2026-10-07 18:18`. `SystemClock` is
   `datetime.now(UTC)` and production wires only that (fake clocks exist in tests), so no test double

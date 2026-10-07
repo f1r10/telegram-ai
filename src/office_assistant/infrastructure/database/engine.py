@@ -43,4 +43,8 @@ def create_database_engine(settings: Settings) -> AsyncEngine:
         pool_size=settings.postgres_pool_size,
         max_overflow=settings.postgres_max_overflow,
         pool_timeout=settings.postgres_pool_timeout,
+        # A restarted postgres leaves sockets in this pool that the server already closed.
+        pool_pre_ping=True,
+        # Recycle bounds how long an unverified socket may sit idle before it is replaced.
+        pool_recycle=settings.postgres_pool_recycle_seconds,
     )

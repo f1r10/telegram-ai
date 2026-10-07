@@ -75,7 +75,10 @@ Responsibilities:
   on every long-running service *including* `postgres`, `qdrant` and `searxng`, because `app` and
   `worker` restarting alone against a stopped dependency only produces name-resolution failures;
   nightly `pg_dump` to storage outside the VM; Qdrant is restored by re-indexing from PostgreSQL or
-  via snapshots.
+  via snapshots. The pooled engine pings every connection at checkout and recycles it after
+  `POSTGRES_POOL_RECYCLE_SECONDS` (default 900), since a dependency restart leaves sockets the
+  server already closed; `app` and `worker` each compare their own clock to PostgreSQL `now()` at
+  startup and log a warning past `CLOCK_DRIFT_WARNING_SECONDS` (default 120) instead of exiting.
 
 Telegram transport (RECOMMENDED, OPEN Q4): long polling by default (no public ingress, simplest on a VM). Keep the transport behind an interface so a webhook (behind a reverse proxy such as Caddy, with `secret_token` verification) can replace it without touching handlers.
 
