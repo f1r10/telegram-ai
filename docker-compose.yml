@@ -131,6 +131,9 @@ services:
   qdrant:
     container_name: qoder_qdrant
     image: qdrant/qdrant:v1.19.0
+    # Self-healing dependency: without it an engine restart leaves the index down while
+    # app and worker (unless-stopped) come back and resolve nothing.
+    restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
     ports:
@@ -146,6 +149,7 @@ services:
   searxng:
     container_name: qoder_searxng
     image: searxng/searxng:2026.10.4-d48c4b555@sha256:76b0bf285aca014c7191fc4d9234c4bfb358624ac33d8883833d496c059ec072
+    restart: unless-stopped
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-replace-this-private-instance-secret}
       FORCE_OWNERSHIP: "false"
@@ -165,6 +169,7 @@ services:
   postgres:
     container_name: qoder_postgres
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}

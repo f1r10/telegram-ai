@@ -71,7 +71,11 @@ Responsibilities:
 - `worker`: reminder dispatcher loop, ingestion jobs (parse → chunk → embed → upsert), cache cleanup, retention jobs. Reads work from PostgreSQL (`jobs` table with `FOR UPDATE SKIP LOCKED`; reminders have their own claim loop).
 - `postgres`: system of record for everything, including chunk text. Not published to the host network.
 - `qdrant`: vector index only. Rebuildable from PostgreSQL. Not published to the host network.
-- Ops (RECOMMENDED): pin all image versions; healthchecks on every service; nightly `pg_dump` to storage outside the VM; Qdrant is restored by re-indexing from PostgreSQL or via snapshots.
+- Ops (RECOMMENDED): pin all image versions; healthchecks on every service; `restart: unless-stopped`
+  on every long-running service *including* `postgres`, `qdrant` and `searxng`, because `app` and
+  `worker` restarting alone against a stopped dependency only produces name-resolution failures;
+  nightly `pg_dump` to storage outside the VM; Qdrant is restored by re-indexing from PostgreSQL or
+  via snapshots.
 
 Telegram transport (RECOMMENDED, OPEN Q4): long polling by default (no public ingress, simplest on a VM). Keep the transport behind an interface so a webhook (behind a reverse proxy such as Caddy, with `secret_token` verification) can replace it without touching handlers.
 

@@ -4,6 +4,42 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Deploy: dependencies restart too (2026-10-07)
+
+After the Block 3 deploy the `app` and `worker` containers were seen crash-looping with
+`socket.gaierror: [Errno -5] No address associated with hostname` inside asyncpg and httpx. The
+suspected cause — `127.0.0.1` baked into the container connection variables — was checked and is not
+the case: `docker exec qoder_app env` reports `POSTGRES_HOST=postgres`, `POSTGRES_PORT=5432`,
+`QDRANT_URL=http://qdrant:6333`, i.e. compose service names, and the only `127.0.0.1` in
+`docker-compose.yml` is the host-side publish binding (`127.0.0.1:5435:5432` and friends) that keeps
+this stack off the original instance's ports, plus each service probing itself in its own healthcheck.
+
+The actual failure: `qoder_postgres`, `qoder_qdrant` and `qoder_searxng` were all `Exited (255)`
+within 2 ms of each other while `app`/`worker` came back on their own. Docker's embedded DNS only
+answers for running containers, so with the database stopped `getent hosts postgres` inside the app
+returns nothing, and every connect attempt surfaces as `gaierror`. Containers with no `restart:` key
+stay down after an engine/VM restart; the two with the policy added in `4e6c54b` do not. That
+asymmetry turned a host suspend into an app that could not reach an index nobody had restarted.
+
+- `docker-compose.yml`: `restart: unless-stopped` added to `postgres`, `qdrant` and `searxng`, so the
+  five long-running containers come back together. `model-cache-init` keeps `restart: "no"` — it is a
+  one-shot initializer that exits 0.
+- Restored with `docker compose up -d`; `getent hosts postgres qdrant searxng` inside the app then
+  resolved all three, the app logged `Knowledge projection ready | target=document_chunks`, the worker
+  logged `Ingestion worker started` with no traceback, and Telegram polling continued.
+- Side effect worth knowing: recreating `postgres` invalidates pooled connections in processes that
+  stayed up. The worker took one `asyncpg InterfaceError: connection is closed` on its queue claim and
+  recovered on restart; the app was restarted to get a clean pool. `create_async_engine` here has no
+  `pool_pre_ping`, so a database restart always costs a long-lived process its first query. Proposed
+  follow-up, not yet approved.
+- The same VM suspend froze the guest clock ~19 hours behind UTC, which is why log lines during the
+  deploy were stamped `2026-10-06 23:04` while the engine said `2026-10-07 18:18`. `SystemClock` is
+  `datetime.now(UTC)` and production wires only that (fake clocks exist in tests), so no test double
+  leaked; the process faithfully read a wrong wall clock. Data impact was checked, not assumed: 0
+  reminders, every ingestion/index job `SUCCEEDED`, every outbox event `SENT`, and the two citation
+  rows had already passed their 60-minute TTL in real time — so the skew lands only in audit
+  attribution, and no repair was applied.
+
 ### Multimodal router: an attached picture is a query parameter (Master Spec Block 3B, 2026-10-07)
 
 Master Spec §22 and §3.1: `/baza` with a photo in the caption answered the typed text and threw the
