@@ -125,6 +125,31 @@ class ImageAssetRegistry:
             recorded_occurrence=recorded_occurrence,
         )
 
+    async def ensure_content(self, data: bytes) -> UUID | None:
+        """Make one picture's bytes addressable as content, without claiming where they were seen.
+
+        A user confirming a photo in the same turn as uploading it is the case this serves: the
+        upload has no parse run yet, and an occurrence invented here would be a locator claim no
+        parser made (§23.5). The content row states only that these bytes exist and are stored once,
+        which is true the moment they are held; the run that reads the file still records the
+        sighting itself (§23.4).
+        """
+
+        signature = image_signature(data)
+        if signature is None:
+            return None
+        content_sha256 = sha256(data).hexdigest()
+        storage_key = self.storage.store_image_asset(
+            data, content_sha256, _SUFFIXES[signature.format]
+        )
+        asset_id, _ = await self._register_content(
+            content_sha256=content_sha256,
+            signature=signature,
+            byte_size=len(data),
+            storage_key=storage_key,
+        )
+        return asset_id
+
     async def _register_content(
         self,
         *,
