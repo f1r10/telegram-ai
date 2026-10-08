@@ -38,6 +38,7 @@ from office_assistant.infrastructure.database.models import (
     IngestionSessionStatus,
     KnowledgeIndexJob,
     OutboxEvent,
+    ProductImageRelation,
     User,
     UserRole,
     UserStatus,
@@ -132,6 +133,7 @@ def _settings_or_skip() -> Settings:
 async def _clean(factory: async_sessionmaker[AsyncSession]) -> None:
     async with factory.begin() as session:
         for table in (
+            ProductImageRelation,
             ImageAssetOccurrence,
             ImageAsset,
             OutboxEvent,

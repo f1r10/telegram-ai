@@ -1299,3 +1299,90 @@ class ImageAssetOccurrence(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ProductImageRelationRole(StrEnum):
+    """What a picture means for a product (Master Spec §22.5)."""
+
+    USER_CONFIRMED = "USER_CONFIRMED"
+    REFERENCE = "REFERENCE"
+    CATALOG = "CATALOG"
+    PACKAGING = "PACKAGING"
+    DOCUMENT_EXTRACTED = "DOCUMENT_EXTRACTED"
+    OTHER = "OTHER"
+
+
+class ProductImageRelationConfirmation(StrEnum):
+    """Who stood behind the relation.
+
+    Only an explicit human statement is a value here, because that is the only kind this build
+    creates (§22.3, §23.7). A visual-similarity match is deliberately absent: §22.8 forbids treating
+    it as identity, so it must not be able to masquerade as a confirmation.
+    """
+
+    USER_EXPLICIT = "USER_EXPLICIT"
+
+
+class ProductImageRelation(Base):
+    """One product's claim on one exact picture, with the timestamps that make it historical.
+
+    The relation points at content, not at an upload: the same bytes confirmed once and found inside
+    a catalog are the same picture (§23.4). ``superseded_at`` is the history half of §23.6, so an
+    old claim can be kept rather than overwritten.
+
+    The two partial unique indexes state the rules the application must never have to re-derive. One
+    active confirmation per picture (§22.7) is enforced here, so a second product naming the same
+    bytes collides in the database instead of silently relinking it. Many pictures per product stay
+    allowed (§22.4).
+    """
+
+    __tablename__ = "product_image_relations"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('USER_CONFIRMED', 'REFERENCE', 'CATALOG', 'PACKAGING', "
+            "'DOCUMENT_EXTRACTED', 'OTHER')",
+            name="ck_product_image_relations_role",
+        ),
+        CheckConstraint(
+            "confirmation_type IN ('USER_EXPLICIT')",
+            name="ck_product_image_relations_confirmation",
+        ),
+        Index(
+            "uq_product_image_active_confirmation",
+            "image_asset_id",
+            unique=True,
+            postgresql_where=text("confirmation_type = 'USER_EXPLICIT' AND superseded_at IS NULL"),
+        ),
+        Index(
+            "uq_product_image_relation_active",
+            "product_id",
+            "image_asset_id",
+            "role",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    # A product's identity is never taken down by its pictures; deactivation is the soft route (§6).
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # RESTRICT rather than CASCADE, unlike an occurrence: an authoritative business claim must not
+    # vanish because something decided to prune image content.
+    image_asset_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("image_assets.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_reference: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    confirmation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_reference_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("source_references.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
