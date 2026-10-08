@@ -21,8 +21,10 @@ from docx.oxml.ns import qn
 from openpyxl import Workbook
 from openpyxl.reader import drawings
 from pypdf import PdfWriter
+from pypdf.errors import PdfReadError
 from pypdf.generic import (
     ArrayObject,
+    BooleanObject,
     DecodedStreamObject,
     DictionaryObject,
     NameObject,
@@ -34,6 +36,7 @@ from office_assistant.processing import parsers as parsers_module
 from office_assistant.processing.image_metadata import ImageSignature
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ParserRegistry
+from office_assistant.processing.pdf_images import SampleImageError, picture_bytes
 
 PNG_START = b"\x89PNG\r\n\x1a\n"
 DRAWINGML = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -202,11 +205,333 @@ def test_a_picture_inside_a_form_is_located_in_the_form_not_invented_for_the_pag
     assert nested[0].data == _jpeg(width=16, height=8)
 
 
-def test_a_flat_pdf_stream_is_reported_rather_than_rebuilt_into_a_picture(tmp_path: Path) -> None:
+def test_a_flat_pdf_stream_that_does_not_fill_its_grid_is_refused_by_name(tmp_path: Path) -> None:
     parsed = _parse(_pdf(tmp_path), "price-list.pdf", "application/pdf")
 
     assert all(image.locator["xobject"] != "/ImFlat" for image in parsed.embedded_images)
-    assert any("FlateDecode" in warning for warning in parsed.warnings)
+    grid = 60 * 3 * 30
+    assert any(
+        f"decoded samples are {len(_png())} bytes, not the {grid} the grid declares" in warning
+        for warning in parsed.warnings
+    ), "the rest of the page is still read, and the refusal says which picture and why"
+
+
+def _raw_image(
+    width: int,
+    height: int,
+    samples: bytes,
+    *,
+    color_space: str = "/DeviceRGB",
+    depth: int = 8,
+    filters: tuple[str, ...] = ("/FlateDecode",),
+    extra: dict[str, Any] | None = None,
+    compressed: bool = False,
+) -> DecodedStreamObject:
+    """One image stream as a PDF dictionary declares it: a grid, a colour space, and its samples.
+
+    The caller always hands over the colour grid. ``compressed`` puts it behind the declared filter
+    the way a file does, which is what a writer needs to produce a PDF a reader can open; without it
+    the stream holds the samples directly, which is what a reader hands back once it has applied
+    that filter.
+    """
+
+    entries: dict[str, Any] = {
+        "/Type": NameObject("/XObject"),
+        "/Subtype": NameObject("/Image"),
+        "/Width": NumberObject(width),
+        "/Height": NumberObject(height),
+        "/ColorSpace": NameObject(color_space),
+        "/BitsPerComponent": NumberObject(depth),
+    }
+    if filters:
+        entries["/Filter"] = (
+            NameObject(filters[0])
+            if len(filters) == 1
+            else ArrayObject([NameObject(name) for name in filters])
+        )
+    entries.update(extra or {})
+    stream = DecodedStreamObject()
+    stream.update({NameObject(key): value for key, value in entries.items()})
+    stream.set_data(zlib.compress(samples) if compressed else samples)
+    return stream
+
+
+def _pdf_picture(tmp_path: Path, stream: Any) -> Path:
+    """A one-page PDF that draws one picture under the name ``/Im``."""
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=200, height=200)
+    xobjects = DictionaryObject()
+    xobjects[NameObject("/Im")] = _indirect(writer, stream)
+    resources = DictionaryObject()
+    resources[NameObject("/XObject")] = xobjects
+    page[NameObject("/Resources")] = resources
+    page[NameObject("/Contents")] = _indirect(writer, _content_stream("q /Im Do Q"))
+    path = tmp_path / "picture.pdf"
+    with path.open("wb") as handle:
+        writer.write(handle)
+    return path
+
+
+def _read_png(data: bytes) -> tuple[int, int, int, bytes]:
+    """Size, colour type and pixel body of a PNG, read without an imaging library."""
+
+    assert data[:8] == PNG_START
+    offset = 8
+    header = b""
+    rows = bytearray()
+    while offset < len(data):
+        length = int.from_bytes(data[offset : offset + 4], "big")
+        kind = data[offset + 4 : offset + 8]
+        chunk = data[offset + 8 : offset + 8 + length]
+        assert zlib.crc32(kind + chunk) == int.from_bytes(data[offset + 8 + length :][:4], "big")
+        if kind == b"IHDR":
+            header = chunk
+        elif kind == b"IDAT":
+            rows += chunk
+        offset += 12 + length
+    assert (header[8], header[10], header[11], header[12]) == (8, 0, 0, 0)
+    width = int.from_bytes(header[:4], "big")
+    height = int.from_bytes(header[4:8], "big")
+    color_type = header[9]
+    step = _PNG_BYTES_PER_PIXEL[color_type] * width + 1
+    body = zlib.decompress(bytes(rows))
+    assert len(body) == step * height, "every row carries its filter byte"
+    assert all(body[row * step] == 0 for row in range(height))
+    pixels = b"".join(body[row * step + 1 : row * step + step] for row in range(height))
+    return width, height, color_type, pixels
+
+
+_PNG_BYTES_PER_PIXEL = {0: 1, 2: 3, 4: 2, 6: 4}
+
+
+def test_a_pdf_picture_of_raw_samples_becomes_the_png_its_own_grid_declares(
+    tmp_path: Path,
+) -> None:
+    """A page can hold a picture as plain colour samples; storing it as a PNG keeps the pixels."""
+
+    samples = b"\x01\x02\x03\xfe\xfd\xfc\x10\x20\x30\x40\x50\x60"
+    parsed = _parse(
+        _pdf_picture(tmp_path, _raw_image(2, 2, samples, compressed=True)),
+        "picture.pdf",
+        "application/pdf",
+    )
+
+    image = parsed.embedded_images[0]
+    assert image.content_type == "image/png"
+    assert image.locator == {"page": 1, "image_index": 1, "xobject": "/Im"}
+    assert parsed.warnings == ["Page 1 contains no extractable text; OCR may be required"]
+    assert _read_png(image.data) == (2, 2, 2, samples)
+
+
+def test_a_gray_pdf_picture_keeps_one_sample_per_pixel(tmp_path: Path) -> None:
+    parsed = _parse(
+        _pdf_picture(
+            tmp_path,
+            _raw_image(2, 2, b"\x00\x40\x80\xff", color_space="/DeviceGray", compressed=True),
+        ),
+        "picture.pdf",
+        "application/pdf",
+    )
+
+    assert _read_png(parsed.embedded_images[0].data) == (2, 2, 0, b"\x00\x40\x80\xff")
+
+
+def test_a_pdf_picture_with_no_filter_at_all_is_still_a_picture(tmp_path: Path) -> None:
+    parsed = _parse(
+        _pdf_picture(
+            tmp_path, _raw_image(1, 3, b"\x11\x22\x33", color_space="/DeviceGray", filters=())
+        ),
+        "picture.pdf",
+        "application/pdf",
+    )
+
+    assert _read_png(parsed.embedded_images[0].data) == (1, 3, 0, b"\x11\x22\x33")
+
+
+def test_a_pdf_soft_mask_is_carried_as_the_alpha_channel_it_describes() -> None:
+    stream = _raw_image(
+        2,
+        2,
+        b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c",
+        extra={"/SMask": _raw_image(2, 2, b"\x00\x40\x80\xff", color_space="/DeviceGray")},
+    )
+
+    assert _read_png(picture_bytes(stream, 1024)) == (
+        2,
+        2,
+        6,
+        b"\x01\x02\x03\x00\x04\x05\x06\x40\x07\x08\x09\x80\x0a\x0b\x0c\xff",
+    )
+
+
+def test_a_whole_picture_file_keeps_its_own_bytes_and_names_the_mask_it_left_behind(
+    tmp_path: Path,
+) -> None:
+    """§23.3: a JPEG travels as the document holds it, so a mask cannot be folded into it."""
+
+    stream = _image_stream(_jpeg(), filter_name="/DCTDecode", width=64, height=32)
+    stream[NameObject("/SMask")] = _raw_image(
+        64, 32, b"\xff" * (64 * 32), color_space="/DeviceGray", filters=()
+    )
+
+    parsed = _parse(_pdf_picture(tmp_path, stream), "picture.pdf", "application/pdf")
+
+    assert parsed.embedded_images[0].data == _jpeg()
+    assert parsed.warnings == [
+        "Page 1 contains no extractable text; OCR may be required",
+        "Page 1 picture /Im: its soft mask is not carried into the picture file that was stored",
+    ]
+
+
+def test_a_mask_is_only_named_beside_a_picture_that_was_actually_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two refusals must not contradict each other about whether anything was stored."""
+
+    monkeypatch.setattr(parsers_module, "MAX_EMBEDDED_IMAGE_BYTES", 16)
+    stream = _image_stream(_jpeg(), filter_name="/DCTDecode", width=64, height=32)
+    stream[NameObject("/SMask")] = _raw_image(
+        64, 32, b"\xff" * (64 * 32), color_space="/DeviceGray", filters=()
+    )
+
+    parsed = _parse(_pdf_picture(tmp_path, stream), "picture.pdf", "application/pdf")
+
+    assert parsed.embedded_images == []
+    assert [warning for warning in parsed.warnings if "picture" in warning] == [
+        f"Page 1 picture /Im: {len(_jpeg())} bytes exceeds the 16 byte cap"
+    ]
+
+
+class _UndecodableStream:
+    """An image stream whose declared decoder fails, the way a reader reports a lying file."""
+
+    def __init__(self, entries: dict[str, Any]) -> None:
+        self._entries = entries
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._entries.get(key, default)
+
+    def get_data(self) -> bytes:
+        raise PdfReadError("could not inflate the samples")
+
+
+def test_a_stream_the_reader_cannot_open_costs_one_picture_not_the_document() -> None:
+    """A declared filter that cannot deliver is a named refusal, never an escaping exception."""
+
+    stream = _UndecodableStream(
+        {
+            "/Subtype": NameObject("/Image"),
+            "/Filter": NameObject("/FlateDecode"),
+            "/ColorSpace": NameObject("/DeviceGray"),
+            "/BitsPerComponent": NumberObject(8),
+            "/Width": NumberObject(2),
+            "/Height": NumberObject(2),
+        }
+    )
+
+    with pytest.raises(SampleImageError) as refused:
+        picture_bytes(stream, 1024)
+
+    assert str(refused.value) == "/FlateDecode stream will not decode (PdfReadError)"
+
+
+@pytest.mark.parametrize(
+    ("stream", "reason"),
+    [
+        (
+            _raw_image(2, 2, b"\x00" * 12, extra={"/ImageMask": BooleanObject(True)}),
+            "a stencil mask is not a picture",
+        ),
+        (
+            _raw_image(2, 2, b"\x00" * 4, color_space="/DeviceCMYK"),
+            "colour space /DeviceCMYK needs a mapping nobody declared",
+        ),
+        (
+            _raw_image(2, 2, b"\x00" * 4, color_space="/Indexed"),
+            "colour space /Indexed needs a mapping nobody declared",
+        ),
+        (_raw_image(2, 2, b"\x00" * 12, depth=4), "bit depth 4 is not unpacked here"),
+        (_raw_image(0, 2, b""), "dictionary declares no usable /Width and /Height grid"),
+        (
+            _raw_image(2, 2, b"\x00" * 12, filters=("/FlateDecode", "/ASCIIHexDecode")),
+            "filter chain /FlateDecode+/ASCIIHexDecode is not one encoder",
+        ),
+        (
+            _raw_image(2, 2, b"\x00" * 12, filters=("/CCITTFaxDecode",)),
+            "stream filter /CCITTFaxDecode holds samples no rule here reinterpret",
+        ),
+        (
+            _raw_image(2, 2, b"\x00" * 12, extra={"/Decode": ArrayObject([NumberObject(0)])}),
+            "/Decode stands between these samples and the painted colour",
+        ),
+        (
+            _raw_image(
+                2,
+                2,
+                b"\x00" * 12,
+                extra={"/Mask": _raw_image(2, 2, b"\x00" * 4, color_space="/DeviceGray")},
+            ),
+            "/Mask stands between these samples and the painted colour",
+        ),
+        (_raw_image(400, 400, b"\x00" * 12), "declared grid 400x400 is over the 500 byte bound"),
+        (
+            _raw_image(2, 2, b"\x00" * 11),
+            "decoded samples are 11 bytes, not the 12 the grid declares",
+        ),
+        (
+            _raw_image(2, 1, b"\x00" * 6, extra={"/SMask": _raw_image(2, 1, b"\x00" * 2)}),
+            "soft mask is not a plain gray rectangle",
+        ),
+        (
+            _raw_image(
+                2,
+                1,
+                b"\x00" * 6,
+                extra={"/SMask": _raw_image(3, 1, b"\x00" * 3, color_space="/DeviceGray")},
+            ),
+            "soft mask covers grid (3, 1), not the picture's (2, 1)",
+        ),
+        (
+            _raw_image(
+                2,
+                1,
+                b"\x00" * 6,
+                extra={"/SMask": _raw_image(2, 1, b"\x00" * 4, color_space="/DeviceGray", depth=1)},
+            ),
+            "soft mask is not 8-bit",
+        ),
+        (
+            _raw_image(
+                2,
+                1,
+                b"\x00" * 6,
+                extra={
+                    "/SMask": _raw_image(
+                        2, 1, b"\x00" * 4, color_space="/DeviceGray", filters=("/JPXDecode",)
+                    )
+                },
+            ),
+            "stream filter /JPXDecode holds samples no rule here reinterpret",
+        ),
+        (
+            _raw_image(
+                2,
+                1,
+                b"\x00" * 6,
+                extra={"/SMask": _raw_image(2, 1, b"\x00" * 3, color_space="/DeviceGray")},
+            ),
+            "soft mask samples do not fill the declared grid",
+        ),
+    ],
+)
+def test_a_picture_this_build_cannot_rebuild_is_refused_by_name(stream: Any, reason: str) -> None:
+    """Every refusal names the entry that caused it, so a reader can tell a gap from a guess."""
+
+    with pytest.raises(SampleImageError) as refused:
+        picture_bytes(stream, 500)
+
+    assert str(refused.value) == reason
 
 
 def _docx(tmp_path: Path, *, broken_relationship: bool = False) -> Path:

@@ -25,17 +25,18 @@ from pypdf.generic import ContentStream
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.processing.image_metadata import image_signature
 from office_assistant.processing.models import ContentBlock, EmbeddedImage, ParsedDocument
+from office_assistant.processing.pdf_images import (
+    SampleImageError,
+    pdf_name,
+    picture_bytes,
+    soft_mask_note,
+)
 
 # A picture inside a document is untrusted input like every other byte the bot reads, so extraction
 # is bounded: one payload and one count cap keep a hostile file from turning a parse into a disk
 # write marathon. Both caps are ASSUMPTION values (Master Spec §23 leaves them open, Q29).
 MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_EMBEDDED_IMAGES_PER_DOCUMENT = 200
-
-# Image streams in PDF carry either a whole picture file or raw samples. Only the former can be
-# stored as an asset without rebuilding the file, which §23.5 forbids guessing at. A stream that
-# passes this gate can still hold a format no header reader here describes (Q30).
-_SELF_CONTAINED_IMAGE_FILTERS = frozenset({"/DCTDecode", "/JPXDecode"})
 
 _RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -63,26 +64,29 @@ class _ExtractedImages:
         self.warnings = warnings
         self._stopped = False
 
-    def add(self, locator: dict[str, Any], data: bytes, description: str) -> None:
+    def add(self, locator: dict[str, Any], data: bytes, description: str) -> bool:
+        """Keep one picture, or say out loud why it was left behind. Returns whether it was kept."""
+
         if len(self.images) >= MAX_EMBEDDED_IMAGES_PER_DOCUMENT:
             if not self._stopped:
                 self._stopped = True
                 self.warnings.append(
                     f"Picture extraction stopped at {MAX_EMBEDDED_IMAGES_PER_DOCUMENT} images"
                 )
-            return
+            return False
         if len(data) > MAX_EMBEDDED_IMAGE_BYTES:
             self.warnings.append(
                 f"{description}: {len(data)} bytes exceeds the {MAX_EMBEDDED_IMAGE_BYTES} byte cap"
             )
-            return
+            return False
         signature = image_signature(data)
         if signature is None:
             self.warnings.append(
                 f"{description}: bytes are not a PNG or JPEG this build can describe"
             )
-            return
+            return False
         self.images.append(EmbeddedImage(locator, data, signature.mime_type))
+        return True
 
 
 class DocumentParser(Protocol):
@@ -180,7 +184,7 @@ class PdfParser:
                 stream = resources.get(name)
                 if stream is None:
                     continue
-                subtype = _name_of(stream.get("/Subtype"))
+                subtype = pdf_name(stream.get("/Subtype"))
                 if subtype == "/Image":
                     index += 1
                     self._collect(
@@ -217,7 +221,7 @@ class PdfParser:
         resources = _xobject_resources(form)
         for name in _drawn_names(operations):
             stream = resources.get(name)
-            if stream is None or _name_of(stream.get("/Subtype")) != "/Image":
+            if stream is None or pdf_name(stream.get("/Subtype")) != "/Image":
                 continue
             index += 1
             locator = _page_locator(page_number, index, form_name)
@@ -233,13 +237,16 @@ class PdfParser:
         locator: dict[str, Any],
         description: str,
     ) -> None:
-        filter_name = _name_of(stream.get("/Filter"))
-        if filter_name not in _SELF_CONTAINED_IMAGE_FILTERS:
-            collected.warnings.append(
-                f"{description}: stream filter {filter_name or 'none'} holds no whole picture"
-            )
+        try:
+            data = picture_bytes(stream, MAX_EMBEDDED_IMAGE_BYTES)
+        except SampleImageError as error:
+            collected.warnings.append(f"{description}: {error}")
             return
-        collected.add(locator, stream.get_data(), description)
+        # A mask is worth naming only once a picture was kept: if nothing was stored, no stored
+        # picture left a mask behind.
+        note = soft_mask_note(stream) if collected.add(locator, data, description) else None
+        if note is not None:
+            collected.warnings.append(f"{description}: {note}")
 
     @staticmethod
     def _page_operations(
@@ -256,21 +263,11 @@ class PdfParser:
             return None
 
 
-def _name_of(value: Any) -> str:
-    """Read a PDF name value, resolving an indirect reference, as a plain string."""
-
-    if value is None:
-        return ""
-    resolved = value.get_object() if hasattr(value, "get_object") else value
-    text = str(resolved)
-    return "" if text in {"None", "null"} else text
-
-
 def _drawn_names(operations: list[tuple[Any, bytes]]) -> list[str]:
     names: list[str] = []
     for operands, operator in operations:
         if operator == b"Do" and operands:
-            names.append(_name_of(operands[0]))
+            names.append(pdf_name(operands[0]))
     return [name for name in names if name]
 
 

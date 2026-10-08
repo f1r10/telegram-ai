@@ -19,17 +19,23 @@ pretending to be an upload the user sent.
   - **PDF** walks each page's own content stream and records what the page *draws*, in draw order,
     one Form level deep (`{"page", "image_index", "xobject"[, "form_xobject"]}`). A resource
     dictionary can name a picture the page never paints, and an occurrence for that page would be an
-    invented locator (§23.5), so it is not recorded. Only `/DCTDecode` and `/JPXDecode` streams hold
-    a whole picture; a flat `/FlateDecode` sample would have to be rebuilt into a file the document
-    never contained, so the run says which filter it refused instead.
+    invented locator (§23.5), so it is not recorded. A `/DCTDecode` or `/JPXDecode` stream is a whole
+    picture file and travels as it arrived; a flat grid of colour samples — `/FlateDecode`,
+    `/LZWDecode`, `/RunLengthDecode` or none — is rebuilt into a PNG by `processing/pdf_images.py`,
+    which refuses by name whenever the pixels could only be guessed (stencil masks, colour spaces
+    and bit depths no rule here unpacks, a `/Decode` or `/Mask` standing between the samples and the
+    painted colour, a chain of encoders, a declared grid the bytes do not fill). A `/SMask` on a flat
+    picture becomes its alpha channel; a `/SMask` travelling with a JPEG is named, not silently
+    dropped. Inline images are still counted and reported, not cut out of the content stream.
   - **DOCX** collects `a:blip` targets while walking the body, so a picture inherits the locator of
     its own place: `{"paragraph_index", …}` or `{"table_index", "row", "column", …}`. Rows and cells
     come from the XML, not `table.rows[i].cells[j]`, because a merged cell is reported once per grid
     position it spans and would let one picture claim several homes.
   - **XLSX** reads the package the way a spreadsheet writes it — workbook → sheet relationship →
     drawing part → image member — and locates each anchor by `{"sheet", "image_index", "anchor_cell"}`
-    from its own `xdr:from`, with no cell invented when a drawing declares none. Text parsing keeps
-    `read_only=True`; picture reading is a separate zip pass.
+    from its own `xdr:from`, with no cell invented when a drawing declares none. The workbook loads
+    in normal mode (`read_only=True` was dropped in `b260d21`): pictures are still taken from the
+    package, because openpyxl's drawing reader returns none at all without Pillow.
   - Every refusal is a warning with the picture's own description, and an unreadable page or form
     costs its pictures, never the document.
 - `processing/image_metadata.py`: the signature reader now takes bytes (a package hands over bytes,
@@ -44,15 +50,17 @@ pretending to be an upload the user sent.
   text and picture warnings are kept apart.
 - Two bounds keep extraction from being an unbounded disk write (`MAX_EMBEDDED_IMAGE_BYTES` 8 MiB,
   `MAX_EMBEDDED_IMAGES_PER_DOCUMENT` 200); a payload over either is counted and named, not kept.
-- Tests: `tests/unit/test_phase12a_embedded_images.py` (18) builds every fixture from the package
+- Tests: `tests/unit/test_phase12a_embedded_images.py` (42) builds every fixture from the package
   formats themselves with the standard library only — no Pillow — and checks drawn-only extraction,
-  form nesting, refused filters, paragraph/cell and sheet/cell locators, both caps, and the
+  form nesting, both PDF picture kinds (a whole JPEG kept byte-for-byte, a flat grid round-tripped
+  pixel-for-pixel through a hand-written PNG reader), grey and alpha grids, sixteen named refusals
+  each asserting its exact sentence, paragraph/cell and sheet/cell locators, both caps, and the
   byte-free parse artifact. One new integration case runs a real `.docx` through the worker and
   asserts 1 asset + 2 occurrences, one `file_objects` row, `blobs/` holding only the document, the
   logo present exactly once on disk under `image_assets/`, and `SUCCEEDED` with `requires_ocr` false.
-  Gates: 310 unit, 29 integration, ruff, format (163 files), pyright strict 0 errors.
-- Recorded as OPEN-QUESTIONS Q29 (the two caps are unspec'd) and Q30 (PDF inline images, non-JPEG
-  streams, JPEG 2000 and DOCX header/footer pictures are reported, not stored).
+  Gates: 333 unit, 29 integration, ruff, format (164 files), pyright strict 0 errors.
+- Recorded as OPEN-QUESTIONS Q29 (the two caps are unspec'd) and Q30 (PDF inline images, JPEG 2000
+  and DOCX header/footer pictures are reported, not stored).
 
 ### Phase 12A Block 5A: an uploaded picture becomes content the system can point at (2026-10-08)
 
