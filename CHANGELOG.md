@@ -39,11 +39,19 @@ falling back on "no usable result"; the code had implemented "no result".
   of in the Telegram messages module, following that module's existing convention; the domain service
   must not import the Telegram layer.
 
-Deploy note, stated plainly: `TAVILY_API_KEY` is empty in this stack, so the fallback is *not*
-configured in production yet and an unusable page still ends as "nothing found" until the owner sets
-the key in `.env`. No compose edit was made: `app` already receives `.env` through `env_file`, the
+Deploy note: `TAVILY_API_KEY` was empty in this stack when the block was written, so the fallback was
+not configured in production yet and an unusable page still ended as "nothing found" until the owner
+set the key in `.env`. No compose edit was made: `app` already receives `.env` through `env_file`, the
 worker never searches the web, and naming the variable under `environment:` would let an empty shell
 value override the file.
+*Deployed 2026-10-08 with `ba3c0f5`:* the owner set the key, `app` and `worker` were rebuilt and
+restarted, and the round trip was re-run inside the container — key configured (length reported only,
+value never printed), real SearXNG returned 6 raw hits with 0 usable by the gate, and the answer came
+back `provider=tavily fallback_used=True` with a gate-usable hit first. Both processes logged
+`Startup clock check passed | drift_seconds=-0.014` (app) and `-0.012` (worker), then the app reported
+`Knowledge projection ready | target=document_chunks` and resumed polling. Docker Desktop's engine was
+found fully stopped before the build — the same host suspend/resume instability as the earlier
+incident — so the containers were only reachable after the GUI application was started again.
 
 Tests: 20 new cases in `tests/unit/test_web_fallback.py` (unusable page → one fallback call; usable
 primary page never reaches it; no-fallback and both-provider-down paths; unusable cache entry
