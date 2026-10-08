@@ -135,13 +135,17 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       XLSX parsers now report the pictures they carry, each with the locator its format can honestly
       state: a PDF page plus the XObject the page's own content stream draws (a resource the page
       never paints is not a sighting, and one level of form nesting says so), a DOCX paragraph index
-      or table row and column, an XLSX sheet name plus its anchor cell. The bytes land in the same
+      or table row and column — including the paragraph or cell inside a header or footer part a
+      section defines, whose locator names that part and role instead of pretending to be body text —
+      an XLSX sheet name plus its anchor cell. The bytes land in the same
       `image_assets/<digest>` namespace as an upload, so one logo shown in a paragraph and in a table
       cell is one copy of bytes and two occurrences, while `file_objects` gains no row for it and
-      `blobs/` keeps only the document the user sent (§23.3, §23.5). A payload this build cannot
-      describe — an inline PDF image, a flat `/FlateDecode` stream, a picture over the size cap — is
-      counted and warned about instead of silently dropped or rebuilt, and a document whose text is
-      readable still finishes `SUCCEEDED` rather than being deferred.
+      `blobs/` keeps only the document the user sent (§23.3, §23.5). A flat PDF raster is rebuilt
+      into a PNG from the grid its own dictionary declares, 8-bit DeviceGray/DeviceRGB only, with a
+      `/SMask` carried as the alpha channel it describes; a payload this build cannot describe — an
+      inline PDF image, a JPEG 2000 stream, a colour space with no rule here, a picture over the size
+      cap — is counted and warned about instead of silently dropped or guessed at, and a document
+      whose text is readable still finishes `SUCCEEDED` rather than being deferred.
 - [ ] Block 5C: `product_image_relation` plus the deterministic "Bu KA45-dir, yadda saxla"
       confirmation (§23.7) — no LLM call when the code can parse the product code, an unknown
       product is never created, an ambiguous one is never guessed, and a cancelled confirmation

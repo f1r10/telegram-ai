@@ -27,10 +27,17 @@ pretending to be an upload the user sent.
     painted colour, a chain of encoders, a declared grid the bytes do not fill). A `/SMask` on a flat
     picture becomes its alpha channel; a `/SMask` travelling with a JPEG is named, not silently
     dropped. Inline images are still counted and reported, not cut out of the content stream.
-  - **DOCX** collects `a:blip` targets while walking the body, so a picture inherits the locator of
-    its own place: `{"paragraph_index", …}` or `{"table_index", "row", "column", …}`. Rows and cells
-    come from the XML, not `table.rows[i].cells[j]`, because a merged cell is reported once per grid
-    position it spans and would let one picture claim several homes.
+  - **DOCX** collects `a:blip` targets while walking block elements, so a picture inherits the
+    locator of its own place: `{"paragraph_index", …}` or `{"table_index", "row", "column", …}`. Rows
+    and cells come from the XML, not `table.rows[i].cells[j]`, because a merged cell is reported once
+    per grid position it spans and would let one picture claim several homes. The same walk then runs
+    over each header and footer a section defines, because a letterhead logo lives in its own package
+    part and is invisible to a body-only pass; its locator names that part and the role it plays
+    (`{"part": "word/header1.xml", "section_index", "role": "default_header", …}`). A section that
+    links its header to the previous one is skipped before python-docx is allowed to reach for it,
+    since accessing the property creates a header part — a definition invented there would be a
+    second, unowned claim over the same page (§23.5), and a test asserts the saved package still
+    holds no header part at all.
   - **XLSX** reads the package the way a spreadsheet writes it — workbook → sheet relationship →
     drawing part → image member — and locates each anchor by `{"sheet", "image_index", "anchor_cell"}`
     from its own `xdr:from`, with no cell invented when a drawing declares none. The workbook loads
@@ -50,17 +57,21 @@ pretending to be an upload the user sent.
   text and picture warnings are kept apart.
 - Two bounds keep extraction from being an unbounded disk write (`MAX_EMBEDDED_IMAGE_BYTES` 8 MiB,
   `MAX_EMBEDDED_IMAGES_PER_DOCUMENT` 200); a payload over either is counted and named, not kept.
-- Tests: `tests/unit/test_phase12a_embedded_images.py` (42) builds every fixture from the package
+- Tests: `tests/unit/test_phase12a_embedded_images.py` (44) builds every fixture from the package
   formats themselves with the standard library only — no Pillow — and checks drawn-only extraction,
   form nesting, both PDF picture kinds (a whole JPEG kept byte-for-byte, a flat grid round-tripped
   pixel-for-pixel through a hand-written PNG reader), grey and alpha grids, sixteen named refusals
   each asserting its exact sentence, paragraph/cell and sheet/cell locators, both caps, and the
-  byte-free parse artifact. One new integration case runs a real `.docx` through the worker and
-  asserts 1 asset + 2 occurrences, one `file_objects` row, `blobs/` holding only the document, the
-  logo present exactly once on disk under `image_assets/`, and `SUCCEEDED` with `requires_ocr` false.
-  Gates: 333 unit, 29 integration, ruff, format (164 files), pyright strict 0 errors.
-- Recorded as OPEN-QUESTIONS Q29 (the two caps are unspec'd) and Q30 (PDF inline images, JPEG 2000
-  and DOCX header/footer pictures are reported, not stored).
+  byte-free parse artifact. Two more build a letterhead the way Word writes one — a body logo plus
+  one carried only by the section's header part and its footer part — and assert each is sighted at
+  its own part and role, while a plain document gains no header part from being read. One new
+  integration case runs a real `.docx` through the worker and asserts 1 asset + 2 occurrences, one
+  `file_objects` row, `blobs/` holding only the document, the logo present exactly once on disk under
+  `image_assets/`, and `SUCCEEDED` with `requires_ocr` false.
+  Gates: 336 unit, 29 integration, ruff, format (164 files), pyright strict 0 errors.
+- Recorded as OPEN-QUESTIONS Q29 (the two caps are unspec'd) and Q30 (PDF inline images and JPEG 2000
+  are reported, not stored; a DOCX header or footer logo is now sighted, while footnotes, endnotes,
+  comments and legacy VML pictures are not).
 
 ### Phase 12A Block 5A: an uploaded picture becomes content the system can point at (2026-10-08)
 

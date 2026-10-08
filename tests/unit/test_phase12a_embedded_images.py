@@ -611,6 +611,88 @@ def test_a_docx_picture_pointing_at_nothing_is_reported(tmp_path: Path) -> None:
     assert any("rId404" in warning for warning in parsed.warnings)
 
 
+def _paragraph_element(paragraph: Any) -> Any:
+    """The XML element under a paragraph, which is where a hand-built drawing has to go."""
+
+    return paragraph._p
+
+
+def _docx_with_letterhead(tmp_path: Path) -> Path:
+    """A logo in the body and a different one carried only by the section's header and footer."""
+
+    document = Document()
+    document.add_paragraph("Qiymət siyahısı")
+    package = document.part.package
+
+    def attach(part: Any, element: Any, name: str, image: bytes) -> None:
+        """Give one package part a picture of its own and draw it in one of its elements."""
+
+        logo = Part(PackURI(name), "image/png", image, package)
+        element.append(_drawing(part.relate_to(logo, RT.IMAGE)))
+
+    body_paragraph = cast(Any, document.element).body.findall(_qname("w", "p"))[0]
+    attach(document.part, body_paragraph, "/word/media/image1.png", _png())
+    header = document.sections[0].header
+    footer = document.sections[0].footer
+    header.is_linked_to_previous = False
+    footer.is_linked_to_previous = False
+    attach(
+        header.part,
+        _paragraph_element(header.paragraphs[0]),
+        "/word/media/image2.png",
+        _png(width=120, height=20),
+    )
+    attach(
+        footer.part,
+        _paragraph_element(footer.paragraphs[0]),
+        "/word/media/image3.png",
+        _png(width=20, height=8),
+    )
+    path = tmp_path / "letterhead.docx"
+    document.save(str(path))
+    return path
+
+
+def test_a_logo_carried_only_by_the_header_or_footer_is_still_sighted(tmp_path: Path) -> None:
+    """A letterhead lives in its own part, so its locator names that part instead of the body."""
+
+    parsed = _parse(
+        _docx_with_letterhead(tmp_path),
+        "letterhead.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    body, header, footer = parsed.embedded_images
+    assert "part" not in body.locator
+    assert body.locator["paragraph_index"] == 0
+    assert header.locator["part"] == "word/header1.xml"
+    assert (header.locator["section_index"], header.locator["role"]) == (0, "default_header")
+    assert (header.locator["paragraph_index"], header.locator["image_index"]) == (0, 1)
+    assert header.locator["relationship_id"].startswith("rId")
+    assert header.data == _png(width=120, height=20)
+    assert footer.locator["part"] == "word/footer1.xml"
+    assert footer.locator["role"] == "default_footer"
+    assert footer.data == _png(width=20, height=8)
+    assert parsed.warnings == []
+
+
+def test_a_section_that_links_its_header_owns_no_picture_of_its_own(
+    tmp_path: Path,
+) -> None:
+    """Reaching for a header definition that is not there must not invent one, here or on disk."""
+
+    path = _docx(tmp_path)
+    parsed = _parse(
+        path,
+        "letter.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    assert [image.locator.get("role") for image in parsed.embedded_images] == [None, None]
+    with zipfile.ZipFile(path) as archive:
+        assert not [name for name in archive.namelist() if "header" in name or "footer" in name]
+
+
 def _xlsx(tmp_path: Path, anchors: list[tuple[int, int]]) -> Path:
     """A real workbook with one drawing part added the way a spreadsheet writer adds it."""
 

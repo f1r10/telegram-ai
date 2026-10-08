@@ -55,6 +55,17 @@ _WORKSHEET_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/worksheet"
 _DRAWING_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/drawing"
 _IMAGE_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/image"
 
+# The six header and footer roles one Word section can define, as the attribute that reaches them
+# and the role a locator should name them by.
+_SECTION_DEFINITIONS = (
+    ("header", "default_header"),
+    ("first_page_header", "first_page_header"),
+    ("even_page_header", "even_page_header"),
+    ("footer", "default_footer"),
+    ("first_page_footer", "first_page_footer"),
+    ("even_page_footer", "even_page_footer"),
+)
+
 
 class _ExtractedImages:
     """One document's pictures, bounded, plus an honest record of every payload left behind."""
@@ -375,6 +386,8 @@ class DocxParser:
         blocks: list[ContentBlock] = []
         warnings: list[str] = []
         collected = _ExtractedImages(warnings)
+        self._collect_block_images(collected, document.part, document.element.body, {}, "body")
+        self._collect_section_images(collected, document)
         paragraph_index = 0
         table_index = 0
         for element in document.element.body.iterchildren():
@@ -382,13 +395,6 @@ class DocxParser:
                 paragraph = Paragraph(cast(Any, element), document)
                 current_paragraph_index = paragraph_index
                 paragraph_index += 1
-                self._collect_images(
-                    collected,
-                    document.part,
-                    element,
-                    {"paragraph_index": current_paragraph_index},
-                    f"Paragraph {current_paragraph_index}",
-                )
                 text = paragraph.text.strip()
                 if text:
                     style = paragraph.style.name if paragraph.style else ""
@@ -405,24 +411,6 @@ class DocxParser:
                 table = Table(cast(Any, element), document)
                 current_table_index = table_index
                 table_index += 1
-                # Rows and cells are read from the XML rather than ``table.rows[i].cells[j]``:
-                # a merged cell is reported once per grid position it spans, which would let one
-                # picture claim several homes.
-                rows = cast(Any, element.findall(qn("w:tr")))
-                for row_index, row_element in enumerate(rows, start=1):
-                    cells = row_element.findall(qn("w:tc"))
-                    for column_index, cell_element in enumerate(cells, start=1):
-                        self._collect_images(
-                            collected,
-                            document.part,
-                            cell_element,
-                            {
-                                "table_index": current_table_index,
-                                "row": row_index,
-                                "column": column_index,
-                            },
-                            f"Table {current_table_index} cell {row_index}:{column_index}",
-                        )
                 for row_index, row in enumerate(table.rows, start=1):
                     values = [cell.text.strip() for cell in row.cells]
                     if any(values):
@@ -448,6 +436,81 @@ class DocxParser:
             warnings,
             embedded_images=collected.images,
         )
+
+    @classmethod
+    def _collect_section_images(cls, collected: _ExtractedImages, document: Any) -> None:
+        """Pictures a section's own header or footer carries, located in the part that holds them.
+
+        A header is a package part, not a place in the body, so its locator names the part and the
+        role it plays rather than pretending to be body text. A section that links its header to the
+        previous one owns no definition and therefore no picture of its own: the section that does
+        define it has already been read, and a second sighting invented here would be a duplicate
+        claim (§23.5).
+        """
+
+        for section_index, section in enumerate(document.sections):
+            for attribute, role in _SECTION_DEFINITIONS:
+                holder = getattr(section, attribute)
+                if holder.is_linked_to_previous:
+                    continue
+                part = holder.part
+                cls._collect_block_images(
+                    collected,
+                    part,
+                    part.element,
+                    {
+                        "part": str(part.partname).lstrip("/"),
+                        "section_index": section_index,
+                        "role": role,
+                    },
+                    f"{role} of section {section_index + 1}",
+                )
+
+    @staticmethod
+    def _collect_block_images(
+        collected: _ExtractedImages,
+        part: Any,
+        root: Any,
+        context: dict[str, Any],
+        description_prefix: str,
+    ) -> None:
+        """Every picture in a run of block elements, each at the locator of its own place.
+
+        Rows and cells come from the XML rather than ``table.rows[i].cells[j]``: a merged cell is
+        reported once per grid position it spans, which would let one picture claim several homes.
+        """
+
+        paragraph_index = 0
+        table_index = 0
+        for element in root.iterchildren():
+            if element.tag.endswith("}p"):
+                current_paragraph_index = paragraph_index
+                paragraph_index += 1
+                DocxParser._collect_images(
+                    collected,
+                    part,
+                    element,
+                    {**context, "paragraph_index": current_paragraph_index},
+                    f"{description_prefix} paragraph {current_paragraph_index}",
+                )
+            elif element.tag.endswith("}tbl"):
+                current_table_index = table_index
+                table_index += 1
+                for row_index, row_element in enumerate(element.findall(qn("w:tr")), start=1):
+                    for column_index, cell_element in enumerate(row_element.findall(qn("w:tc")), 1):
+                        DocxParser._collect_images(
+                            collected,
+                            part,
+                            cell_element,
+                            {
+                                **context,
+                                "table_index": current_table_index,
+                                "row": row_index,
+                                "column": column_index,
+                            },
+                            f"{description_prefix} table {current_table_index} "
+                            f"cell {row_index}:{column_index}",
+                        )
 
     @staticmethod
     def _collect_images(
