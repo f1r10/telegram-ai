@@ -41,8 +41,18 @@ from office_assistant.application.errors import (
 )
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
+from office_assistant.application.reference_images import (
+    ReferenceImageResult,
+    ReferenceImageService,
+    ReferenceImageStatus,
+)
 from office_assistant.application.reminders import ReminderProposal, ReminderService
 from office_assistant.application.user_management import UserManagementService
+from office_assistant.business.reference_confirmation import (
+    AmbiguousPictureConfirmation,
+    ProductPictureConfirmation,
+    parse_reference_confirmation,
+)
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import (
     Reminder,
@@ -103,6 +113,7 @@ class TelegramServices:
     web_evidence: WebEvidenceService | None = None
     image_reader: ImageVisionExtractor | None = None
     reminders: ReminderService | None = None
+    reference_images: ReferenceImageService | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
@@ -1052,6 +1063,67 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         caption=message.caption,
     )
     await _run_deferred_caption_command(update, context)
+    await _confirm_reference_image(update, context)
+
+
+async def _confirm_reference_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Link the picture to the product its caption named, reading no model to do it (§23.7).
+
+    This runs after the upload, because the confirmation is about the file this message carried. A
+    caption that is not the naming phrase is left alone: an ordinary caption must never become a
+    business instruction (invariant 1), and an ambiguous one writes nothing rather than choosing.
+    """
+
+    message = update.effective_message
+    chat = update.effective_chat
+    identity = _identity(update)
+    services = _services(context)
+    if (
+        not _is_private(update)
+        or message is None
+        or chat is None
+        or identity is None
+        or services.reference_images is None
+    ):
+        return
+    caption = parse_reference_confirmation(message.caption)
+    if isinstance(caption, AmbiguousPictureConfirmation):
+        # §23.7: more than one name appeared, so nothing is chosen and nothing is written.
+        await message.reply_text(messages.REFERENCE_IMAGE_AMBIGUOUS)
+        return
+    if not isinstance(caption, ProductPictureConfirmation):
+        return
+    try:
+        result = await services.reference_images.confirm_product_picture(
+            telegram_user_id=identity.telegram_user_id,
+            telegram_chat_id=chat.id,
+            telegram_message_id=message.message_id,
+            canonical_code=caption.code,
+        )
+    except AuthorizationDenied:
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    except (ApplicationError, SQLAlchemyError, StorageError, OSError, ValueError):
+        logger.exception("Reference image confirmation failed | message_id=%s", message.message_id)
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    await message.reply_text(_reference_image_reply(result, caption.code))
+
+
+def _reference_image_reply(result: ReferenceImageResult, code: str) -> str:
+    """Answer a confirmation in Azerbaijani, naming back what the system did or refused to do."""
+
+    if result.status is ReferenceImageStatus.LINKED:
+        return messages.REFERENCE_IMAGE_SAVED.format(code=result.display_code or code)
+    if result.status is ReferenceImageStatus.ALREADY_LINKED:
+        return messages.REFERENCE_IMAGE_ALREADY_SAVED.format(code=result.display_code or code)
+    if result.status is ReferenceImageStatus.PRODUCT_NOT_FOUND:
+        return messages.REFERENCE_IMAGE_PRODUCT_NOT_FOUND.format(code=code)
+    if result.status is ReferenceImageStatus.CONFLICT:
+        return messages.REFERENCE_IMAGE_CONFLICT.format(code=result.display_code or code)
+    if result.status is ReferenceImageStatus.NO_PICTURE:
+        return messages.REFERENCE_IMAGE_NO_PICTURE
+    return messages.REFERENCE_IMAGE_UNREADABLE
 
 
 async def _run_deferred_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

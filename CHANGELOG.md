@@ -4,6 +4,67 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5C: a user's own words make a picture a product's reference (2026-10-09)
+
+Blocks 5A and 5B made pictures addressable. Master Spec §22 still owed the strongest claim a picture
+can carry — that a human wrote, in their own words, "bu KA45-dir" — and §23.7 requires that reading
+to cost no model tokens. It now costs none, and nothing is written on the strength of a caption the
+user never intended as one.
+
+- `infrastructure/database/models.py` + `migrations/versions/0016_product_image_relations.py`
+  (applied to `office_assistant_test`): `product_image_relations` (§23.6) carries product, image
+  asset, `role`, `is_reference`, `confirmation_type`, the `source_references` row that proves who
+  said it, `created_by_user_id`, and `superseded_at` — history is kept rather than deleted. Every FK
+  is `RESTRICT`, because a business claim must not disappear when content is pruned. Two partial
+  unique indexes do the §22.7 work: one active `USER_EXPLICIT` claim per picture, one active row per
+  `(product, image, role)`. §22.4's many pictures for one product stay allowed, and a superseded row
+  frees the picture for the next owner. Naming deviation, stated plainly: the ROADMAP called the
+  table `product_image_relation`; the plural matches every other table in this schema.
+- `business/reference_confirmation.py`: the caption is read by a pattern, never a model. It has to
+  end with `yadda saxla` and name one token that carries a digit, after an Azerbaijani copula
+  (`-dir/-dır/-dur/-dür/-dər`, `-dı/-di`) is stripped; a digit is what stops ordinary prose from
+  becoming an identity claim (invariant 1). One name confirms, several are reported as they appeared
+  and nothing is chosen (§23.7), and anything else is an ordinary caption.
+- `repositories/product_image_relations.py`: `lock_confirmation_namespace()` takes the same advisory
+  lock device the product identity writes use (`71002`), so two products naming the same bytes meet a
+  committed fact instead of a race; `active_confirmation_holder()` answers with the holder's code,
+  which is what makes a conflict readable.
+- `processing/image_assets.py`: `ensure_content()` makes a picture's bytes addressable without
+  claiming where they were seen. A confirmation arrives in the same turn as its upload, when no parse
+  run exists yet, and an occurrence invented there would be a locator claim no parser made (§23.5) —
+  the run that reads the file still records the sighting itself.
+- `application/reference_images.py`: one transaction, and every refusal happens before the first row
+  or byte copy. Unknown product → `PRODUCT_NOT_FOUND` (never created); no picture in that exact
+  message → `NO_PICTURE`; bytes that state no picture → `UNREADABLE_PICTURE`; a picture already
+  confirmed for another product → `CONFLICT` naming that product; the same product again →
+  `ALREADY_LINKED` with one row. Success writes provenance (`file_id`, session item, message id),
+  the relation and a `PRODUCT_IMAGE_CONFIRMED` audit event.
+- `integrations/telegram/handlers.py` + `messages.py` + `main.py`: the confirmation runs after the
+  upload in `handle_photo`, so the relation claims the file this message carried and an explicit
+  caption command keeps its documented routing (§23). Private chats only, and every service failure
+  — denied actor, database, storage — answers in Azerbaijani instead of crashing (invariant 8). Seven
+  new strings cover saved, already saved, product not found, ambiguous, conflict, no picture and
+  unreadable picture; `/help` now states the phrase and that a refusal saves nothing.
+- Tests: `tests/unit/test_phase12c_reference_confirmation.py` (24) walks the caption matrix, and
+  `tests/unit/test_phase12c_reference_routing.py` (17) drives `handle_photo` with fakes to pin which
+  captions reach the service, what each status answers, that a group photo and a command caption do
+  nothing, and that a raising service degrades instead of crashing.
+  `tests/integration/test_phase12c_product_image_relations.py` (8) runs against PostgreSQL: the
+  LINKED path asserts the relation's fields, one `image_assets` row with **zero** occurrences, the
+  audit metadata, the provenance row, and that the same bytes sit in both `blobs/` and
+  `image_assets/`; the unknown-product path asserts nothing was written and not one byte copied; the
+  conflict path (same bytes, second product) leaves the first relation untouched; a repeated caption
+  creates no second row; garbage bytes confirm nothing; a picture the worker already registered is
+  reused rather than sighted twice; and the schema itself refuses a second active explicit claim for
+  one picture while allowing two pictures for one product.
+- Gates: 377 unit, 37 integration, ruff, format (170 files under `src tests`), pyright strict 0
+  errors. `tests/integration/test_database.py` now expects `0016_product_image_relations`, and
+  `test_phase12a_image_assets.py`'s cleanup learned the new table so its global wipe stays FK-safe.
+- Assumptions: Q31 (the naming caption confirms before `/saxla` commits the session, so a later
+  `/cancel` removes the staged blob while the confirmed content and relation remain, and no revoke
+  command exists) and Q32 (the caption grammar the pattern accepts, and that documents are not
+  covered).
+
 ### Phase 12A Block 5B: a picture inside a document is found where it really sits (2026-10-08)
 
 Block 5A could store a photo a user sent. It still knew nothing about the logo inside a price list,

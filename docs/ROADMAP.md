@@ -146,10 +146,20 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       inline PDF image, a JPEG 2000 stream, a colour space with no rule here, a picture over the size
       cap — is counted and warned about instead of silently dropped or guessed at, and a document
       whose text is readable still finishes `SUCCEEDED` rather than being deferred.
-- [ ] Block 5C: `product_image_relation` plus the deterministic "Bu KA45-dir, yadda saxla"
-      confirmation (§23.7) — no LLM call when the code can parse the product code, an unknown
-      product is never created, an ambiguous one is never guessed, and a cancelled confirmation
-      writes nothing.
+- [x] Block 5C: `product_image_relations` plus the deterministic "Bu KA45-dir, yadda saxla"
+      confirmation (§23.7) — the caption is read by a pattern, so a code that parses costs no model
+      tokens; an unknown product is never created, an ambiguous caption is never guessed, and every
+      refusal writes nothing at all, bytes included. The claim lands as `USER_CONFIRMED` with
+      `confirmation_type = USER_EXPLICIT` on `is_reference`, next to its own `source_references` row
+      naming the exact message and file, so §22.3's "the human said it" survives as evidence rather
+      than as a log line. §22.7 is a database fact, not a convention: a partial unique index plus an
+      advisory lock keep one active explicit claim per picture, so a second product naming the same
+      bytes is refused and told which product already holds it, while §22.4's many pictures for one
+      product stay allowed. Superseded rows are kept, never deleted (§23.6). A confirmed photo keeps
+      both copies the owner asked for — `blobs/` holds the original the user sent, `image_assets/`
+      the internal resource the relation points at (Q27) — and because the confirmation arrives in
+      the same turn as the upload, its content is made addressable without inventing an occurrence
+      no parser sighted yet (§23.5).
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
