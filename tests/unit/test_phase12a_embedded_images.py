@@ -19,6 +19,7 @@ from docx.opc.part import Part
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 from openpyxl import Workbook
+from openpyxl.reader import drawings
 from pypdf import PdfWriter
 from pypdf.generic import (
     ArrayObject,
@@ -363,6 +364,31 @@ def test_one_workbook_logo_in_two_cells_is_two_sightings(tmp_path: Path) -> None
     assert [image.locator["anchor_cell"] for image in parsed.embedded_images] == ["B3", "E8"]
     assert [image.locator["image_index"] for image in parsed.embedded_images] == [1, 2]
     assert parsed.embedded_images[0].data == parsed.embedded_images[1].data
+
+
+def test_workbook_pictures_do_not_depend_on_the_imaging_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """openpyxl's own drawing reader returns nothing once Pillow is absent, so extraction avoids it.
+
+    This pins the reason the parser walks the package itself rather than reading ``sheet._images``:
+    an imaging library is not a dependency of this build (Q28), and a workbook picture silently
+    disappearing from the product would be worse than one extra zip pass.
+    """
+
+    monkeypatch.setattr(drawings, "PILImage", False)
+    path = _xlsx(tmp_path, [(1, 2)])
+    with zipfile.ZipFile(path) as archive:
+        assert drawings.find_images(archive, "xl/drawings/drawing1.xml") == ([], [])
+
+    parsed = _parse(
+        path,
+        "prices.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    assert [image.locator["anchor_cell"] for image in parsed.embedded_images] == ["B3"]
+    assert parsed.embedded_images[0].data == _png()
 
 
 def test_the_workbook_that_holds_no_pictures_reports_nothing(tmp_path: Path) -> None:

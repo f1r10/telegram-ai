@@ -485,7 +485,7 @@ class XlsxParser:
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.XLSX_EMBEDDED
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
-        workbook = load_workbook(path, read_only=True, data_only=False)
+        workbook = load_workbook(path, data_only=False)
         blocks: list[ContentBlock] = []
         try:
             for sheet in workbook.worksheets:
@@ -510,8 +510,10 @@ class XlsxParser:
     def _collect_images(cls, path: Path, collected: _ExtractedImages) -> None:
         """Pictures anchored on a worksheet, read from the package rather than a live workbook.
 
-        ``read_only=True`` keeps cell reading cheap and streaming, and in that mode openpyxl does
-        not build picture objects at all, so the drawing parts are followed directly (§23.5).
+        openpyxl's drawing reader returns no pictures at all when Pillow is absent
+        (``reader.drawings.find_images`` gives up before it builds one), and Pillow is not a
+        dependency of this build (Q28). Following the drawing parts directly also reads the anchor
+        the drawing itself declares, which is what §23.5 asks a locator to name.
         """
 
         with zipfile.ZipFile(path) as archive:
