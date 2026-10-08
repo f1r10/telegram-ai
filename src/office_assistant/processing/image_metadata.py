@@ -1,10 +1,9 @@
 """Deterministic image header inspection: format and pixel size, never a guess."""
 
 from dataclasses import dataclass
-from pathlib import Path
 
 # One megabyte covers every JPEG segment chain that a real camera or exporter produces before the
-# frame header, while keeping the read bounded for a hostile file.
+# frame header, while keeping the scan bounded for a hostile payload.
 _READ_LIMIT = 1024 * 1024
 _PNG_START = b"\x89PNG\r\n\x1a\n"
 _JPEG_START = b"\xff\xd8\xff"
@@ -22,26 +21,26 @@ class ImageSignature:
     height: int | None
 
 
-def read_image_signature(path: Path) -> ImageSignature | None:
+def image_signature(data: bytes) -> ImageSignature | None:
     """Return the format and pixel size of a supported raster image, or ``None``.
 
     The header, not the filename, decides: an unreadable or unsupported image is reported as such
-    instead of being described with invented metadata (Master Spec §23.5).
+    instead of being described with invented metadata (Master Spec §23.5). Payloads reach this
+    function from a file on disk or from inside a document, so it reads bytes rather than a path.
     """
 
-    with path.open("rb") as file:
-        data = file.read(_READ_LIMIT)
-    if data.startswith(_PNG_START):
-        if data[12:16] != b"IHDR" or len(data) < 24:
+    header = data[:_READ_LIMIT]
+    if header.startswith(_PNG_START):
+        if header[12:16] != b"IHDR" or len(header) < 24:
             return None
         return ImageSignature(
             "image/png",
             "PNG",
-            int.from_bytes(data[16:20], "big"),
-            int.from_bytes(data[20:24], "big"),
+            int.from_bytes(header[16:20], "big"),
+            int.from_bytes(header[20:24], "big"),
         )
-    if data.startswith(_JPEG_START):
-        size = _jpeg_dimensions(data)
+    if header.startswith(_JPEG_START):
+        size = _jpeg_dimensions(header)
         return ImageSignature("image/jpeg", "JPEG", *(size or (None, None)))
     return None
 

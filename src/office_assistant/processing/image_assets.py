@@ -24,9 +24,8 @@ from office_assistant.infrastructure.database.models import (
     ImageAssetOrigin,
     ImageAssetStorageKind,
 )
-from office_assistant.infrastructure.storage.hashing import sha256_file
 from office_assistant.infrastructure.storage.protocol import FileStorage
-from office_assistant.processing.image_metadata import ImageSignature, read_image_signature
+from office_assistant.processing.image_metadata import ImageSignature, image_signature
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +60,33 @@ class ImageAssetRegistry:
         source_parse_run_id: int | None = None,
         locator: dict[str, Any] | None = None,
     ) -> ImageAssetRegistration | None:
+        """Register the picture held in ``path``; its bytes are read once, here."""
+
+        return await self.register_bytes(
+            path.read_bytes(),
+            origin=origin,
+            source_file_id=source_file_id,
+            source_parse_run_id=source_parse_run_id,
+            locator=locator,
+        )
+
+    async def register_bytes(
+        self,
+        data: bytes,
+        *,
+        origin: ImageAssetOrigin,
+        source_file_id: int,
+        source_parse_run_id: int | None = None,
+        locator: dict[str, Any] | None = None,
+    ) -> ImageAssetRegistration | None:
         """Register one image's bytes and this sighting of them, or report nothing registerable.
 
         An unsupported or unreadable header returns ``None`` rather than storing a row with guessed
-        dimensions: an asset that cannot say what it is cannot later be trusted to be one.
+        dimensions: an asset that cannot say what it is cannot later be trusted to be one. Embedded
+        payloads arrive straight from a document, so their bytes never become an upload (§23.3).
         """
 
-        signature = read_image_signature(path)
+        signature = image_signature(data)
         if signature is None:
             logger.info(
                 "Image asset skipped | file_id=%s origin=%s reason=unsupported_signature",
@@ -75,14 +94,14 @@ class ImageAssetRegistry:
                 origin,
             )
             return None
-        content_sha256, byte_size = sha256_file(path)
+        content_sha256 = sha256(data).hexdigest()
         storage_key = self.storage.store_image_asset(
-            path, content_sha256, _SUFFIXES[signature.format]
+            data, content_sha256, _SUFFIXES[signature.format]
         )
         asset_id, reused_content = await self._register_content(
             content_sha256=content_sha256,
             signature=signature,
-            byte_size=byte_size,
+            byte_size=len(data),
             storage_key=storage_key,
         )
         recorded_occurrence = await self._record_occurrence(

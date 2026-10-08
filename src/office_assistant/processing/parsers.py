@@ -4,24 +4,93 @@
 # adapter boundary keeps that uncertainty out of the normalized model/worker.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false
 
+import zipfile
 from pathlib import Path
+from posixpath import normpath
 from typing import Any, Protocol, cast
+from xml.etree import ElementTree
 
 import pypdf
 from docx import Document
+from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 from openpyxl.cell.cell import TYPE_FORMULA
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from pypdf import PdfReader
+from pypdf.generic import ContentStream
 
-from office_assistant.processing.models import ContentBlock, ParsedDocument
+from office_assistant.infrastructure.database.models import ImageAssetOrigin
+from office_assistant.processing.image_metadata import image_signature
+from office_assistant.processing.models import ContentBlock, EmbeddedImage, ParsedDocument
+
+# A picture inside a document is untrusted input like every other byte the bot reads, so extraction
+# is bounded: one payload and one count cap keep a hostile file from turning a parse into a disk
+# write marathon. Both caps are ASSUMPTION values (Master Spec §23 leaves them open, Q29).
+MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_EMBEDDED_IMAGES_PER_DOCUMENT = 200
+
+# Image streams in PDF carry either a whole picture file or raw samples. Only the former can be
+# stored as an asset without rebuilding the file, which §23.5 forbids guessing at. A stream that
+# passes this gate can still hold a format no header reader here describes (Q30).
+_SELF_CONTAINED_IMAGE_FILTERS = frozenset({"/DCTDecode", "/JPXDecode"})
+
+_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PACKAGE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
+_SPREADSHEET_DRAWING_NAMESPACE = (
+    "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+)
+_DRAWML_NAMESPACE = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_SPREADSHEETML_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_XML_NAMESPACES = {"a": _DRAWML_NAMESPACE, "xdr": _SPREADSHEET_DRAWING_NAMESPACE}
+_BLIP_TAG = qn("a:blip")
+_RELATIONSHIP_ID_ATTRIBUTE = qn("r:embed")
+_RELATIONSHIP_ID_FIELD = f"{{{_RELATIONSHIP_NAMESPACE}}}id"
+_SHEET_TAG = f"{{{_SPREADSHEETML_NAMESPACE}}}sheet"
+_RELATIONSHIP_TAG = f"{{{_PACKAGE_RELATIONSHIP_NAMESPACE}}}Relationship"
+_WORKSHEET_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/worksheet"
+_DRAWING_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/drawing"
+_IMAGE_RELATIONSHIP = f"{_RELATIONSHIP_NAMESPACE}/image"
+
+
+class _ExtractedImages:
+    """One document's pictures, bounded, plus an honest record of every payload left behind."""
+
+    def __init__(self, warnings: list[str]) -> None:
+        self.images: list[EmbeddedImage] = []
+        self.warnings = warnings
+        self._stopped = False
+
+    def add(self, locator: dict[str, Any], data: bytes, description: str) -> None:
+        if len(self.images) >= MAX_EMBEDDED_IMAGES_PER_DOCUMENT:
+            if not self._stopped:
+                self._stopped = True
+                self.warnings.append(
+                    f"Picture extraction stopped at {MAX_EMBEDDED_IMAGES_PER_DOCUMENT} images"
+                )
+            return
+        if len(data) > MAX_EMBEDDED_IMAGE_BYTES:
+            self.warnings.append(
+                f"{description}: {len(data)} bytes exceeds the {MAX_EMBEDDED_IMAGE_BYTES} byte cap"
+            )
+            return
+        signature = image_signature(data)
+        if signature is None:
+            self.warnings.append(
+                f"{description}: bytes are not a PNG or JPEG this build can describe"
+            )
+            return
+        self.images.append(EmbeddedImage(locator, data, signature.mime_type))
 
 
 class DocumentParser(Protocol):
     name: str
     version: str
+    #: Provenance recorded for pictures found inside this format, or ``None`` when the format
+    #: carries none. The standalone upload of an image is registered by the worker, not here.
+    embedded_origin: ImageAssetOrigin | None
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument: ...
 
@@ -29,6 +98,7 @@ class DocumentParser(Protocol):
 class TxtParser:
     name = "txt"
     version = "1.0"
+    embedded_origin: ImageAssetOrigin | None = None
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         content = path.read_text(encoding="utf-8-sig")
@@ -50,10 +120,11 @@ class TxtParser:
 class PdfParser:
     name = "pypdf"
     version = pypdf.__version__
+    embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.PDF_EMBEDDED
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         blocks: list[ContentBlock] = []
-        warnings: list[str] = []
+        text_warnings: list[str] = []
         reader = PdfReader(str(path), strict=True)
         for page_number, page in enumerate(reader.pages, start=1):
             text = (page.extract_text() or "").strip()
@@ -67,9 +138,11 @@ class PdfParser:
                     )
                 )
             else:
-                warnings.append(
+                text_warnings.append(
                     f"Page {page_number} contains no extractable text; OCR may be required"
                 )
+        image_warnings: list[str] = []
+        images = self._embedded_images(reader, image_warnings)
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -77,18 +150,234 @@ class PdfParser:
             media_type,
             {},
             blocks,
-            warnings,
-            requires_ocr=bool(warnings),
+            [*text_warnings, *image_warnings],
+            requires_ocr=bool(text_warnings),
+            embedded_images=images,
         )
+
+    def _embedded_images(self, reader: PdfReader, warnings: list[str]) -> list[EmbeddedImage]:
+        """Pictures the page content stream actually draws, in draw order.
+
+        Only drawn XObjects are recorded: a page resource can name a picture the page never paints,
+        and an occurrence claiming such a page would be an invented locator (§23.5). The page's
+        ``image_index`` counts every drawn picture, including one this build cannot store, so the
+        number a run records does not move when a reader learns a new format.
+        """
+
+        collected = _ExtractedImages(warnings)
+        for page_number, page in enumerate(reader.pages, start=1):
+            operations = self._page_operations(page, page_number, warnings)
+            if operations is None:
+                continue
+            inline = sum(1 for _, operator in operations if operator == b"INLINE IMAGE")
+            if inline:
+                warnings.append(
+                    f"Page {page_number}: {inline} inline image(s) are not stored as picture assets"
+                )
+            resources = _xobject_resources(page)
+            index = 0
+            for name in _drawn_names(operations):
+                stream = resources.get(name)
+                if stream is None:
+                    continue
+                subtype = _name_of(stream.get("/Subtype"))
+                if subtype == "/Image":
+                    index += 1
+                    self._collect(
+                        collected,
+                        stream,
+                        _page_locator(page_number, index, name),
+                        f"Page {page_number} picture {name}",
+                    )
+                elif subtype == "/Form":
+                    index = self._collect_form_images(
+                        collected, reader, stream, page_number, name, index
+                    )
+        return collected.images
+
+    def _collect_form_images(
+        self,
+        collected: _ExtractedImages,
+        reader: PdfReader,
+        form: Any,
+        page_number: int,
+        form_name: str,
+        index: int,
+    ) -> int:
+        """One Form level deep: the form's own draw order says which pictures it paints."""
+
+        try:
+            operations = list(ContentStream(form, reader).operations)
+        except Exception as error:  # noqa: BLE001 - a damaged form must not cost the whole page
+            collected.warnings.append(
+                f"Page {page_number} form {form_name}: content unreadable ({type(error).__name__}),"
+                " its pictures are not recorded"
+            )
+            return index
+        resources = _xobject_resources(form)
+        for name in _drawn_names(operations):
+            stream = resources.get(name)
+            if stream is None or _name_of(stream.get("/Subtype")) != "/Image":
+                continue
+            index += 1
+            locator = _page_locator(page_number, index, form_name)
+            locator["form_xobject"] = name
+            description = f"Page {page_number} picture {form_name}{name}"
+            self._collect(collected, stream, locator, description)
+        return index
+
+    @staticmethod
+    def _collect(
+        collected: _ExtractedImages,
+        stream: Any,
+        locator: dict[str, Any],
+        description: str,
+    ) -> None:
+        filter_name = _name_of(stream.get("/Filter"))
+        if filter_name not in _SELF_CONTAINED_IMAGE_FILTERS:
+            collected.warnings.append(
+                f"{description}: stream filter {filter_name or 'none'} holds no whole picture"
+            )
+            return
+        collected.add(locator, stream.get_data(), description)
+
+    @staticmethod
+    def _page_operations(
+        page: Any, page_number: int, warnings: list[str]
+    ) -> list[tuple[Any, bytes]] | None:
+        try:
+            contents = page.get_contents()
+            return list(contents.operations) if contents is not None else []
+        except Exception as error:  # noqa: BLE001 - an unreadable page must not fail the document
+            warnings.append(
+                f"Page {page_number}: content stream unreadable ({type(error).__name__}),"
+                " its pictures are not recorded"
+            )
+            return None
+
+
+def _name_of(value: Any) -> str:
+    """Read a PDF name value, resolving an indirect reference, as a plain string."""
+
+    if value is None:
+        return ""
+    resolved = value.get_object() if hasattr(value, "get_object") else value
+    text = str(resolved)
+    return "" if text in {"None", "null"} else text
+
+
+def _drawn_names(operations: list[tuple[Any, bytes]]) -> list[str]:
+    names: list[str] = []
+    for operands, operator in operations:
+        if operator == b"Do" and operands:
+            names.append(_name_of(operands[0]))
+    return [name for name in names if name]
+
+
+def _xobject_resources(holder: Any) -> dict[str, Any]:
+    resources = holder.get_inherited("/Resources") if hasattr(holder, "get_inherited") else None
+    if resources is None:
+        resources = holder.get("/Resources")
+    if resources is None:
+        return {}
+    resolved = resources.get_object() if hasattr(resources, "get_object") else resources
+    xobjects = resolved.get("/XObject")
+    if xobjects is None:
+        return {}
+    xobjects = xobjects.get_object() if hasattr(xobjects, "get_object") else xobjects
+    if not hasattr(xobjects, "items"):
+        return {}
+    return {
+        str(key): (value.get_object() if hasattr(value, "get_object") else value)
+        for key, value in xobjects.items()
+    }
+
+
+def _page_locator(page_number: int, image_index: int, name: str) -> dict[str, Any]:
+    return {"page": page_number, "image_index": image_index, "xobject": name}
+
+
+def _zip_root(archive: zipfile.ZipFile, name: str) -> ElementTree.Element | None:
+    """Parse one XML member of a package, or report nothing for a member that is absent."""
+
+    if name not in archive.namelist():
+        return None
+    try:
+        return ElementTree.fromstring(archive.read(name))
+    except ElementTree.ParseError:
+        return None
+
+
+def _relationships(archive: zipfile.ZipFile, source_part: str, kind: str) -> list[tuple[str, str]]:
+    """``(id, target)`` for every relationship of one type held by a package part."""
+
+    directory, _, leaf = source_part.rpartition("/")
+    root = _zip_root(archive, f"{directory}/_rels/{leaf}.rels")
+    if root is None:
+        return []
+    return [
+        (
+            relationship.get("Id") or "",
+            relationship.get("Target") or "",
+        )
+        for relationship in root.iter(_RELATIONSHIP_TAG)
+        if relationship.get("Type") == kind
+    ]
+
+
+def _resolve_part(source_part: str, target: str) -> str:
+    """Turn a relationship target into a package member name, absolute or part-relative."""
+
+    if target.startswith("/"):
+        return normpath(target.removeprefix("/"))
+    directory, _, _ = source_part.rpartition("/")
+    return normpath(f"{directory}/{target}") if directory else normpath(target)
+
+
+def _zip_payload(
+    archive: zipfile.ZipFile, name: str, description: str, warnings: list[str]
+) -> bytes | None:
+    """Read one member, refusing to decompress more than a picture could ever be."""
+
+    try:
+        declared_size = archive.getinfo(name).file_size
+    except KeyError:
+        warnings.append(f"{description}: member {name} is absent from this package")
+        return None
+    if declared_size > MAX_EMBEDDED_IMAGE_BYTES:
+        warnings.append(
+            f"{description}: {declared_size} declared bytes exceeds the {MAX_EMBEDDED_IMAGE_BYTES}"
+            " byte cap"
+        )
+        return None
+    return archive.read(name)
+
+
+def _anchor_cell(anchor: ElementTree.Element) -> str | None:
+    """The cell a drawing anchor sits on, or ``None`` when the anchor declares no cell."""
+
+    origin = anchor.find("xdr:from", _XML_NAMESPACES)
+    if origin is None:
+        return None
+    column = origin.find("xdr:col", _XML_NAMESPACES)
+    row = origin.find("xdr:row", _XML_NAMESPACES)
+    if column is None or row is None or not (column.text or "").isdigit():
+        return None
+    if not (row.text or "").isdigit():
+        return None
+    return f"{get_column_letter(int(column.text) + 1)}{int(row.text) + 1}"
 
 
 class DocxParser:
     name = "python-docx"
     version = "1.2.0"
+    embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.DOCX_EMBEDDED
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         document = Document(str(path))
         blocks: list[ContentBlock] = []
+        warnings: list[str] = []
+        collected = _ExtractedImages(warnings)
         paragraph_index = 0
         table_index = 0
         for element in document.element.body.iterchildren():
@@ -96,6 +385,13 @@ class DocxParser:
                 paragraph = Paragraph(cast(Any, element), document)
                 current_paragraph_index = paragraph_index
                 paragraph_index += 1
+                self._collect_images(
+                    collected,
+                    document.part,
+                    element,
+                    {"paragraph_index": current_paragraph_index},
+                    f"Paragraph {current_paragraph_index}",
+                )
                 text = paragraph.text.strip()
                 if text:
                     style = paragraph.style.name if paragraph.style else ""
@@ -112,6 +408,24 @@ class DocxParser:
                 table = Table(cast(Any, element), document)
                 current_table_index = table_index
                 table_index += 1
+                # Rows and cells are read from the XML rather than ``table.rows[i].cells[j]``:
+                # a merged cell is reported once per grid position it spans, which would let one
+                # picture claim several homes.
+                rows = cast(Any, element.findall(qn("w:tr")))
+                for row_index, row_element in enumerate(rows, start=1):
+                    cells = row_element.findall(qn("w:tc"))
+                    for column_index, cell_element in enumerate(cells, start=1):
+                        self._collect_images(
+                            collected,
+                            document.part,
+                            cell_element,
+                            {
+                                "table_index": current_table_index,
+                                "row": row_index,
+                                "column": column_index,
+                            },
+                            f"Table {current_table_index} cell {row_index}:{column_index}",
+                        )
                 for row_index, row in enumerate(table.rows, start=1):
                     values = [cell.text.strip() for cell in row.cells]
                     if any(values):
@@ -127,12 +441,48 @@ class DocxParser:
                                 {"cells": values},
                             )
                         )
-        return ParsedDocument(source_file_id, self.name, self.version, media_type, {}, blocks)
+        return ParsedDocument(
+            source_file_id,
+            self.name,
+            self.version,
+            media_type,
+            {},
+            blocks,
+            warnings,
+            embedded_images=collected.images,
+        )
+
+    @staticmethod
+    def _collect_images(
+        collected: _ExtractedImages,
+        part: Any,
+        element: Any,
+        context: dict[str, Any],
+        description: str,
+    ) -> None:
+        """Every picture this element draws, in document order, through its relationship id."""
+
+        related_parts = part.related_parts
+        for image_index, blip in enumerate(element.iter(_BLIP_TAG), start=1):
+            relationship_id = blip.get(_RELATIONSHIP_ID_ATTRIBUTE)
+            if not relationship_id or relationship_id not in related_parts:
+                collected.warnings.append(
+                    f"{description} picture {image_index}: relationship "
+                    f"{relationship_id or 'none'} is absent from this package"
+                )
+                continue
+            locator = {**context, "image_index": image_index, "relationship_id": relationship_id}
+            collected.add(
+                locator,
+                related_parts[relationship_id].blob,
+                f"{description} picture {image_index}",
+            )
 
 
 class XlsxParser:
     name = "openpyxl"
     version = "3.1.5"
+    embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.XLSX_EMBEDDED
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         workbook = load_workbook(path, read_only=True, data_only=False)
@@ -142,7 +492,96 @@ class XlsxParser:
                 self._parse_sheet(sheet, blocks)
         finally:
             workbook.close()
-        return ParsedDocument(source_file_id, self.name, self.version, media_type, {}, blocks)
+        warnings: list[str] = []
+        collected = _ExtractedImages(warnings)
+        self._collect_images(path, collected)
+        return ParsedDocument(
+            source_file_id,
+            self.name,
+            self.version,
+            media_type,
+            {},
+            blocks,
+            warnings,
+            embedded_images=collected.images,
+        )
+
+    @classmethod
+    def _collect_images(cls, path: Path, collected: _ExtractedImages) -> None:
+        """Pictures anchored on a worksheet, read from the package rather than a live workbook.
+
+        ``read_only=True`` keeps cell reading cheap and streaming, and in that mode openpyxl does
+        not build picture objects at all, so the drawing parts are followed directly (§23.5).
+        """
+
+        with zipfile.ZipFile(path) as archive:
+            for sheet_name, sheet_part in cls._sheets(archive, collected):
+                drawings: list[str] = []
+                for _, target in _relationships(archive, sheet_part, _DRAWING_RELATIONSHIP):
+                    part = _resolve_part(sheet_part, target)
+                    if part not in drawings:
+                        drawings.append(part)
+                for drawing_part in drawings:
+                    root = _zip_root(archive, drawing_part)
+                    if root is None:
+                        collected.warnings.append(
+                            f"Sheet {sheet_name}: drawing part {drawing_part} is unreadable"
+                        )
+                        continue
+                    relationships = {
+                        relationship_id: _resolve_part(drawing_part, target)
+                        for relationship_id, target in _relationships(
+                            archive, drawing_part, _IMAGE_RELATIONSHIP
+                        )
+                    }
+                    image_index = 0
+                    for anchor in root:
+                        anchor_cell = _anchor_cell(anchor)
+                        for blip in anchor.iter(_BLIP_TAG):
+                            image_index += 1
+                            relationship_id = blip.get(_RELATIONSHIP_ID_ATTRIBUTE)
+                            member = relationships.get(relationship_id) if relationship_id else None
+                            description = f"Sheet {sheet_name} picture {image_index}"
+                            if member is None:
+                                collected.warnings.append(
+                                    f"{description}: relationship "
+                                    f"{relationship_id or 'none'} is absent from this package"
+                                )
+                                continue
+                            locator: dict[str, Any] = {
+                                "sheet": sheet_name,
+                                "image_index": image_index,
+                                "relationship_id": relationship_id,
+                            }
+                            if anchor_cell is not None:
+                                locator["anchor_cell"] = anchor_cell
+                            data = _zip_payload(archive, member, description, collected.warnings)
+                            if data is not None:
+                                collected.add(locator, data, description)
+
+    @staticmethod
+    def _sheets(archive: zipfile.ZipFile, collected: _ExtractedImages) -> list[tuple[str, str]]:
+        """Worksheet names with their part paths, in the order the workbook lists them."""
+
+        root = _zip_root(archive, "xl/workbook.xml")
+        if root is None:
+            collected.warnings.append("Workbook part xl/workbook.xml is unreadable")
+            return []
+        names = {
+            sheet.get(_RELATIONSHIP_ID_FIELD): (sheet.get("name") or "")
+            for sheet in root.iter(_SHEET_TAG)
+        }
+        sheets: list[tuple[str, str]] = []
+        workbook_rels = _relationships(archive, "xl/workbook.xml", _WORKSHEET_RELATIONSHIP)
+        for relationship_id, target in workbook_rels:
+            name = names.get(relationship_id)
+            if name is None:
+                collected.warnings.append(
+                    f"Worksheet relationship {relationship_id} has no sheet entry"
+                )
+                continue
+            sheets.append((name, _resolve_part("xl/workbook.xml", target)))
+        return sheets
 
     @staticmethod
     def _parse_sheet(sheet: Worksheet, blocks: list[ContentBlock]) -> None:
@@ -174,6 +613,7 @@ class ImageProbeParser:
 
     name = "image-probe"
     version = "1.0"
+    embedded_origin: ImageAssetOrigin | None = None
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         detected = detect_image_media_type(path.read_bytes()[:12])

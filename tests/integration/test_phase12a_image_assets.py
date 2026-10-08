@@ -5,9 +5,17 @@ import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
+from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
+from docx.oxml import parse_xml
+from docx.oxml.ns import qn
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -62,13 +70,49 @@ def _digest(data: bytes) -> str:
 
 
 def _derived_image(storage: LocalFileStorage, file_id: int, run_id: int, data: bytes) -> Path:
-    """Write image bytes where an embedded-image extractor puts them, outside ``blobs/`` (§23.3)."""
+    """Write image bytes outside ``blobs/``, the way a derived-artifact writer would (§23.3)."""
 
     directory = storage.derived_root / str(file_id) / str(run_id)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "image_0.png"
     path.write_bytes(data)
     return path
+
+
+DRAWINGML = "http://schemas.openxmlformats.org/drawingml/2006/main"
+RELATIONSHIPS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _docx_bytes(logo: bytes) -> bytes:
+    """A real .docx that shows one logo twice: in a paragraph and in a table cell."""
+
+    document = Document()
+    document.add_paragraph("Qiymət siyahısı")
+    document.add_table(rows=1, cols=2)
+    part = Part(PackURI("/word/media/image1.png"), "image/png", logo, document.part.package)
+    relationship_id = document.part.relate_to(part, RT.IMAGE)
+
+    body = cast(Any, document.element).body
+    body.findall(qn("w:p"))[0].append(_inline_picture(relationship_id))
+    cell = body.findall(qn("w:tbl"))[0].findall(qn("w:tr"))[0].findall(qn("w:tc"))[1]
+    cell.findall(qn("w:p"))[0].append(_inline_picture(relationship_id))
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _inline_picture(relationship_id: str) -> Any:
+    return parse_xml(
+        "<w:drawing "
+        'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+        f'xmlns:a="{DRAWINGML}" xmlns:r="{RELATIONSHIPS}">'
+        "<wp:inline><a:graphic><a:graphicData "
+        f'uri="{DRAWINGML}/picture">'
+        f'<a:blip r:embed="{relationship_id}"/>'
+        "</a:graphicData></a:graphic></wp:inline></w:drawing>"
+    )
 
 
 def _settings_or_skip() -> Settings:
@@ -244,6 +288,82 @@ def test_worker_registers_an_uploaded_photo_without_losing_the_original() -> Non
             assert occurrence.locator == {}
         assert blob_path.read_bytes() == JPEG_BYTES, "the uploaded original must survive"
         assert storage.path_for_key(asset.storage_key).read_bytes() == JPEG_BYTES
+
+    _scenario(behavior)
+
+
+def test_a_picture_inside_a_document_becomes_content_without_becoming_an_upload() -> None:
+    async def behavior(
+        factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
+    ) -> None:
+        logo = _png(120, 60)
+        letterhead = _docx_bytes(logo)
+        # No seeded parse run: the worker must create the one the occurrences point at.
+        file_id, job_id, blob_path, _ = await _seed_file(
+            factory,
+            storage,
+            filename="qiymet_siyahisi.docx",
+            data=letterhead,
+            with_run=False,
+        )
+        service = IngestionJobService(factory, storage)
+        claim = await service.claim_next("phase12a-worker")
+        assert claim is not None
+        await service.process(claim)
+
+        assert await _counts(factory) == (1, 2), "one picture, two places that show it"
+        async with factory() as session:
+            asset = (await session.execute(select(ImageAsset))).scalar_one()
+            sighted = (await session.execute(select(ImageAssetOccurrence))).scalars().all()
+            run = (
+                await session.execute(
+                    select(DocumentParseRun).where(DocumentParseRun.ingestion_job_id == job_id)
+                )
+            ).scalar_one()
+
+            assert asset.content_sha256 == _digest(logo)
+            assert (asset.mime_type, asset.width, asset.height) == ("image/png", 120, 60)
+            assert asset.storage_key.startswith("image_assets/")
+            assert run.status == DocumentProcessingStatus.SUCCEEDED
+            # Text was readable, so a picture the build already describes must not defer the run.
+            assert (run.requires_ocr, run.warning_count) == (False, 0)
+            assert run.normalized_storage_key is not None
+            described = storage.path_for_key(run.normalized_storage_key).read_bytes()
+
+            for occurrence in sighted:
+                assert occurrence.image_asset_id == asset.id
+                assert occurrence.origin_type == ImageAssetOrigin.DOCX_EMBEDDED
+                assert occurrence.source_file_id == file_id
+                assert occurrence.source_parse_run_id == run.id
+            paragraph = next(row for row in sighted if "paragraph_index" in row.locator)
+            in_table = next(row for row in sighted if "table_index" in row.locator)
+            assert paragraph.locator == {
+                "paragraph_index": 0,
+                "image_index": 1,
+                "relationship_id": paragraph.locator["relationship_id"],
+            }
+            assert in_table.locator == {
+                "table_index": 0,
+                "row": 1,
+                "column": 2,
+                "image_index": 1,
+                "relationship_id": paragraph.locator["relationship_id"],
+            }
+
+        # §23.3: the document is the only upload, and the picture is the only copy of its bytes.
+        async with factory() as session:
+            assert (await session.execute(select(func.count(FileObject.id)))).scalar_one() == 1
+        assert blob_path.read_bytes() == letterhead, "the document keeps its own bytes"
+        assert [path.name for path in storage.blob_root.rglob("*") if path.is_file()] == [
+            blob_path.name
+        ]
+        copies = [
+            path for path in storage.root.rglob("*") if path.is_file() and path.read_bytes() == logo
+        ]
+        assert [path.relative_to(storage.root).as_posix() for path in copies] == [asset.storage_key]
+        assert PNG_START not in described, (
+            "the parse record describes pictures, it never holds them"
+        )
 
     _scenario(behavior)
 

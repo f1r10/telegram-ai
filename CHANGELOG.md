@@ -4,6 +4,56 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5B: a picture inside a document is found where it really sits (2026-10-08)
+
+Block 5A could store a photo a user sent. It still knew nothing about the logo inside a price list,
+which is the case Master Spec §23.3 is written for: those bytes must become queryable content without
+pretending to be an upload the user sent.
+
+- `processing/models.py`: `ParsedDocument` gains `embedded_images`, one `EmbeddedImage` per sighting
+  with its locator, bytes and content type. `as_dict()` describes them (`locator`, `content_type`,
+  `byte_size`) and never carries the payload, so the parse artifact on disk stays a record, not a
+  second copy.
+- `processing/parsers.py`: the three package parsers now report what they carry, and each names the
+  provenance its format deserves (`embedded_origin`).
+  - **PDF** walks each page's own content stream and records what the page *draws*, in draw order,
+    one Form level deep (`{"page", "image_index", "xobject"[, "form_xobject"]}`). A resource
+    dictionary can name a picture the page never paints, and an occurrence for that page would be an
+    invented locator (§23.5), so it is not recorded. Only `/DCTDecode` and `/JPXDecode` streams hold
+    a whole picture; a flat `/FlateDecode` sample would have to be rebuilt into a file the document
+    never contained, so the run says which filter it refused instead.
+  - **DOCX** collects `a:blip` targets while walking the body, so a picture inherits the locator of
+    its own place: `{"paragraph_index", …}` or `{"table_index", "row", "column", …}`. Rows and cells
+    come from the XML, not `table.rows[i].cells[j]`, because a merged cell is reported once per grid
+    position it spans and would let one picture claim several homes.
+  - **XLSX** reads the package the way a spreadsheet writes it — workbook → sheet relationship →
+    drawing part → image member — and locates each anchor by `{"sheet", "image_index", "anchor_cell"}`
+    from its own `xdr:from`, with no cell invented when a drawing declares none. Text parsing keeps
+    `read_only=True`; picture reading is a separate zip pass.
+  - Every refusal is a warning with the picture's own description, and an unreadable page or form
+    costs its pictures, never the document.
+- `processing/image_metadata.py`: the signature reader now takes bytes (a package hands over bytes,
+  not a path), and `infrastructure/storage/local.py` + `protocol.py`: `store_image_asset(data, …)`
+  follows. Registration no longer needs a file on disk to exist first, which is what keeps an
+  embedded picture out of `derived/` and `blobs/` entirely.
+- `processing/image_assets.py`: `register_bytes()` is the core; `register(path)` stays a thin reader
+  for the upload hook, so both origins share one content-addressed write and one upsert.
+- `processing/worker_service.py`: after the run's own picture registration, an annotated parser's
+  extracted pictures are registered against the same run and source file. A document whose text was
+  readable still ends `SUCCEEDED` — an unreadable picture no longer flips `requires_ocr`, because
+  text and picture warnings are kept apart.
+- Two bounds keep extraction from being an unbounded disk write (`MAX_EMBEDDED_IMAGE_BYTES` 8 MiB,
+  `MAX_EMBEDDED_IMAGES_PER_DOCUMENT` 200); a payload over either is counted and named, not kept.
+- Tests: `tests/unit/test_phase12a_embedded_images.py` (18) builds every fixture from the package
+  formats themselves with the standard library only — no Pillow — and checks drawn-only extraction,
+  form nesting, refused filters, paragraph/cell and sheet/cell locators, both caps, and the
+  byte-free parse artifact. One new integration case runs a real `.docx` through the worker and
+  asserts 1 asset + 2 occurrences, one `file_objects` row, `blobs/` holding only the document, the
+  logo present exactly once on disk under `image_assets/`, and `SUCCEEDED` with `requires_ocr` false.
+  Gates: 310 unit, 29 integration, ruff, format (163 files), pyright strict 0 errors.
+- Recorded as OPEN-QUESTIONS Q29 (the two caps are unspec'd) and Q30 (PDF inline images, non-JPEG
+  streams, JPEG 2000 and DOCX header/footer pictures are reported, not stored).
+
 ### Phase 12A Block 5A: an uploaded picture becomes content the system can point at (2026-10-08)
 
 Master Spec §23 asks for two things that pull against each other: image bytes must be stored once

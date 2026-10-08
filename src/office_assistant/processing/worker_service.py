@@ -256,6 +256,18 @@ class IngestionJobService:
                     source_file_id=file_id,
                     source_parse_run_id=run_id,
                 )
+            if parser.embedded_origin is not None and parsed.embedded_images:
+                # A picture inside a document is content, never an upload: it has no FileObject row
+                # and no copy under blobs/ (Master Spec §23.3).
+                registry = ImageAssetRegistry(session, self.storage)
+                for image in parsed.embedded_images:
+                    await registry.register_bytes(
+                        image.data,
+                        origin=parser.embedded_origin,
+                        source_file_id=file_id,
+                        source_parse_run_id=run_id,
+                        locator=image.locator,
+                    )
         logger.info(
             "File processed | job_id=%s file_id=%s parser=%s status=%s blocks=%s",
             claim.job_id,

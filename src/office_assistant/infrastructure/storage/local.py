@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 from secrets import token_hex
-from shutil import copyfile, move
+from shutil import move
 from tempfile import NamedTemporaryFile
 from typing import Any
 
@@ -74,18 +74,13 @@ class LocalFileStorage:
         if path.is_file():
             path.unlink()
 
-    def store_image_asset(self, source: Path, content_sha256: str, suffix: str) -> str:
-        """Copy image bytes into their own content-addressed namespace, reusing bytes already there.
+    def store_image_asset(self, data: bytes, content_sha256: str, suffix: str) -> str:
+        """Write image bytes into their own content-addressed namespace, reusing bytes held there.
 
         Derived images never share the ``blobs/`` root that holds original uploads (Master Spec
         §23.3), and one digest maps to one physical file however many documents cite it (§23.4).
         """
 
-        resolved = source.resolve()
-        try:
-            resolved.relative_to(self.root)
-        except ValueError as error:
-            raise StorageError("Source path escapes the configured root") from error
         if len(content_sha256) != 64 or not set(content_sha256) <= _HEX_DIGITS:
             raise StorageError("Image digest is not a SHA-256 hex digest")
         safe_suffix = suffix.lower() if suffix.startswith(".") and suffix[1:].isalnum() else ""
@@ -94,10 +89,10 @@ class LocalFileStorage:
         if destination.is_file():
             return destination.relative_to(self.root).as_posix()
         directory.mkdir(parents=True, exist_ok=True)
-        with NamedTemporaryFile("wb", dir=directory, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
+        with NamedTemporaryFile("wb", dir=directory, prefix=".part-", delete=False) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(data)
         try:
-            copyfile(resolved, temporary_path)
             temporary_path.replace(destination)
         except OSError:
             temporary_path.unlink(missing_ok=True)
