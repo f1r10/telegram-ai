@@ -15,7 +15,7 @@ coverage.xml
 .vscode/
 *.swp
 var/
-storage/
+/storage/
 uploads/
 backups/
 *.sqlite3
