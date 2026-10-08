@@ -1204,3 +1204,98 @@ class ReminderDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ImageAssetOrigin(StrEnum):
+    STANDALONE_UPLOAD = "STANDALONE_UPLOAD"
+    PDF_EMBEDDED = "PDF_EMBEDDED"
+    DOCX_EMBEDDED = "DOCX_EMBEDDED"
+    XLSX_EMBEDDED = "XLSX_EMBEDDED"
+
+
+class ImageAssetStorageKind(StrEnum):
+    LOCAL = "LOCAL"
+
+
+class ImageAsset(Base):
+    """Distinct image content, keyed by its own bytes and stored exactly once (Master Spec §23.4).
+
+    Provenance is deliberately absent here: one logo seen fifty times is one row, and every
+    sighting is an ``image_asset_occurrence``. Bytes live in their own namespace, never in the
+    ``blobs/`` root that holds original uploads (§23.3).
+    """
+
+    __tablename__ = "image_assets"
+    __table_args__ = (
+        CheckConstraint("storage_kind IN ('LOCAL')", name="ck_image_assets_storage_kind"),
+        CheckConstraint("byte_size > 0", name="ck_image_assets_byte_size"),
+        UniqueConstraint("content_sha256", name="uq_image_assets_content_sha256"),
+        UniqueConstraint("storage_key", name="uq_image_assets_storage_key"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    format: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Null when the format's header does not carry a size; never estimated (Master Spec §23.5).
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    storage_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=ImageAssetStorageKind.LOCAL
+    )
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ImageAssetOccurrence(Base):
+    """Where one exact image content was seen, with the locator that says so (§23.4, §23.5).
+
+    A locator is stored as given and hashed only to make the uniqueness check indexable, so a
+    reprocessed run cannot inflate the provenance count while a document that legitimately holds
+    the same bytes in fifty places keeps fifty rows.
+    """
+
+    __tablename__ = "image_asset_occurrences"
+    __table_args__ = (
+        CheckConstraint(
+            "origin_type IN ('STANDALONE_UPLOAD', 'PDF_EMBEDDED', 'DOCX_EMBEDDED', "
+            "'XLSX_EMBEDDED')",
+            name="ck_image_asset_occurrences_origin",
+        ),
+        UniqueConstraint(
+            "image_asset_id",
+            "origin_type",
+            "source_file_id",
+            "source_parse_run_id",
+            "locator_sha256",
+            name="uq_image_asset_occurrence",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    image_asset_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("image_assets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    origin_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # The parent document stays the authoritative source artifact; a derived image never becomes
+    # a fake user upload of its own (§23.3), so deleting that document takes its images with it.
+    source_file_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("file_objects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_parse_run_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("document_parse_runs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    locator: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict)
+    locator_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

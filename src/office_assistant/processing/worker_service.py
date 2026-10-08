@@ -18,6 +18,7 @@ from office_assistant.infrastructure.database.models import (
     ExtractionJobStatus,
     FileObject,
     FileObjectState,
+    ImageAssetOrigin,
     IngestionItemType,
     IngestionJob,
     IngestionJobStatus,
@@ -31,7 +32,8 @@ from office_assistant.infrastructure.database.models import (
     User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
-from office_assistant.processing.parsers import ParserRegistry
+from office_assistant.processing.image_assets import ImageAssetRegistry
+from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +247,15 @@ class IngestionJobService:
             run.requires_vision = parsed.requires_vision
             run.warning_count = len(parsed.warnings)
             run.finished_at = datetime.now(UTC)
+            if parsed.parser_name == ImageProbeParser.name:
+                # The picture becomes queryable content here, but its bytes stay on the local disk:
+                # reading them with a vision model is an on-demand act, not an upload-time one.
+                await ImageAssetRegistry(session, self.storage).register(
+                    path,
+                    origin=ImageAssetOrigin.STANDALONE_UPLOAD,
+                    source_file_id=file_id,
+                    source_parse_run_id=run_id,
+                )
         logger.info(
             "File processed | job_id=%s file_id=%s parser=%s status=%s blocks=%s",
             claim.job_id,

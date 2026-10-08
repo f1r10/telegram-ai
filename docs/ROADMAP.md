@@ -120,7 +120,23 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       layer, cache reads included), a hit dated outside the requested window no longer counts as
       current, a failed web search leaves `/tamaxtar` with its internal answer plus an honest
       Azerbaijani line, and `fallback_used` survives a cache hit (Master Spec §21, `decisions/0015`).
-- [ ] Block 5: Phase 12A image-asset foundation (Master Spec §23).
+
+## Phase 12A — Image asset foundation (Master Spec §23, owner-approved 2026-10-08)
+
+- [x] Block 5A: content and provenance — an uploaded JPEG/PNG becomes one `image_assets` row keyed
+      by its own SHA-256, with its bytes copied into a separate `image_assets/<digest>` namespace so
+      `blobs/` still holds exactly the original upload, plus one `image_asset_occurrences` row per
+      sighting carrying the locator that says where it was seen. Re-registering the same place
+      records nothing new; one logo in fifty places stays fifty locators over one copy of bytes.
+      Format and pixel size come from the file header, and a header that states no size leaves the
+      columns NULL instead of guessing (no imaging library was added). Still no vendor call at
+      upload: the run stays `DEFERRED` (ADR 0017 amendment).
+- [ ] Block 5B: embedded images inside PDF/DOCX/XLSX parses become assets with honest locators and
+      never a fake `file_objects` upload (§23.3).
+- [ ] Block 5C: `product_image_relation` plus the deterministic "Bu KA45-dir, yadda saxla"
+      confirmation (§23.7) — no LLM call when the code can parse the product code, an unknown
+      product is never created, an ambiguous one is never guessed, and a cancelled confirmation
+      writes nothing.
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

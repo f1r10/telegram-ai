@@ -4,6 +4,56 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5A: an uploaded picture becomes content the system can point at (2026-10-08)
+
+Master Spec §23 asks for two things that pull against each other: image bytes must be stored once
+however often they recur (§23.4), and every place they appear must stay provable (§23.3, §23.5).
+One table cannot do both, so the foundation splits them — content in `image_assets`, keyed by the
+image's own SHA-256, and one `image_asset_occurrences` row per sighting, each carrying the locator
+the parser actually saw.
+
+- `infrastructure/database/models.py` + `migrations/versions/0015_image_asset_foundation.py`:
+  `image_assets` (uuid pk, `content_sha256` unique, mime, format, nullable `width`/`height`,
+  `byte_size`, `storage_kind`, `storage_key` unique) and `image_asset_occurrences` (origin, source
+  file, source parse run, JSONB `locator`, `locator_sha256`). The unique pair is
+  `(asset, origin, file, run, locator_sha256)`: reprocessing a run inflates nothing, while one logo
+  legitimately seen in fifty places keeps fifty rows. Occurrences cascade with their source
+  document because the parent stays authoritative; the content row does not, because two documents
+  can share it.
+- `infrastructure/storage/local.py`: `store_image_asset()` puts image bytes in their own
+  `image_assets/<first-two-hex>/<digest><suffix>` namespace, so derived content never lives in
+  `blobs/` next to the originals users uploaded. Identical bytes resolve to the same path, which is
+  where "stored once" is enforced on disk rather than in a comment.
+- `processing/image_metadata.py` (new): format and pixel size read from the PNG `IHDR` chunk and the
+  JPEG start-of-frame marker, walking segments by their own declared length. No Pillow (no ADR
+  authorises an imaging library), and a header that states no size leaves the columns NULL instead
+  of inventing one — §23.5 forbids invented precision.
+- `processing/image_assets.py` (new): `ImageAssetRegistry.register()` works inside the caller's
+  transaction, upserts content and occurrence with `ON CONFLICT DO NOTHING`, and reports
+  `reused_content` / `recorded_occurrence` so a caller can tell a first sighting from a repeat.
+  Bytes that are not a supported image register nothing and copy nothing.
+- `processing/worker_service.py`: a `DEFERRED` `image-probe` run now also registers its picture,
+  with an empty locator — a standalone upload has no page or cell to cite. This stays inside the
+  ADR 0017 amendment: the bytes are stored and made addressable, not sent to a vendor.
+- `tests/unit/test_image_metadata.py` (8 cases), `tests/unit/test_storage.py` (+4), and
+  `tests/integration/test_phase12a_image_assets.py` (5) cover the worker path, the fifty-locator
+  case, idempotent re-registration, shared bytes outliving one parent document, and rejection of
+  non-image bytes. `test_database.py`'s schema pin moves to `0015_image_asset_foundation`.
+  Gates: 292 unit, 28 integration, ruff, format (162 files), pyright strict 0 errors.
+- Recorded as OPEN-QUESTIONS Q26 (no sweep for a byte copy whose row never commits, or an asset
+  whose last occurrence is gone), Q27 (an uploaded photo now occupies two paths), Q28 (only JPEG and
+  PNG sizes are readable).
+
+### Repository: the storage package was never in git (2026-10-08)
+
+`.gitignore` listed `storage/`, which matches a directory at *any* depth — so
+`src/office_assistant/infrastructure/storage/` (`local.py`, `protocol.py`, `hashing.py`,
+`__init__.py`) was untracked from the beginning, had never been linted or format-checked, and a
+clone of this repository could not build. Docker copies the working tree rather than the git
+history, which is why every deploy looked healthy. Anchored to `/storage/` the rule still ignores
+the intended data directory (`var/storage` is covered by `var/` anyway) and admits the source. The
+four files land with their first ruff run.
+
 ### Web search: unusable results trigger the fallback, an outage costs only the web half (2026-10-07)
 
 Block 4 of the Master Spec remediation (§21). The owner's reproduction held up under checking: `KA45
