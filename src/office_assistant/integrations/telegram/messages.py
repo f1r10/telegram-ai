@@ -103,6 +103,7 @@ HELP_TEXT = (
     "/saxla — göndərilən faylları və təlimatları yaddaşa köçürmək\n"
     "/hatirlatmalar — aktiv xatırlatmalarınızı görmək\n"
     "/cancel — açıq sessiyanı ləğv etmək\n"
+    "/leqv_et <kod> — təsdiqlənmiş şəkil əlaqəsini geri almaq (yalnız administrator)\n"
     "/verilerimi_sil — şəxsi məlumatlarınızı silmək\n"
     "/whoami — hesabınızın statusunu görmək\n"
     "/help — bu siyahı\n\n"
@@ -111,7 +112,9 @@ HELP_TEXT = (
     "Şəkil göndərərkən yazın: Bu KA45-dir, yadda saxla. Təsdiq açıq yadda saxlama sessiyasına "
     "götürülür; /saxla şəkli həmin məhsulun nümunəsi kimi əlaqələndirir, /cancel isə təsdiqi və "
     "gözləyən faylı silir. Məhsul tapılmasa, kod birmənalı olmasa və ya şəkil artıq başqa məhsula "
-    "təsdiqlənibsə heç nə yadda saxlanılmır."
+    "təsdiqlənibsə heç nə yadda saxlanılmır.\n\n"
+    "Administrator /leqv_et KA45 əmri ilə təsdiqlənmiş şəkil əlaqəsini geri ala bilər; əvvəlcə "
+    "təsdiq soruşulur. Ləğv edilən təsdiq tarixçədə qalır və şəkil faylları silinmir."
 )
 
 REMINDER_PROPOSED = (
@@ -192,3 +195,21 @@ REFERENCE_IMAGE_UNREADABLE = (
     "Zəhmət olmasa şəkili yenidən göndərin."
 )
 REFERENCE_IMAGE_LINKED_NOTE = "\nTəsdiqlənmiş şəkil əlaqələri: {count}"
+
+REFERENCE_REVOKE_USAGE = "Şəkil təsdiqini ləğv etmək üçün məhsul kodunu yazın: /leqv_et KA45"
+REFERENCE_REVOKE_CONFIRM = (
+    "{code} məhsulu üçün təsdiqlənmiş nümunə şəkillər ləğv edilsin? Ləğv edilən təsdiq tarixçədə "
+    "qalır və şəkil faylları silinmir."
+)
+REFERENCE_REVOKE_YES_BUTTON = "Bəli, ləğv et"
+REFERENCE_REVOKE_NO_BUTTON = "Xeyr"
+REFERENCE_REVOKE_DONE = (
+    "{code} məhsulu üzrə {count} şəkil təsdiqi ləğv edildi. Şəkillər və sübut tarixçəsi saxlanılır."
+)
+REFERENCE_REVOKE_NOTHING = (
+    "{code} məhsulu üçün aktiv təsdiqlənmiş şəkil yoxdur; heç nə dəyişdirilmədi."
+)
+REFERENCE_REVOKE_CANCELLED = "Şəkil təsdiqinin ləğvi dayandırıldı. Heç nə dəyişdirilmədi."
+REFERENCE_REVOKE_NO_REQUEST = (
+    "Ləğv təsdiqi gözlənilmir. Zəhmət olmasa /leqv_et əmrini məhsul kodu ilə yenidən göndərin."
+)

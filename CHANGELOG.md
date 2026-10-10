@@ -4,6 +4,54 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5D — `/leqv_et`: the ADMIN-only explicit revoke the owner approved (2026-10-10)
+
+Decision 3, part (b) of Q31. A confirmation a human gave is business history, so retiring it had to be
+an explicit, privileged, auditable act that leaves the evidence standing — and it had to fit inside the
+subsystem that already exists, without a new table, a new job or a new UI.
+
+- `integrations/telegram/handlers.py` + `app.py` + `messages.py`: `/leqv_et <kod>` answers in
+  Azerbaijani with `REFERENCE_REVOKE_CONFIRM` and one yes/no keyboard (`ri:yes` / `ri:no`), mirroring
+  `/verilerimi_sil`. A non-administrator is refused at the command, before any privileged prompt
+  reaches them, and the service checks again at the button because a role can change in between. An
+  empty argument asks for the usage, a code that normalizes to nothing names no product, a group chat
+  is ignored, `Xeyr` writes nothing, an unexpected button writes nothing, and a button with no open
+  prompt writes nothing. `/help` gained the command and the admin paragraph.
+- `integrations/telegram/state.py`: `ReferenceRevokeState` holds the code the administrator was shown.
+  The product is deliberately *not* carried in the callback data — that string comes back from the
+  client, and an unverified one gets to choose whose confirmation disappears.
+- `application/reference_images.py`: `revoke_product_picture` is `require_actor(..., admin=True)`,
+  resolves an existing product only, takes the same `lock_confirmation_namespace()` a confirmation
+  takes, reads the product's live `USER_EXPLICIT` rows `FOR UPDATE`, and moves one column —
+  `superseded_at` — on each, adding one `PRODUCT_IMAGE_REVOKED` audit row per retired claim. It
+  reports `REVOKED` with the count (§22.4 lets a product hold several pictures, so a confirmation the
+  user cannot size is not a confirmation step), `NOTHING_TO_REVOKE`, or `PRODUCT_NOT_FOUND`.
+- `repositories/product_image_relations.py`: `active_explicit_for_product` and `supersede`. Ordered by
+  `created_at`, not by the primary key — that key is a uuid4 and would order the set by nothing, which
+  is exactly how the first run of the new tests failed before it was fixed.
+- Nothing is deleted and nothing is reassigned. The original stays in `blobs/` and the internal
+  resource in `image_assets/` (Q27), the `ImageAsset`, its occurrences, the `source_references` row and
+  the earlier confirmation audit all remain, so a revoked decision stays provable (§23.6) and any parse
+  run that sighted the same bytes is untouched (§23.5). A retired row stops answering
+  `active_confirmation_holder_by_content`, which is what makes the picture available to the *next*
+  explicit confirmation instead of leaving it frozen by a decision somebody just withdrew.
+- Tests: `tests/unit/test_phase12c_reference_revoke.py` (23) pins the prompt-before-write, the
+  normalization, the ADMIN gate, the group and no-argument paths, that the code is taken from
+  server-side state and not the button, that one prompt is one decision (a second press revokes
+  nothing), and every refusal and degradation path.
+  `tests/integration/test_phase12c_product_image_revocation.py` (10) drives the real service against
+  PostgreSQL: revoke keeps counts, bytes in both namespaces, provenance and audit while setting
+  `superseded_at`; a repeat writes nothing; a member is refused with the row untouched; an unknown code
+  writes nothing; a product with no live picture is an answer not an error; a revoked picture reads as
+  free and is then re-confirmed for another product through the real `/saxla`; several pictures of one
+  product retire together with the right count; only the named product is touched; two administrators
+  gathering at once produce exactly one `PRODUCT_IMAGE_REVOKED`; and a write that fails at the flush
+  boundary leaves both the claim and its audit exactly as they were.
+- Gates: 405 unit, 53 integration, ruff, format (173 files under `src tests`), pyright strict 0 errors.
+  No migration — the lifecycle column §23.6 already defined was enough.
+- Docs: ROADMAP records Block 5D; Q31's part (b) is now delivered as well as decided; Master Spec
+  §23.7 states the revoke boundary in Azerbaijani.
+
 ### Phase 12A Block 5C follow-up — Q31 resolved: the caption queues, `/saxla` saves (2026-10-10)
 
 The owner decided how a naming caption lands: `/saxla` stays the authoritative ingestion commit

@@ -47,9 +47,13 @@ from office_assistant.application.reference_images import (
     ReferenceImageSaveDenied,
     ReferenceImageService,
     ReferenceImageStatus,
+    ReferenceRevokeResult,
+    ReferenceRevokeStatus,
 )
 from office_assistant.application.reminders import ReminderProposal, ReminderService
 from office_assistant.application.user_management import UserManagementService
+from office_assistant.auth.policy import is_admin
+from office_assistant.business.normalization import normalize_product_code
 from office_assistant.business.reference_confirmation import (
     AmbiguousPictureConfirmation,
     ProductPictureConfirmation,
@@ -71,6 +75,7 @@ from office_assistant.integrations.telegram.state import (
     DeleteConfirmationState,
     PasswordAttemptLimiter,
     PasswordEntryState,
+    ReferenceRevokeState,
     ReminderEditState,
 )
 from office_assistant.integrations.telegram.turn_context import (
@@ -120,6 +125,7 @@ class TelegramServices:
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
     )
+    reference_revokes: ReferenceRevokeState = field(default_factory=ReferenceRevokeState)
 
 
 def _services(context: ContextTypes.DEFAULT_TYPE) -> TelegramServices:
@@ -1144,6 +1150,111 @@ def _reference_image_reply(result: ReferenceImageResult, code: str) -> str:
     return messages.REFERENCE_IMAGE_NO_SESSION
 
 
+def _revoke_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.REFERENCE_REVOKE_YES_BUTTON, callback_data="ri:yes"),
+                InlineKeyboardButton(messages.REFERENCE_REVOKE_NO_BUTTON, callback_data="ri:no"),
+            ]
+        ]
+    )
+
+
+async def handle_revoke_reference(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ask the administrator to confirm before any picture claim is retired (§23.7).
+
+    Nothing is read from the database to build this prompt. The product is resolved by the
+    callback, after the confirmation, so the administrator is shown the code they typed and the
+    count only ever comes from the write itself.
+    """
+
+    if not _is_private(update):
+        return
+    resolved = await _active_user(update, context)
+    if resolved is None:
+        return
+    services, user, message = resolved
+    if services.reference_images is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    # Refusing here rather than at the callback keeps a privileged prompt away from someone who
+    # could never answer it; the service still checks, because the role may change in between.
+    if not is_admin(user):
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    argument = _command_text(message).partition(" ")[2].strip()
+    if not argument:
+        await message.reply_text(messages.REFERENCE_REVOKE_USAGE)
+        return
+    try:
+        canonical_code = normalize_product_code(argument.split()[0])
+    except ValueError:
+        # A code that normalizes to nothing cannot name a product, so it names nothing instead.
+        await message.reply_text(messages.REFERENCE_IMAGE_PRODUCT_NOT_FOUND.format(code=argument))
+        return
+    services.reference_revokes.request(user.telegram_user_id, canonical_code)
+    await message.reply_text(
+        messages.REFERENCE_REVOKE_CONFIRM.format(code=canonical_code),
+        reply_markup=_revoke_keyboard(),
+    )
+
+
+async def handle_revoke_reference_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Carry out, or drop, the revocation the administrator was just asked about.
+
+    The code comes from server-side state rather than ``query.data``, because callback payloads are
+    client-supplied and an unverified string gets to decide whose confirmation disappears.
+    """
+
+    query = update.callback_query
+    actor = update.effective_user
+    if query is None or actor is None or not _is_private(update):
+        return
+    await query.answer()
+    services = _services(context)
+    if services.reference_images is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    canonical_code = services.reference_revokes.code_for(actor.id)
+    if canonical_code is None:
+        await query.edit_message_text(messages.REFERENCE_REVOKE_NO_REQUEST)
+        return
+    services.reference_revokes.clear(actor.id)
+    if query.data == "ri:no":
+        await query.edit_message_text(messages.REFERENCE_REVOKE_CANCELLED)
+        return
+    if query.data != "ri:yes":
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        result = await services.reference_images.revoke_product_picture(
+            telegram_user_id=actor.id, canonical_code=canonical_code
+        )
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except (ApplicationError, SQLAlchemyError, StorageError, OSError, ValueError):
+        logger.exception("Reference image revocation failed | code=%s", canonical_code)
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(_reference_revoke_reply(result, canonical_code))
+
+
+def _reference_revoke_reply(result: ReferenceRevokeResult, code: str) -> str:
+    """Answer a revocation in Azerbaijani, naming the product and how many claims it took."""
+
+    if result.status is ReferenceRevokeStatus.REVOKED:
+        return messages.REFERENCE_REVOKE_DONE.format(
+            code=result.display_code or code, count=result.revoked_count
+        )
+    if result.status is ReferenceRevokeStatus.NOTHING_TO_REVOKE:
+        return messages.REFERENCE_REVOKE_NOTHING.format(code=result.display_code or code)
+    return messages.REFERENCE_IMAGE_PRODUCT_NOT_FOUND.format(code=code)
+
+
 async def _run_deferred_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Run the caption command the router held back, now that the file is stored."""
     message = update.effective_message
@@ -1328,6 +1439,7 @@ COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "hatirlatmalar": handle_reminders,
     "help": handle_help,
     "verilerimi_sil": handle_delete_data,
+    "leqv_et": handle_revoke_reference,
     "baza": handle_baza,
     "internet": handle_internet,
     "tamaxtar": handle_tamaxtar,

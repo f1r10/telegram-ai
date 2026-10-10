@@ -12,6 +12,11 @@ Three rules shape every branch: an unknown product is never created, a picture a
 another product is never relinked (§22.7), and a caption that named no readable product resolves
 nothing. Each refusal writes nothing, and each check that could still be undone happens before the
 first row.
+
+A third verb, for administrators only, retires a confirmation somebody gave. It is a soft act on one
+column: the picture, its blob, its provenance and the audit trail all stay, so the decision remains
+provable, a parse run's sighting of the same bytes is untouched, and the next claim for that picture
+starts from a clean namespace rather than a rewritten history.
 """
 
 import asyncio
@@ -79,6 +84,28 @@ class MessagePicture:
     item: IngestionSessionItem
     file: FileObject
     session_open: bool
+
+
+class ReferenceRevokeStatus(StrEnum):
+    """How a revocation ended, in the distinctions an administrator has to be told apart."""
+
+    REVOKED = "REVOKED"
+    NOTHING_TO_REVOKE = "NOTHING_TO_REVOKE"
+    PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND"
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceRevokeResult:
+    """What was retired, how many claims it took, and the code to name back.
+
+    ``revoked_count`` is in the answer rather than only in the audit because a revocation the user
+    cannot size is not a confirmation step — §22.4 lets one product hold several pictures, so "the
+    claim is gone" could mean one or five.
+    """
+
+    status: ReferenceRevokeStatus
+    display_code: str | None = None
+    revoked_count: int = 0
 
 
 class ReferenceImageDenialReason(StrEnum):
@@ -199,6 +226,67 @@ class ReferenceImageService:
             )
             return ReferenceImageResult(
                 ReferenceImageStatus.QUEUED, display_code=product.display_code
+            )
+
+    async def revoke_product_picture(
+        self, *, telegram_user_id: int, canonical_code: str
+    ) -> ReferenceRevokeResult:
+        """Retire the explicit picture confirmations of the product an administrator named.
+
+        Administrator-only, because a confirmation some other user gave is business history and
+        dropping it is a privileged act rather than a change of mind. Soft by construction: only
+        ``superseded_at`` moves, so the asset, its blob, the provenance row and the audit trail all
+        stay, and nothing is reassigned — the rows retired here are exactly the ones the named
+        product holds. Asking again after a revoke finds nothing active and answers the same way,
+        which is what makes a repeated request idempotent instead of an error.
+        """
+
+        async with self.session_factory.begin() as session:
+            actor = await require_actor(session, telegram_user_id, admin=True)
+            product = await ProductRepository(session).find_by_code(canonical_code)
+            if product is None:
+                # The code names nothing, so there is no claim to retire and none is invented.
+                logger.info(
+                    "Reference revoke declined | code=%s reason=product_not_found", canonical_code
+                )
+                return ReferenceRevokeResult(ReferenceRevokeStatus.PRODUCT_NOT_FOUND)
+            relations = ProductImageRelationRepository(session)
+            # The same namespace confirmations serialize in, so a revoke and a save cannot
+            # interleave and leave a picture half-claimed; the row lock then makes a second revoke
+            # read the first one's committed decision rather than the state before it.
+            await relations.lock_confirmation_namespace()
+            active = await relations.active_explicit_for_product(product.id, for_update=True)
+            if not active:
+                logger.info(
+                    "Reference revoke declined | code=%s reason=nothing_active", canonical_code
+                )
+                return ReferenceRevokeResult(
+                    ReferenceRevokeStatus.NOTHING_TO_REVOKE, display_code=product.display_code
+                )
+            now = datetime.now(UTC)
+            for relation in active:
+                relations.supersede(relation, at=now)
+                AuditRepository(session).add(
+                    actor_user_id=actor.id,
+                    action="PRODUCT_IMAGE_REVOKED",
+                    entity_type="product_image_relation",
+                    entity_id=str(relation.id),
+                    metadata={
+                        "product_id": str(product.id),
+                        "image_asset_id": str(relation.image_asset_id),
+                        "code": product.display_code,
+                    },
+                )
+            logger.info(
+                "Reference images revoked | code=%s product_id=%s count=%s",
+                canonical_code,
+                product.id,
+                len(active),
+            )
+            return ReferenceRevokeResult(
+                ReferenceRevokeStatus.REVOKED,
+                display_code=product.display_code,
+                revoked_count=len(active),
             )
 
     @staticmethod

@@ -27,6 +27,7 @@ from office_assistant.integrations.telegram.handlers import (
     handle_password_text,
     handle_photo,
     handle_reminder_callback,
+    handle_revoke_reference_callback,
     handle_user_callback,
 )
 from office_assistant.integrations.telegram.outbox import run_outbox_consumer
@@ -93,6 +94,7 @@ def create_telegram_application(
     application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rp:"))
     application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rh:"))
     application.add_handler(CallbackQueryHandler(handle_delete_callback, pattern=r"^rd:"))
+    application.add_handler(CallbackQueryHandler(handle_revoke_reference_callback, pattern=r"^ri:"))
     application.add_handler(
         MessageHandler(filters.ChatType.PRIVATE & filters.Document.ALL, handle_document)
     )

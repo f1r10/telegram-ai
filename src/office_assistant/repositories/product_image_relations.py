@@ -1,5 +1,6 @@
 """Persistence queries for the product ↔ image relation (Master Spec §23.6)."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Select, select, text
@@ -57,6 +58,44 @@ class ProductImageRelationRepository:
         )
         row = (await self.session.execute(statement)).first()
         return None if row is None else (row[0], row[1])
+
+    async def active_explicit_for_product(
+        self, product_id: UUID, *, for_update: bool = False
+    ) -> list[ProductImageRelation]:
+        """Every picture this product holds an explicit user confirmation for, oldest claim first.
+
+        A revocation names the product, not one picture, so the caller has to see the whole live
+        set: §22.4 lets a product carry several pictures, and retiring only one of them while the
+        answer claims the confirmation was dropped would be a silent failure of the kind §23.7
+        forbids. Ordered by ``created_at`` rather than by the primary key, because that key is a
+        random uuid4 and would order the set by nothing at all.
+        """
+
+        statement = (
+            select(ProductImageRelation)
+            .where(
+                ProductImageRelation.product_id == product_id,
+                ProductImageRelation.confirmation_type
+                == ProductImageRelationConfirmation.USER_EXPLICIT,
+                ProductImageRelation.superseded_at.is_(None),
+            )
+            .order_by(ProductImageRelation.created_at, ProductImageRelation.id)
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return list((await self.session.execute(statement)).scalars().all())
+
+    @staticmethod
+    def supersede(relation: ProductImageRelation, *, at: datetime) -> None:
+        """Retire the claim and keep everything else.
+
+        ``superseded_at`` is the lifecycle field §23.6 defines for exactly this: history is kept
+        rather than deleted, so the confirmation stays provable, the provenance row keeps its
+        meaning, and the picture remains addressable for the parse runs and the other claims that
+        reference it.
+        """
+
+        relation.superseded_at = at
 
     def add(
         self,

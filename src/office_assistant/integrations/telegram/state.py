@@ -102,3 +102,26 @@ class DeleteConfirmationState:
 
     def clear(self, telegram_user_id: int) -> None:
         self._waiting.discard(telegram_user_id)
+
+
+class ReferenceRevokeState:
+    """Bounded map of the product code each administrator was last asked to revoke a picture for.
+
+    The code is kept here rather than in the button's callback data: a callback is client-supplied,
+    and an unverified string that names whose confirmation to retire is one privilege too far.
+    """
+
+    def __init__(self, max_users: int = 1000) -> None:
+        self.max_users = max_users
+        self._codes: dict[int, str] = {}
+
+    def request(self, telegram_user_id: int, canonical_code: str) -> None:
+        if len(self._codes) >= self.max_users:
+            self._codes.pop(next(iter(self._codes)))
+        self._codes[telegram_user_id] = canonical_code
+
+    def code_for(self, telegram_user_id: int) -> str | None:
+        return self._codes.get(telegram_user_id)
+
+    def clear(self, telegram_user_id: int) -> None:
+        self._codes.pop(telegram_user_id, None)

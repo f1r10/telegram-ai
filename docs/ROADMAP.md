@@ -163,6 +163,19 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       the internal resource the relation points at (Q27) — and because the confirmation arrives in
       the same turn as the upload, its content is made addressable without inventing an occurrence
       no parser sighted yet (§23.5).
+- [x] Block 5D: `/leqv_et <kod>` — the safe explicit revoke the owner approved (2026-10-10, part (b)
+      of Q31). Administrator-only, and the answer says what it did: the command normalizes the code,
+      holds it server-side, and asks for a confirmation button before anything changes, because a
+      callback payload is client-supplied and an unverified string gets to decide whose confirmation
+      disappears. Revoking is one column (`superseded_at`) on every active `USER_EXPLICIT` row of the
+      named product, under the same advisory lock plus row locks a confirmation takes, so a revoke
+      and a save cannot interleave and two administrators pressing yes at once retire the claim once.
+      Nothing is deleted and nothing is reassigned: the bytes in both namespaces, the asset, the
+      provenance row and the earlier `PRODUCT_IMAGE_CONFIRMED` audit all stay, a
+      `PRODUCT_IMAGE_REVOKED` audit is added per retired row, and asking again answers
+      "nothing active" rather than an error. The retired picture stops answering the active reads, so
+      the next caption for those bytes is a fresh decision instead of a conflict (§22.7 guards a live
+      claim only). No migration: §23.6 already defined the lifecycle column this needs.
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
