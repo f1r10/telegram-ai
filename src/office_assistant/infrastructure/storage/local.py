@@ -35,6 +35,15 @@ class LocalFileStorage:
         return path, f"staged/{name}"
 
     def path_for_key(self, storage_key: str) -> Path:
+        # Storage keys are portable POSIX-style relative paths, not OS-native paths.
+        # Windows drive letters and backslashes must also be refused on Linux: a key
+        # accepted here must never become a traversal if storage moves between hosts.
+        if (
+            not storage_key
+            or any(character in storage_key for character in ("\\", ":", "\\x00"))
+            or any(part in ("", ".", "..") for part in storage_key.split("/"))
+        ):
+            raise StorageError("Invalid storage key")
         candidate = (self.root / storage_key).resolve()
         try:
             candidate.relative_to(self.root)
