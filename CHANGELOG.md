@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12B evaluation harness (2026-10-10)
+
+- Added an offline, no-provider visual product ranking evaluator with strict JSONL
+  validation, approved product-code normalization, bounded inputs and aggregate-only
+  output. Unit tests cover exact/similar/negative distinctions and refusals.
+- Added the private dataset schema and benchmark acceptance gates. OCR and visual
+  embedding execution, real company benchmark scores and model selection remain pending.
+
 ### Phase 12A post-delivery correction (2026-10-10)
 
 - Closed Q33: admin user-list line and fallback labels now render from the
