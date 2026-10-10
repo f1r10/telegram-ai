@@ -62,6 +62,49 @@ same annotated truth set. Version all private evaluations.
 
 Undefined denominator metrics are reported as null.
 
+## OCR extraction benchmark (Phase 12B)
+
+OCR text extraction is a **separate evaluation task** from final product identity.
+Different OCR engines or preprocessing variants can produce private JSONL candidate lists.
+The evaluator applies only approved deterministic code normalization; it does not
+read pictures, OCR them automatically, autocorrect codes, or promote any inferred
+code to authoritative product identity.
+
+Each **ground-truth** record must be human-annotated, with the exact fields:
+
+    {"query_id":"example-1","scenario":"partial_model_code","visible_codes":["KA45"]}
+    {"query_id":"example-2","scenario":"unrelated_item","visible_codes":[]}
+
+Each **prediction** record must have exactly:
+
+    {"query_id":"example-1","extracted_codes":["KA-45"]}
+    {"query_id":"example-2","extracted_codes":[]}
+
+The permitted scenario labels are:
+`different_angle`, `different_background`, `phone_photo`, `weak_light`,
+`crop`, `packaging`, `similar_models`, `partial_model_code`,
+`pdf_screenshot`, `catalog_vs_photo`, and `unrelated_item`.
+These fixed scenario identifiers avoid accidental disclosure of company names.
+If a new scenario is needed, define a reviewed non-sensitive label in code and docs.
+
+From the repository root:
+
+    uv run --no-sync python -m office_assistant.scripts.benchmark_ocr --truth var/benchmark/private/ocr-truth.jsonl --predictions var/benchmark/private/ocr-model-a.jsonl --output var/benchmark/private/ocr-model-a-metrics.json
+
+The output includes aggregate micro-averaged code precision, recall and F1,
+query exact-set accuracy, image code hit rate, and false-alarm image rate,
+with the same metrics broken down by the fixed scenario labels. Empty-denominator
+metrics are `null`. `KA4S` is not silently corrected to `KA45`.
+OCR predictions must enumerate candidate product codes observed in text; they
+must not claim the entire photographed object is a verified product.
+The evaluator prints input digests and aggregated statistics only, not product codes
+or query identifiers. It never writes back to the authoritative business database.
+
+Run OCR extraction with one or more locally installed candidate engines on an
+owner-approved, private corpus, then submit their candidates in the above format.
+**No OCR engine, trained model, benchmark score, or accuracy threshold has yet been
+selected or demonstrated by these fixture-only tests.**
+
 ## Remaining acceptance gates
 
 1. Assemble a private, versioned, representative dataset with human-approved
