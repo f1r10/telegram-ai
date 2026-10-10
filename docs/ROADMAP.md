@@ -206,11 +206,10 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       the `/saxla` commit boundary (Q31), the photo-only rule and the Telegram routing are unchanged.
 - [x] Phase 12A message hygiene: two user-facing strings still built inside `handlers.py` — the
       empty-registry answer of `handle_users` and the account line of `handle_whoami` — moved to
-      `messages.USERS_NONE_REGISTERED` and `messages.WHOAMI_DETAILS`, keeping every bot-facing text in
-      the single catalog the project rule requires. Both are asserted against the catalog, and no
-      fixed wording is passed to `reply_text` from a handler anymore — only the admin user-list line
-      built by `_user_label` still carries its own labels, which is reported as remaining work rather
-      than changed here. Wording unchanged, so no user-visible change.
+      `messages.USERS_NONE_REGISTERED` and `messages.WHOAMI_DETAILS`, so neither reply builds wording
+      inline anymore and both are asserted against the catalog the project rule requires. The admin
+      user-list line built by `_user_label` still carries its own labels; that is pre-existing and is
+      reported as remaining work rather than changed here. Text unchanged, so no user-visible change.
 
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,

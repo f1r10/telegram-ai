@@ -4,7 +4,34 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
-### Phase 12A message hygiene — the last user-facing text left the handlers (2026-10-10)
+### Deploy: app and worker rebuilt with the widened caption grammar (2026-10-10)
+
+The containers were still running the narrow recognizer from `357af7f`, so the owner's four extra
+instruction forms would not have been read live. `docker compose build app worker` then
+`up -d app worker` only; `postgres`, `qdrant` and `searxng` were left untouched (still `Up 2 hours`),
+no volume was reset and no database was recreated.
+
+- New images `qoder_ai_assistand-app@af4b84da1425` and `qoder_ai_assistand-worker@c0abc4a3e73e`,
+  both `restarts=0`, `TELEGRAM_POLLING_ENABLED=true` in the running app container.
+- Runtime healthy: `getMe 200 OK`, `deleteWebhook 200 OK`, `Application started`, then three
+  consecutive `getUpdates 200 OK` polls; worker logged `Startup clock check passed` and connected to
+  Qdrant. Zero `ERROR`/`Traceback` lines in either container's log since the restart.
+- Live code carries the widening: inside `qoder_app`, `KA45 şəklini yadda saxla`,
+  `Bu şəkli KA45 məhsuluna bağla`, `KA45 üçün referans şəkil kimi saxla`,
+  `Bu KA45 məhsulunun şəklidir, yadda saxla` and `Bu KA45-dir, yadda saxla` all return
+  `ProductPictureConfirmation(KA45)`, while `Bu məhsul KA45, yadda saxla` and
+  `KA45 şəklini yadda saxlama` return `NoPictureConfirmation()`.
+- The application constructs in the running image with all 21 handlers and an error handler, the same
+  wiring the unit suite asserts.
+- Database unchanged and still authoritative: `alembic_version = 0017_pending_image_confirmations`,
+  `file_objects=3`, `audit_events=20`, all 3 `ingestion_jobs` `SUCCEEDED`, zero rows in
+  `pending_product_image_confirmations`, zero active rows in `product_image_relations` — the same
+  counts recorded before the restart, so nothing was lost.
+- Still awaiting the owner's repository URL: no remote is configured and no `gh` is installed, so the
+  six validated commits (`d537210`, `524af5b`, `8661f0a`, `357af7f`, `890aad8`, `bee7b12`) sit on
+  local `master` with a clean tree. Nothing was invented and no repository was created.
+
+### Phase 12A message hygiene — two inline replies moved into the catalog (2026-10-10)
 
 The project rule puts every bot-facing string in `integrations/telegram/messages.py`. Two strings that
 answer the user were still built inside `handlers.py`, so a wording change would have meant editing
