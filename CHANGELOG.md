@@ -13,7 +13,8 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 - Added regression tests for both behaviors.
 - Fixed a cross-platform storage-key validation gap found by Linux CI: Windows-style
   backslashes, drive-qualified paths, NUL bytes and dot components now fail closed;
-  symlink containment remains enforced. Expanded hostile-path tests.
+  symlink containment remains enforced. Staging filename suffixes also reject
+  path separators, drive-like syntax, and other unsafe values. Expanded hostile-path tests.
 - Refreshed README and agent/spec precedence guidance to reflect delivered
   Phase 11 / 12A and the separate, unpublished owner Master Specification.
 - Added a GitHub Actions gate for offline unit tests, Ruff and strict Pyright.
