@@ -33,10 +33,18 @@ repository. `docs/SPEC.md` is an earlier reconciled design record; see
 
 ## Phase 12B evaluation groundwork
 
-The offline visual benchmark evaluator is implemented. It measures product-ranking
-predictions against manually verified labels without running models or exposing
-company images. See [Phase 12B benchmark protocol](docs/PHASE12B-BENCHMARK.md).
-Actual OCR/embedding benchmarks and Phase 12C search are still pending.
+Offline evaluation tools now cover both visual product ranking and OCR product-code
+extraction against manually verified, private labels. Neither tool runs an OCR or
+embedding model, uploads company images, or modifies the business database. See
+[Phase 12B benchmark protocol](docs/PHASE12B-BENCHMARK.md).
+
+Evaluate local OCR candidate outputs with:
+
+```powershell
+uv run --no-sync python -m office_assistant.scripts.benchmark_ocr --truth var/benchmark/private/ocr-truth.jsonl --predictions var/benchmark/private/ocr-predictions.jsonl
+```
+
+Actual local OCR/embedding model benchmarks and Phase 12C search are still pending.
 
 ## Prerequisites
 
