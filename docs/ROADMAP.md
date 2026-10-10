@@ -223,6 +223,10 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       (for example, `2-ci mənbəni göndər`), not by `/tamaxtar <nömrə>`.
 - [ ] Live Telegram acceptance with two real accounts, real product photos and the
       `/saxla` → `/leqv_et` lifecycle is still a manual production gate.
+- [x] Phase 12B evaluation infrastructure: added a deterministic offline JSONL
+      benchmark harness for Recall@1/3/5, MRR, exact-identity precision,
+      false-positive rate and similar-product Recall@5; tests use synthetic
+      identifiers only. See docs/PHASE12B-BENCHMARK.md.
 - [ ] Phase 12B: OCR and visual embedding benchmark on a representative,
       non-public company dataset; do not declare an embedding model selected
       based only on synthetic samples.
