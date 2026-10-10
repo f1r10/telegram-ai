@@ -20,9 +20,9 @@ from office_assistant.infrastructure.database.models import User, UserRole, User
 from office_assistant.integrations.telegram.app import create_telegram_application
 from office_assistant.integrations.telegram.handlers import (
     TelegramServices,
-    _user_label,  # pyright: ignore[reportPrivateUsage]
     _reply_long,  # pyright: ignore[reportPrivateUsage]
     _try_file_delivery,  # pyright: ignore[reportPrivateUsage]
+    _user_label,  # pyright: ignore[reportPrivateUsage]
     handle_baza,
     handle_internet,
     handle_password_text,
@@ -37,9 +37,9 @@ from office_assistant.integrations.telegram.messages import (
     HELP_TEXT,
     QDRANT_UNAVAILABLE,
     USERS_LINE,
+    USERS_NONE_REGISTERED,
     USERS_NO_NAME,
     USERS_NO_USERNAME,
-    USERS_NONE_REGISTERED,
     WELCOME,
     WHOAMI_DETAILS,
 )
