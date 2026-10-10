@@ -2,16 +2,28 @@
 
 ## What this project is
 
-An Azerbaijani-language Telegram bot that: answers questions from an internal knowledge base (RAG), manages natural-language reminders, answers from structured company data (facts, product prices, customers), keeps user-approved permanent memory, and — in a LATER phase only — can run controlled web search (`/internet`, `/tamaxtar`).
+An Azerbaijani-language Telegram office assistant with PostgreSQL business records,
+Qdrant-backed RAG, reminders, source-aware internal and external web search, document
+and image ingestion, and user-confirmed product reference images. Controlled web search
+is **implemented** in Phase 11; Phase 12A image foundation is implemented. OCR and visual
+similarity remain future benchmark and search phases.
 
 ## Source of truth — read in this order
 
-1. `docs/SPEC.md` — what to build (architecture, data model, behaviors, security).
-2. `docs/ROADMAP.md` — phase plan. Build ONLY the phase the user names.
-3. `docs/OPEN-QUESTIONS.md` — unresolved decisions. Never guess these silently.
-4. `docs/ADR-001-web-search.md` — approved decision. Implement only in Phase 6.
+1. The owner's `telegram_ofis_asistanti_MASTER_SPEC` (2026-10-07), **when supplied**.
+   This is the authoritative product contract and is intentionally not published
+   in this public repository. Do not invent missing sections or commit the private
+   source document without explicit approval.
+2. Later explicit owner decisions recorded in `docs/OPEN-QUESTIONS.md`, relevant
+   ADRs and `docs/ROADMAP.md`; these amend the corresponding Master Spec sections.
+3. `docs/SPEC.md` — earlier reconciled V1 design. It remains useful background,
+   but historical recommendations must not override the later owner contract.
+4. Current code, migrations, tests and deployment configuration — source of truth
+   for what has actually been implemented, not for unapproved product changes.
 
-If code and docs disagree, stop and report the conflict. Do not silently pick one.
+If the specifications and code disagree, document the conflict instead of silently
+reinterpreting a requirement. Do not claim that unpublished Master Spec text has
+been verified if it was not provided in the task.
 
 ## Working protocol
 
@@ -26,7 +38,7 @@ If code and docs disagree, stop and report the conflict. Do not silently pick on
 ## Stack (decided)
 
 - Python 3.12, PostgreSQL = system of record, Qdrant = vector index (derived, rebuildable), Docker Compose on one VM.
-- Services: `app`, `worker`, `postgres`, `qdrant`. `searxng` is added only in Phase 6.
+- Services: `app`, `worker`, `postgres`, `qdrant` and `searxng` (external search delivered in Phase 11).
 - Default libraries (change only through a new ADR): python-telegram-bot 21+, SQLAlchemy 2 (async) + Alembic, asyncpg, httpx, pydantic v2 + pydantic-settings, structlog-style redacted stdlib logging, pytest, ruff, pyright (strict). Reconciled 2026-10-06: earlier draft named aiogram 3 and mypy; the implemented stack above is what Phases 0-11 delivered.
 - No Redis. No Celery. Background work uses PostgreSQL (`jobs` table, `FOR UPDATE SKIP LOCKED`).
 

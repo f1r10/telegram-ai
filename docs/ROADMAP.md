@@ -7,7 +7,7 @@ records `docs/architecture/decisions/0001..0016`, and the test suite
 (`tests/integration/test_phaseN_*`). Completed items are checked only where
 acceptance evidence exists in-repo (migrations, modules, tests).
 
-The original SPEC.md remains the requirements source; phases below map to it.
+The owner's 2026-10-07 Master Specification governs approved product requirements when provided; `docs/SPEC.md` is an older V1 baseline. Completed code and tests, not planning text, establish implementation status.
 
 ## Phase 0 — Project Setup & Tooling ✅
 
@@ -210,6 +210,22 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       inline anymore and both are asserted against the catalog the project rule requires. The admin
       user-list line built by `_user_label` still carries its own labels; that is pre-existing and is
       reported as remaining work rather than changed here. Text unchanged, so no user-visible change.
+
+
+- [x] Cross-platform storage-key hardening identified by GitHub Actions Linux
+      tests: reject Windows drive/backslash keys and dot segments, retain
+      symlink confinement, and test portable path safety.
+- [x] Post-delivery Telegram text cleanup (2026-10-10): Q33 closed by moving the
+      `_user_label` line template and both fallback labels into `messages.py` without
+      changing existing text. Unit tests now cover missing and present names/handles.
+- [x] Corrected the `/help` description: `/tamaxtar <sual>` is combined internal +
+      external search; original source files are requested by conversational follow-up
+      (for example, `2-ci mənbəni göndər`), not by `/tamaxtar <nömrə>`.
+- [ ] Live Telegram acceptance with two real accounts, real product photos and the
+      `/saxla` → `/leqv_et` lifecycle is still a manual production gate.
+- [ ] Phase 12B: OCR and visual embedding benchmark on a representative,
+      non-public company dataset; do not declare an embedding model selected
+      based only on synthetic samples.
 
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,

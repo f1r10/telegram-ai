@@ -4,6 +4,23 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A post-delivery correction (2026-10-10)
+
+- Closed Q33: admin user-list line and fallback labels now render from the
+  centralized Azerbaijani Telegram message catalog, preserving displayed text.
+- Fixed `/help` to identify `/tamaxtar` as combined internal/external search;
+  conversational source-file delivery is described separately.
+- Added regression tests for both behaviors.
+- Fixed a cross-platform storage-key validation gap found by Linux CI: Windows-style
+  backslashes, drive-qualified paths, NUL bytes and dot components now fail closed;
+  symlink containment remains enforced. Staging filename suffixes also reject
+  path separators, drive-like syntax, and other unsafe values. Expanded hostile-path tests.
+- Refreshed README and agent/spec precedence guidance to reflect delivered
+  Phase 11 / 12A and the separate, unpublished owner Master Specification.
+- Added a GitHub Actions gate for offline unit tests, Ruff and strict Pyright.
+  PostgreSQL/Qdrant integration, live Telegram UAT and model benchmarks remain
+  separate environment-dependent gates.
+
 ### Deploy: app and worker rebuilt with the widened caption grammar (2026-10-10)
 
 The containers were still running the narrow recognizer from `357af7f`, so the owner's four extra

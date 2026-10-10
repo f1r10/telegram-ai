@@ -30,6 +30,14 @@ def test_storage_paths_are_traversal_safe(tmp_path: Path) -> None:
         "..\\..\\secret.txt",
         "C:/Windows/file.txt",
         "/etc/passwd",
+        r"C:\Windows\file.txt",
+        "C:relative.txt",
+        r"\\server\share\file.txt",
+        "staged/../blobs/file.pdf",
+        "staged/./file.pdf",
+        "staged//file.pdf",
+        "file.txt:metadata",
+        "\x00invalid",
     ):
         with pytest.raises(StorageError):
             storage.path_for_key(hostile_key)
@@ -37,6 +45,32 @@ def test_storage_paths_are_traversal_safe(tmp_path: Path) -> None:
     path, key = storage.create_staging_path(".pdf")
     assert path.parent == storage.staged_root
     assert key.startswith("staged/")
+    assert storage.path_for_key(key) == path
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [".jpg/../../secret", r".png\..\secret", ".jpg:metadata", ".tar.gz", "\x00.jpg"],
+)
+def test_staging_suffix_never_supplies_a_path(tmp_path: Path, suffix: str) -> None:
+    storage = LocalFileStorage(tmp_path / "storage")
+    path, key = storage.create_staging_path(suffix)
+    assert path.parent == storage.staged_root
+    assert path.suffix == ""
+    assert key == f"staged/{path.name}"
+
+
+def test_storage_keys_cannot_follow_symlinks_outside_root(tmp_path: Path) -> None:
+    storage = LocalFileStorage(tmp_path / "storage")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = storage.staged_root / "external"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Creating directory symlinks requires privileges on some hosts")
+    with pytest.raises(StorageError):
+        storage.path_for_key("staged/external/company.pdf")
 
 
 def _digest(data: bytes) -> str:

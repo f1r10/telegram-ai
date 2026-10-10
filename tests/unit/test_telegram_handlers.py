@@ -22,6 +22,7 @@ from office_assistant.integrations.telegram.handlers import (
     TelegramServices,
     _reply_long,  # pyright: ignore[reportPrivateUsage]
     _try_file_delivery,  # pyright: ignore[reportPrivateUsage]
+    _user_label,  # pyright: ignore[reportPrivateUsage]
     handle_baza,
     handle_internet,
     handle_password_text,
@@ -33,7 +34,11 @@ from office_assistant.integrations.telegram.handlers import (
 from office_assistant.integrations.telegram.messages import (
     AUTH_PROMPT,
     COMBINED_INTERNAL_UNAVAILABLE,
+    HELP_TEXT,
     QDRANT_UNAVAILABLE,
+    USERS_LINE,
+    USERS_NO_NAME,
+    USERS_NO_USERNAME,
     USERS_NONE_REGISTERED,
     WELCOME,
     WHOAMI_DETAILS,
@@ -363,3 +368,45 @@ def test_an_empty_user_list_answers_from_the_message_catalog() -> None:
     call = message.reply_text.await_args
     assert call is not None
     assert call.args[0] == USERS_NONE_REGISTERED
+
+
+@pytest.mark.parametrize(
+    ("first_name", "last_name", "username"),
+    [
+        (None, None, None),
+        ("Aysel", "Məmmədova", "aysel"),
+        ("Aysel", None, None),
+    ],
+)
+def test_user_list_label_uses_message_catalog(
+    first_name: str | None, last_name: str | None, username: str | None
+) -> None:
+    user = User(
+        telegram_user_id=123,
+        role=UserRole.USER,
+        status=UserStatus.ACTIVE,
+        first_name=first_name,
+        last_name=last_name,
+        telegram_username=username,
+    )
+    expected = USERS_LINE.format(
+        telegram_user_id=123,
+        name=" ".join(part for part in (first_name, last_name) if part) or USERS_NO_NAME,
+        username=f"@{username}" if username else USERS_NO_USERNAME,
+        status=UserStatus.ACTIVE,
+    )
+    assert _user_label(user) == expected
+
+
+def test_nonempty_admin_user_list_uses_message_catalog() -> None:
+    user = User(telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    users = FakeUsers(user)
+    users.registered = [user]
+    message = _run_handler(handle_users, _services(users), "/users")
+    assert message.reply_text.await_args.args[0] == _user_label(user)  # type: ignore[union-attr]
+
+
+def test_help_describes_combined_search_and_source_followup_separately() -> None:
+    assert "/tamaxtar <sual>" in HELP_TEXT
+    assert "/tamaxtar <nömrə>" not in HELP_TEXT
+    assert "2-ci mənbəni göndər" in HELP_TEXT

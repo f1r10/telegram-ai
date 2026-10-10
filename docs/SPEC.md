@@ -1,5 +1,14 @@
 # SPEC — Azerbaijani Telegram AI Assistant
 
+> **Status note (2026-10-10):** This file is a historical reconciled V1 design,
+> not the complete owner-approved Master Specification dated 2026-10-07. The Master
+> Specification is maintained outside this public repository; when provided, it
+> takes priority over older recommendations here. Later owner decisions and the
+> implemented status are recorded in `OPEN-QUESTIONS.md`, `ROADMAP.md` and ADRs.
+> In particular, Phase 11 web search and Phase 12A image foundations have been
+> implemented; OCR/visual benchmarks (12B), multimodal search (12C), and final
+> production acceptance remain future work.
+
 Status: v1.0 reconciled specification. Audience: the coding agent (Qoder + Qwen 3.8) and the project owner.
 
 ## 0. Provenance and confidence
@@ -28,7 +37,7 @@ An Azerbaijani-language Telegram assistant for a business context. Capabilities:
 5. Controlled web search (V1 scope, but implemented last — Phase 6): `/internet` and `/tamaxtar`.
 6. Agent routing: natural-language messages are routed to the right handler; explicit commands always override routing.
 
-Users and roles (RECOMMENDED, confirm in OPEN-QUESTIONS Q1): allowlist-only bot. Roles `admin` (manage knowledge, facts, users) and `member` (ask, remind, personal memory). Unknown Telegram IDs are refused.
+Users and roles: the earlier allowlist-only recommendation is **superseded** by Master Spec §4 and the implemented password bootstrap. The first valid password holder becomes ADMIN; later valid holders await administrator approval. Only ACTIVE authenticated users access authoritative operations.
 
 ## 2. Scope
 

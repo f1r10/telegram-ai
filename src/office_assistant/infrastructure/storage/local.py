@@ -29,12 +29,21 @@ class LocalFileStorage:
         self.image_asset_root.mkdir(parents=True, exist_ok=True)
 
     def create_staging_path(self, suffix: str = "") -> tuple[Path, str]:
-        safe_suffix = suffix.lower() if suffix and suffix.startswith(".") else ""
+        safe_suffix = suffix.lower() if suffix.startswith(".") and suffix[1:].isalnum() else ""
         name = f"{token_hex(16)}{safe_suffix}"
         path = self.staged_root / name
         return path, f"staged/{name}"
 
     def path_for_key(self, storage_key: str) -> Path:
+        # Storage keys are portable POSIX-style relative paths, not OS-native paths.
+        # Windows drive letters and backslashes must also be refused on Linux: a key
+        # accepted here must never become a traversal if storage moves between hosts.
+        if (
+            not storage_key
+            or any(character in storage_key for character in ("\\", ":", chr(0)))
+            or any(part in ("", ".", "..") for part in storage_key.split("/"))
+        ):
+            raise StorageError("Invalid storage key")
         candidate = (self.root / storage_key).resolve()
         try:
             candidate.relative_to(self.root)
