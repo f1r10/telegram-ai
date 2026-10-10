@@ -31,6 +31,13 @@ contract when furnished to an agent. It has not been published in this public
 repository. `docs/SPEC.md` is an earlier reconciled design record; see
 `AGENTS.md` and `docs/OPEN-QUESTIONS.md` for precedence and later decisions.
 
+## Phase 12B evaluation groundwork
+
+The offline visual benchmark evaluator is implemented. It measures product-ranking
+predictions against manually verified labels without running models or exposing
+company images. See [Phase 12B benchmark protocol](docs/PHASE12B-BENCHMARK.md).
+Actual OCR/embedding benchmarks and Phase 12C search are still pending.
+
 ## Prerequisites
 
 - Python 3.12
