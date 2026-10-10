@@ -143,9 +143,7 @@ def evaluate(
     ]
 
     def hits_at(k: int) -> int:
-        return sum(
-            case.exact_code in by_id[case.query_id].ranked_codes[:k] for case in exact_cases
-        )
+        return sum(case.exact_code in by_id[case.query_id].ranked_codes[:k] for case in exact_cases)
 
     reciprocal_rank_sum = 0.0
     for case in exact_cases:
