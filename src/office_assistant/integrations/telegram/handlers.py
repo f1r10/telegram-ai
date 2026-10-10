@@ -42,7 +42,9 @@ from office_assistant.application.errors import (
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
 from office_assistant.application.reference_images import (
+    ReferenceImageDenialReason,
     ReferenceImageResult,
+    ReferenceImageSaveDenied,
     ReferenceImageService,
     ReferenceImageStatus,
 )
@@ -578,19 +580,34 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 create_session=True,
             )
         summary = await services.ingestion.commit(user)
+    except ReferenceImageSaveDenied as denied:
+        # The session rolled back with the refused picture, so say which claim blocked the save.
+        await message.reply_text(_reference_image_denied(denied))
+        return
     except (ApplicationError, SQLAlchemyError, StorageError):
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
     if summary is None:
         await message.reply_text(messages.SAVE_NO_SESSION)
         return
-    await message.reply_text(
-        messages.SAVE_SUCCESS.format(
-            files=summary.file_count,
-            instructions=summary.instruction_count,
-            duplicates=summary.duplicate_count,
-        )
+    reply = messages.SAVE_SUCCESS.format(
+        files=summary.file_count,
+        instructions=summary.instruction_count,
+        duplicates=summary.duplicate_count,
     )
+    if summary.reference_images_linked:
+        reply += messages.REFERENCE_IMAGE_LINKED_NOTE.format(count=summary.reference_images_linked)
+    await message.reply_text(reply)
+
+
+def _reference_image_denied(denied: ReferenceImageSaveDenied) -> str:
+    """Name the queued picture that stopped /saxla, and the claim that outranked it."""
+
+    if denied.reason is ReferenceImageDenialReason.CONFLICT:
+        return messages.REFERENCE_IMAGE_SAVE_CONFLICT.format(
+            code=denied.holder_code or denied.canonical_code
+        )
+    return messages.REFERENCE_IMAGE_UNREADABLE
 
 
 def _proposal_keyboard(token: str) -> InlineKeyboardMarkup:
@@ -1067,11 +1084,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def _confirm_reference_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Link the picture to the product its caption named, reading no model to do it (§23.7).
+    """Queue the picture for the product its caption named, reading no model to do it (§23.7).
 
     This runs after the upload, because the confirmation is about the file this message carried. A
     caption that is not the naming phrase is left alone: an ordinary caption must never become a
     business instruction (invariant 1), and an ambiguous one writes nothing rather than choosing.
+    Nothing becomes authoritative here — ``/saxla`` is what turns the claim into a relation.
     """
 
     message = update.effective_message
@@ -1094,7 +1112,7 @@ async def _confirm_reference_image(update: Update, context: ContextTypes.DEFAULT
     if not isinstance(caption, ProductPictureConfirmation):
         return
     try:
-        result = await services.reference_images.confirm_product_picture(
+        result = await services.reference_images.record_product_picture(
             telegram_user_id=identity.telegram_user_id,
             telegram_chat_id=chat.id,
             telegram_message_id=message.message_id,
@@ -1111,10 +1129,10 @@ async def _confirm_reference_image(update: Update, context: ContextTypes.DEFAULT
 
 
 def _reference_image_reply(result: ReferenceImageResult, code: str) -> str:
-    """Answer a confirmation in Azerbaijani, naming back what the system did or refused to do."""
+    """Answer a queued confirmation in Azerbaijani, naming what the system did or refused to do."""
 
-    if result.status is ReferenceImageStatus.LINKED:
-        return messages.REFERENCE_IMAGE_SAVED.format(code=result.display_code or code)
+    if result.status is ReferenceImageStatus.QUEUED:
+        return messages.REFERENCE_IMAGE_QUEUED.format(code=result.display_code or code)
     if result.status is ReferenceImageStatus.ALREADY_LINKED:
         return messages.REFERENCE_IMAGE_ALREADY_SAVED.format(code=result.display_code or code)
     if result.status is ReferenceImageStatus.PRODUCT_NOT_FOUND:
@@ -1123,7 +1141,7 @@ def _reference_image_reply(result: ReferenceImageResult, code: str) -> str:
         return messages.REFERENCE_IMAGE_CONFLICT.format(code=result.display_code or code)
     if result.status is ReferenceImageStatus.NO_PICTURE:
         return messages.REFERENCE_IMAGE_NO_PICTURE
-    return messages.REFERENCE_IMAGE_UNREADABLE
+    return messages.REFERENCE_IMAGE_NO_SESSION
 
 
 async def _run_deferred_caption_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

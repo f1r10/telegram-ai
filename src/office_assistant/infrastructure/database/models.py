@@ -1386,3 +1386,63 @@ class ProductImageRelation(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PendingProductImageState(StrEnum):
+    """How far a queued caption confirmation has travelled."""
+
+    PENDING = "PENDING"
+    LINKED = "LINKED"
+    CANCELLED = "CANCELLED"
+
+
+class PendingProductImageConfirmation(Base):
+    """A naming caption recorded inside the open ingestion session, before anything is saved.
+
+    ``/saxla`` is the ingestion commit boundary, so "Bu KA45-dir, yadda saxla" states an intent
+    rather than writing a business fact: no bytes are copied and no relation exists until the
+    session commits, and ``/cancel`` leaves nothing authoritative behind (§23.7 — a cancel must not
+    create a relation). The normalized code is stored beside the product identity so the reply that
+    confirms the queueing and the link that finalizes it name the same thing the user typed.
+
+    The session item identifies the queued confirmation: one Telegram message carries one picture
+    and one caption, so a second naming for that item replaces the first instead of racing it.
+    """
+
+    __tablename__ = "pending_product_image_confirmations"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'LINKED', 'CANCELLED')",
+            name="ck_pending_product_image_confirmations_status",
+        ),
+        Index(
+            "uq_pending_product_image_open_item",
+            "session_item_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    # CASCADE, unlike the committed relation: this row is part of the session's pending package and
+    # the session owns it.
+    session_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ingestion_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_item_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ingestion_session_items.id", ondelete="CASCADE"), nullable=False
+    )
+    # RESTRICT, matching the committed relation: a queued claim is a reason to keep the product it
+    # names, and nothing here may be dropped by a delete the user never asked for.
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    canonical_code: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

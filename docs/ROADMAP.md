@@ -149,11 +149,14 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [x] Block 5C: `product_image_relations` plus the deterministic "Bu KA45-dir, yadda saxla"
       confirmation (§23.7) — the caption is read by a pattern, so a code that parses costs no model
       tokens; an unknown product is never created, an ambiguous caption is never guessed, and every
-      refusal writes nothing at all, bytes included. The claim lands as `USER_CONFIRMED` with
-      `confirmation_type = USER_EXPLICIT` on `is_reference`, next to its own `source_references` row
-      naming the exact message and file, so §22.3's "the human said it" survives as evidence rather
-      than as a log line. §22.7 is a database fact, not a convention: a partial unique index plus an
-      advisory lock keep one active explicit claim per picture, so a second product naming the same
+      refusal writes nothing at all, bytes included. The caption queues its claim against the open
+      ingestion session (Q31, resolved by the owner 2026-10-10) and `/saxla` is what writes it: the
+      relation lands as `USER_CONFIRMED` with `confirmation_type = USER_EXPLICIT` on `is_reference`,
+      next to its own `source_references` row naming the exact message and file, so §22.3's "the
+      human said it" survives as evidence rather than as a log line, while `/cancel` or expiry leaves
+      no authoritative trace behind. §22.7 is a database fact, not a convention: a partial unique
+      index plus an advisory lock keep one active explicit claim per picture and one live claim per
+      message, so a second product naming the same
       bytes is refused and told which product already holds it, while §22.4's many pictures for one
       product stay allowed. Superseded rows are kept, never deleted (§23.6). A confirmed photo keeps
       both copies the owner asked for — `blobs/` holds the original the user sent, `image_assets/`

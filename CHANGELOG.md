@@ -4,7 +4,68 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
-### Phase 12A Block 5C: a user's own words make a picture a product's reference (2026-10-09)
+### Phase 12A Block 5C follow-up — Q31 resolved: the caption queues, `/saxla` saves (2026-10-10)
+
+The owner decided how a naming caption lands: `/saxla` stays the authoritative ingestion commit
+boundary, so `Bu KA45-dir, yadda saxla` registers the user's confirmation *intent* instead of
+writing business truth next to a file that has not been accepted yet. Block 5C wrote the relation
+inside the upload session; that is what this changes, and it makes `/cancel` a real undo.
+
+- `infrastructure/database/models.py` + `migrations/versions/0017_pending_image_confirmations.py`
+  (applied to `office_assistant_test`): `pending_product_image_confirmations` holds the claim with
+  the session — `session_id`/`session_item_id` cascade, `product_id` is `RESTRICT` (a queued claim
+  may not outlive the product it names, nor drag it away), `canonical_code` keeps the code as
+  typed, and `status` moves `PENDING → LINKED | CANCELLED`. A partial unique index keeps one live
+  claim per message item, so a repeated caption cannot queue the same claim twice and renaming the
+  picture retargets the single row. Naming deviation, stated plainly: the revision id is shorter
+  than the table because `alembic_version.version_num` is `varchar(32)` in this schema.
+- `repositories/pending_product_images.py`: the claim's whole vocabulary — read it locked, queue it,
+  retarget it, resolve it, and `cancel_for_session` for the discard path.
+- `application/reference_images.py` now has two boundaries instead of one.
+  `record_product_picture` authenticates, resolves an existing product (never creates one), reads
+  the picture this exact message carried, refuses a session that is no longer open, pre-checks the
+  bytes' content hash against the active confirmations, and writes the `PENDING` row — no byte is
+  copied, no asset and no relation exist, and the answer says `/saxla` completes it and `/cancel`
+  discards it. `promote_queued_confirmations` runs inside the `/saxla` transaction: content copy →
+  provenance → relation → `PRODUCT_IMAGE_CONFIRMED` audit → `LINKED`. `active_confirmation_holder`
+  became `active_confirmation_holder_by_content`, because before the asset exists only the hash
+  identifies the picture.
+- `ReferenceImageSaveDenied` is why the save can be trusted: a conflict or unreadable bytes found at
+  the save boundary roll the whole commit back rather than store the file and quietly drop the
+  confirmation its own caption asked for. The reply names the code that already owns the picture.
+  `UNREADABLE_PICTURE` left the caption vocabulary because bytes are only decoded when the session
+  commits — a picture that turns out to state no picture is a save-time denial now, while
+  `NO_PICTURE` at the caption means this exact message carried no photo, and a session that is no
+  longer open answers `SESSION_CLOSED` rather than pretending to queue.
+- `application/ingestion.py`: `commit()` promotes the queued claims and reports
+  `reference_images_linked` in `SessionSummary`; `cancel()` and `cleanup_expired()` resolve the
+  session's live claims to `CANCELLED` alongside the staged file. A committed relation is not
+  reachable from either path — a later unrelated `/cancel` cannot undo an earlier decision.
+- `integrations/telegram/handlers.py` + `messages.py`: `REFERENCE_IMAGE_SAVED` became
+  `REFERENCE_IMAGE_QUEUED`, plus `REFERENCE_IMAGE_NO_SESSION`, `REFERENCE_IMAGE_SAVE_CONFLICT` and
+  a `/saxla` tail that names how many picture relations the save committed;
+  `REFERENCE_IMAGE_UNREADABLE` now tells the user the save stopped and nothing was stored. `/help`
+  describes the two steps. All user-facing text stays Azerbaijani; every route the picture can take
+  has one.
+- Tests: `tests/integration/test_phase12c_product_image_relations.py` grew from 8 to 14 and now
+  drives the real `IngestionSessionService` — queue-then-`/saxla` (the queue writes nothing at all,
+  then the relation, asset with zero occurrences, provenance, audit and both byte copies appear),
+  `/cancel` discards claim + staged bytes, a committed relation survives a later unrelated cancel,
+  renaming before the save, unknown product writes nothing, conflict at queue time, the same product
+  again queues nothing new, a race conflict aborts the entire save (session still OPEN, file still
+  staged at its original key, claim still PENDING), unreadable bytes abort the save, an
+  already-registered picture is reused, expiry discards the claim, and the schema itself refuses a
+  second active claim per picture and a second live claim per message item.
+  `tests/unit/test_phase12c_reference_routing.py` grew from 17 to 22 and pins the routing plus four
+  `/saxla` answers.
+- Gates: 382 unit, 43 integration, ruff, format (171 files under `src tests`, the new migration
+  included in its own check), pyright strict 0 errors.
+  `tests/integration/test_database.py` expects
+  `0017_pending_image_confirmations` and `test_phase12a_image_assets.py`'s wipe learned the new table.
+- Docs: Q31 is now `RESOLVED (owner, 2026-10-10)`. The revoke half of it is decided as well and
+  lands as the next block.
+
+
 
 Blocks 5A and 5B made pictures addressable. Master Spec §22 still owed the strongest claim a picture
 can carry — that a human wrote, in their own words, "bu KA45-dir" — and §23.7 requires that reading
@@ -63,7 +124,8 @@ user never intended as one.
 - Assumptions: Q31 (the naming caption confirms before `/saxla` commits the session, so a later
   `/cancel` removes the staged blob while the confirmed content and relation remain, and no revoke
   command exists) and Q32 (the caption grammar the pattern accepts, and that documents are not
-  covered).
+  covered). *Q31 as described here was superseded on 2026-10-10 by the follow-up above: the caption
+  queues a claim and `/saxla` is what writes the relation.*
 
 ### Phase 12A Block 5B: a picture inside a document is found where it really sits (2026-10-08)
 

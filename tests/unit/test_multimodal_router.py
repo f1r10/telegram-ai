@@ -185,7 +185,9 @@ def _ingestion() -> Any:
         ),
         add_instruction=AsyncMock(),
         commit=AsyncMock(
-            return_value=SimpleNamespace(file_count=1, instruction_count=0, duplicate_count=0)
+            return_value=SimpleNamespace(
+                file_count=1, instruction_count=0, duplicate_count=0, reference_images_linked=0
+            )
         ),
     )
 

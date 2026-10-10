@@ -1,4 +1,10 @@
-"""Pending raw-file ingestion sessions and the /saxla commit boundary."""
+"""Pending raw-file ingestion sessions and the /saxla commit boundary.
+
+``/saxla`` is the only place this package writes authoritative state, which matters for picture
+confirmations: a caption that names a product queues a claim inside the open session, and the claim
+becomes a relation only when the session commits. ``/cancel`` and expiry drop the claim with the
+staged file, so nothing a user retracted can be read later as a business fact (Master Spec §23.7).
+"""
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -8,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.application.errors import AuthorizationDenied, InvalidStateTransition
+from office_assistant.application.reference_images import promote_queued_confirmations
 from office_assistant.auth.policy import is_active
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
@@ -22,6 +29,7 @@ from office_assistant.infrastructure.database.models import (
     User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
+from office_assistant.repositories.pending_product_images import PendingProductImageRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +51,7 @@ class SessionSummary:
     instruction_count: int
     duplicate_count: int
     job_id: int | None = None
+    reference_images_linked: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +254,16 @@ class IngestionSessionService:
                     elif file_object.state != FileObjectState.ACTIVE:
                         raise InvalidStateTransition("File object cannot be committed")
 
+                # The picture claims this session's captions queued become relations here, in the
+                # same transaction as the files they speak about. A refusal rolls the commit back
+                # rather than saving a file whose confirmation was silently dropped (§23.7).
+                reference_images_linked = await promote_queued_confirmations(
+                    session,
+                    self.storage,
+                    session_id=ingestion_session.id,
+                    actor_user_id=db_user.id,
+                )
+
                 job = await session.scalar(
                     select(IngestionJob).where(IngestionJob.session_id == ingestion_session.id)
                 )
@@ -274,6 +293,7 @@ class IngestionSessionService:
                     duplicate_count=len(file_items)
                     - len({item.file_object_id for item in file_items}),
                     job_id=job.id,
+                    reference_images_linked=reference_images_linked,
                 )
         except Exception:
             for old_key, new_key in reversed(moved):
@@ -312,7 +332,13 @@ class IngestionSessionService:
                     file_object.state = FileObjectState.DELETED
                     delete_keys.append(file_object.storage_key)
             ingestion_session.status = IngestionSessionStatus.CANCELLED
-            ingestion_session.cancelled_at = datetime.now(UTC)
+            cancelled_at = datetime.now(UTC)
+            ingestion_session.cancelled_at = cancelled_at
+            # A caption that named a product queued a claim, not a fact: discarding the session has
+            # to discard the claim with it, so /cancel never leaves a relation behind (§23.7).
+            await PendingProductImageRepository(session).cancel_for_session(
+                ingestion_session.id, at=cancelled_at
+            )
             self._audit(
                 session,
                 actor_user_id=db_user.id,
@@ -362,6 +388,9 @@ class IngestionSessionService:
                     if other_reference is None:
                         file_object.state = FileObjectState.DELETED
                         delete_keys.append(file_object.storage_key)
+                await PendingProductImageRepository(session).cancel_for_session(
+                    ingestion_session.id, at=current
+                )
                 self._audit(
                     session,
                     actor_user_id=None,

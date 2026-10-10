@@ -6,6 +6,7 @@ from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from office_assistant.infrastructure.database.models import (
+    ImageAsset,
     Product,
     ProductImageRelation,
     ProductImageRelationConfirmation,
@@ -32,18 +33,23 @@ class ProductImageRelationRepository:
 
         await self.session.execute(text("SELECT pg_advisory_xact_lock(71002)"))
 
-    async def active_confirmation_holder(self, image_asset_id: UUID) -> tuple[UUID, str] | None:
-        """Who already holds the explicit claim on this picture, named by the code to say back.
+    async def active_confirmation_holder_by_content(
+        self, content_sha256: str
+    ) -> tuple[UUID, str] | None:
+        """Who already holds the explicit claim on these exact bytes, named by the code to say back.
 
-        At most one row can answer, and the partial unique index is what makes that a fact rather
-        than a convention (§22.7).
+        Keyed by content rather than by an asset id because a caption arrives with only the upload's
+        hash: the check has to answer before any picture content is registered, and §22.7 must be a
+        refusal at that moment rather than a correction later. At most one row can answer, and the
+        partial unique index is what makes that a fact rather than a convention.
         """
 
         statement: Select[tuple[UUID, str]] = (
             select(ProductImageRelation.product_id, Product.display_code)
+            .join(ImageAsset, ImageAsset.id == ProductImageRelation.image_asset_id)
             .join(Product, Product.id == ProductImageRelation.product_id)
             .where(
-                ProductImageRelation.image_asset_id == image_asset_id,
+                ImageAsset.content_sha256 == content_sha256,
                 ProductImageRelation.confirmation_type
                 == ProductImageRelationConfirmation.USER_EXPLICIT,
                 ProductImageRelation.superseded_at.is_(None),

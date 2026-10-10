@@ -17,9 +17,14 @@ from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.errors import AuthorizationDenied
-from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.ingestion import (
+    IngestionSessionService,
+    SessionSummary,
+)
 from office_assistant.application.reference_images import (
+    ReferenceImageDenialReason,
     ReferenceImageResult,
+    ReferenceImageSaveDenied,
     ReferenceImageService,
     ReferenceImageStatus,
 )
@@ -31,6 +36,7 @@ from office_assistant.integrations.telegram.handlers import (
     SERVICES_KEY,
     TelegramServices,
     handle_photo,
+    handle_save,
 )
 from office_assistant.integrations.telegram.state import (
     PasswordAttemptLimiter,
@@ -61,6 +67,7 @@ class FakePhotoSize:
 @dataclass
 class FakeMessage:
     caption: str | None = None
+    text: str | None = None
     caption_entities: tuple[MessageEntity, ...] = ()
     photo: tuple[FakePhotoSize, ...] = ()
     message_id: int = 77
@@ -115,7 +122,9 @@ def _user() -> User:
     )
 
 
-def _ingestion() -> Any:
+def _ingestion(
+    *, commit_result: SessionSummary | None = None, commit_error: Exception | None = None
+) -> Any:
     return SimpleNamespace(
         max_upload_bytes=MAX_UPLOAD_BYTES,
         add_file=AsyncMock(
@@ -124,7 +133,7 @@ def _ingestion() -> Any:
             )
         ),
         add_instruction=AsyncMock(),
-        commit=AsyncMock(return_value=None),
+        commit=AsyncMock(return_value=commit_result, side_effect=commit_error),
         cancel=AsyncMock(return_value=False),
     )
 
@@ -132,13 +141,13 @@ def _ingestion() -> Any:
 def _reference(
     result: ReferenceImageResult | None = None, *, side_effect: Exception | None = None
 ) -> tuple[ReferenceImageService, AsyncMock]:
-    confirm = AsyncMock(
+    queue = AsyncMock(
         return_value=result
         if result is not None
-        else ReferenceImageResult(ReferenceImageStatus.LINKED, display_code="KA45"),
+        else ReferenceImageResult(ReferenceImageStatus.QUEUED, display_code="KA45"),
         side_effect=side_effect,
     )
-    return cast(ReferenceImageService, SimpleNamespace(confirm_product_picture=confirm)), confirm
+    return cast(ReferenceImageService, SimpleNamespace(record_product_picture=queue)), queue
 
 
 def _services(
@@ -195,13 +204,25 @@ def _run(services: TelegramServices, update: FakeUpdate) -> FakeMessage:
     return message
 
 
-def test_the_naming_caption_confirms_the_picture_it_carried(tmp_path: Path) -> None:
+def _run_save(services: TelegramServices) -> FakeMessage:
+    message = FakeMessage(text="/saxla")
+    update = FakeUpdate(
+        effective_user=TelegramUser(123, "Test", False, username="test"),
+        effective_chat=FakeChat(),
+        effective_message=message,
+    )
+    context = FakeContext(bot_data={SERVICES_KEY: services}, bot=FakeBot())
+    asyncio.run(handle_save(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context)))
+    return message
+
+
+def test_the_naming_caption_queues_the_picture_it_carried(tmp_path: Path) -> None:
     ingestion = _ingestion()
-    reference_images, confirm = _reference()
+    reference_images, queue = _reference()
     services = _services(tmp_path, ingestion=ingestion, reference_images=reference_images)
     message = _run(services, _photo_update(NAMING_CAPTION))
 
-    call = confirm.await_args
+    call = queue.await_args
     assert call is not None
     assert call.kwargs == {
         "telegram_user_id": 123,
@@ -209,17 +230,17 @@ def test_the_naming_caption_confirms_the_picture_it_carried(tmp_path: Path) -> N
         "telegram_message_id": 77,
         "canonical_code": "KA45",
     }
-    # The picture is stored first: the relation claims the file this message carried.
+    # The picture is stored first: the queued claim speaks about the file this message carried.
     assert ingestion.add_file.await_count == 1
-    assert message.replies[-1] == messages.REFERENCE_IMAGE_SAVED.format(code="KA45")
+    assert message.replies[-1] == messages.REFERENCE_IMAGE_QUEUED.format(code="KA45")
 
 
-def test_an_ambiguous_caption_answers_and_writes_nothing(tmp_path: Path) -> None:
-    reference_images, confirm = _reference()
+def test_an_ambiguous_caption_answers_and_queues_nothing(tmp_path: Path) -> None:
+    reference_images, queue = _reference()
     services = _services(tmp_path, reference_images=reference_images)
     message = _run(services, _photo_update("Bu KA45-dir, KA46 deyil, yadda saxla"))
 
-    assert confirm.await_count == 0
+    assert queue.await_count == 0
     assert messages.REFERENCE_IMAGE_AMBIGUOUS in message.replies
 
 
@@ -228,32 +249,32 @@ def test_an_ordinary_caption_never_reaches_the_reference_service(
     tmp_path: Path, caption: str | None
 ) -> None:
     ingestion = _ingestion()
-    reference_images, confirm = _reference()
+    reference_images, queue = _reference()
     services = _services(tmp_path, ingestion=ingestion, reference_images=reference_images)
     message = _run(services, _photo_update(caption))
 
-    assert confirm.await_count == 0
+    assert queue.await_count == 0
     assert ingestion.add_file.await_count == 1
     assert message.replies == [messages.FILE_ADDED.format(files=1, instructions=0)]
 
 
 def test_a_command_caption_keeps_its_documented_routing(tmp_path: Path) -> None:
-    """An explicit command still beats ingestion, so there is no stored picture to confirm (§22)."""
+    """An explicit command still beats ingestion, so there is no stored picture to queue (§22)."""
 
-    reference_images, confirm = _reference()
+    reference_images, queue = _reference()
     services = _services(tmp_path, reference_images=reference_images)
     message = _run(services, _photo_update("/help Bu KA45-dir, yadda saxla", command_entity=True))
 
-    assert confirm.await_count == 0
+    assert queue.await_count == 0
     assert message.replies[0] == messages.CAPTION_COMMAND_FILE_SKIPPED
 
 
-def test_a_group_photo_confirms_nothing(tmp_path: Path) -> None:
-    reference_images, confirm = _reference()
+def test_a_group_photo_queues_nothing(tmp_path: Path) -> None:
+    reference_images, queue = _reference()
     services = _services(tmp_path, reference_images=reference_images)
     message = _run(services, _photo_update(NAMING_CAPTION, chat_type=ChatType.GROUP))
 
-    assert confirm.await_count == 0
+    assert queue.await_count == 0
     assert message.replies == []
 
 
@@ -266,6 +287,10 @@ def test_without_the_service_a_naming_caption_is_harmless(tmp_path: Path) -> Non
 @pytest.mark.parametrize(
     ("result", "expected"),
     [
+        (
+            ReferenceImageResult(ReferenceImageStatus.QUEUED, display_code="KA45"),
+            messages.REFERENCE_IMAGE_QUEUED.format(code="KA45"),
+        ),
         (
             ReferenceImageResult(ReferenceImageStatus.PRODUCT_NOT_FOUND),
             messages.REFERENCE_IMAGE_PRODUCT_NOT_FOUND.format(code="KA45"),
@@ -283,8 +308,8 @@ def test_without_the_service_a_naming_caption_is_harmless(tmp_path: Path) -> Non
             messages.REFERENCE_IMAGE_NO_PICTURE,
         ),
         (
-            ReferenceImageResult(ReferenceImageStatus.UNREADABLE_PICTURE),
-            messages.REFERENCE_IMAGE_UNREADABLE,
+            ReferenceImageResult(ReferenceImageStatus.SESSION_CLOSED),
+            messages.REFERENCE_IMAGE_NO_SESSION,
         ),
     ],
 )
@@ -320,3 +345,52 @@ def test_a_failed_confirmation_degrades_instead_of_crashing(
     message = _run(services, _photo_update(NAMING_CAPTION))
 
     assert message.replies[-1] == messages.TEMPORARY_ERROR
+
+
+def _summary(*, linked: int) -> SessionSummary:
+    return SessionSummary(
+        session_id=7,
+        file_count=1,
+        instruction_count=0,
+        duplicate_count=0,
+        job_id=11,
+        reference_images_linked=linked,
+    )
+
+
+def test_saxla_names_the_picture_relation_it_committed(tmp_path: Path) -> None:
+    services = _services(tmp_path, ingestion=_ingestion(commit_result=_summary(linked=1)))
+    message = _run_save(services)
+
+    assert message.replies == [
+        messages.SAVE_SUCCESS.format(files=1, instructions=0, duplicates=0)
+        + messages.REFERENCE_IMAGE_LINKED_NOTE.format(count=1)
+    ]
+
+
+def test_saxla_without_a_queued_picture_keeps_its_old_answer(tmp_path: Path) -> None:
+    services = _services(tmp_path, ingestion=_ingestion(commit_result=_summary(linked=0)))
+    message = _run_save(services)
+
+    assert message.replies == [messages.SAVE_SUCCESS.format(files=1, instructions=0, duplicates=0)]
+
+
+def test_saxla_names_the_conflict_that_stopped_the_save(tmp_path: Path) -> None:
+    denied = ReferenceImageSaveDenied(
+        ReferenceImageDenialReason.CONFLICT, canonical_code="KA45", holder_code="KA99"
+    )
+    services = _services(tmp_path, ingestion=_ingestion(commit_error=denied))
+    message = _run_save(services)
+
+    # The rollback means nothing was stored, so the reply says which claim blocked it.
+    assert message.replies == [messages.REFERENCE_IMAGE_SAVE_CONFLICT.format(code="KA99")]
+
+
+def test_saxla_says_so_when_the_queued_picture_cannot_be_read(tmp_path: Path) -> None:
+    denied = ReferenceImageSaveDenied(
+        ReferenceImageDenialReason.UNREADABLE_PICTURE, canonical_code="KA45"
+    )
+    services = _services(tmp_path, ingestion=_ingestion(commit_error=denied))
+    message = _run_save(services)
+
+    assert message.replies == [messages.REFERENCE_IMAGE_UNREADABLE]

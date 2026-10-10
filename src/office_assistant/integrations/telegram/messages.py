@@ -108,9 +108,10 @@ HELP_TEXT = (
     "/help — bu siyahı\n\n"
     "Xatırlatma üçün sadə mesaj yazın, məsələn: sabah saat 9-da Əliyə zəng etməyi xatırlat. "
     "Vaxtı başa düşəndə sizdən təsdiq istəyəcəyik; təsdiq etmədən heç nə saxlanılmır.\n\n"
-    "Şəkil göndərərkən yazın: Bu KA45-dir, yadda saxla. Şəkil həmin məhsulun nümunəsi kimi "
-    "əlaqələndirilir. Məhsul tapılmasa, kod birmənalı olmasa və ya şəkil artıq başqa məhsula "
-    "təsdiqlənibsə heç nə saxlanılmır."
+    "Şəkil göndərərkən yazın: Bu KA45-dir, yadda saxla. Təsdiq açıq yadda saxlama sessiyasına "
+    "götürülür; /saxla şəkli həmin məhsulun nümunəsi kimi əlaqələndirir, /cancel isə təsdiqi və "
+    "gözləyən faylı silir. Məhsul tapılmasa, kod birmənalı olmasa və ya şəkil artıq başqa məhsula "
+    "təsdiqlənibsə heç nə yadda saxlanılmır."
 )
 
 REMINDER_PROPOSED = (
@@ -157,26 +158,37 @@ DATA_DELETE_NO_REQUEST = (
     "Təsdiq gözlənilmir. Zəhmət olmasa /verilerimi_sil əmrini yenidən göndərin."
 )
 
-REFERENCE_IMAGE_SAVED = (
-    "Təsdiq edildi: göndərdiyiniz şəkil {code} məhsulu ilə əlaqələndirildi və yadda saxlanıldı."
+REFERENCE_IMAGE_QUEUED = (
+    "{code} məhsulu üçün şəkil təsdiqi gözləməyə götürüldü. "
+    "Yadda saxlamağı tamamlamaq üçün /saxla, imtina etmək üçün /cancel göndərin."
 )
 REFERENCE_IMAGE_ALREADY_SAVED = (
     "Bu şəkil artıq {code} məhsulu üçün təsdiqlənib. Yeni əlaqə yaradılmadı."
 )
 REFERENCE_IMAGE_PRODUCT_NOT_FOUND = (
-    "Belə məhsul tapılmadı: {code}. Yeni məhsul avtomatik yaradılmır; heç nə yadda saxlanılmadı."
+    "Belə məhsul tapılmadı: {code}. Yeni məhsul avtomatik yaradılmır; təsdiq gözləməyə götürülmədi."
 )
 REFERENCE_IMAGE_AMBIGUOUS = (
     "Mesajda bir neçə məhsul kodu göründü. Şəkli təsdiqləmək üçün yalnız bir kod göndərin; "
-    "heç nə yadda saxlanılmadı."
+    "təsdiq gözləməyə götürülmədi."
 )
 REFERENCE_IMAGE_CONFLICT = (
     "Ziddiyyət: bu şəkil artıq {code} məhsulu ilə təsdiqlənib. Mövcud əlaqə dəyişdirilmədi; "
-    "heç nə yadda saxlanılmadı."
+    "təsdiq gözləməyə götürülmədi."
 )
 REFERENCE_IMAGE_NO_PICTURE = (
-    "Bu mesajda şəkil tapılmadı; heç nə yadda saxlanılmadı. Şəkili kodla birlikdə yenidən göndərin."
+    "Bu mesajda şəkil tapılmadı; təsdiq gözləməyə götürülmədi. "
+    "Şəkili kodla birlikdə yenidən göndərin."
+)
+REFERENCE_IMAGE_NO_SESSION = (
+    "Bu şəkil üçün açıq yadda saxlama sessiyası yoxdur; təsdiq gözləməyə götürülmədi."
+)
+REFERENCE_IMAGE_SAVE_CONFLICT = (
+    "Yadda saxlama dayandırıldı: bu şəkil artıq {code} məhsulu ilə təsdiqlənib. "
+    "Sessiyada heç nə yadda saxlanılmadı; /cancel ilə imtina edə bilərsiniz."
 )
 REFERENCE_IMAGE_UNREADABLE = (
-    "Göndərilən şəkil oxunmadı; heç nə yadda saxlanılmadı. Zəhmət olmasa şəkili yenidən göndərin."
+    "Göndərilən şəkil oxunmadı; yadda saxlama dayandırıldı və heç nə yadda saxlanılmadı. "
+    "Zəhmət olmasa şəkili yenidən göndərin."
 )
+REFERENCE_IMAGE_LINKED_NOTE = "\nTəsdiqlənmiş şəkil əlaqələri: {count}"
