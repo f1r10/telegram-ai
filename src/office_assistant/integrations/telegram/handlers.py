@@ -213,7 +213,9 @@ def _status_message(user: User) -> str:
 
 def _user_label(user: User) -> str:
     name = " ".join(part for part in (user.first_name, user.last_name) if part)
-    username = f"@{user.telegram_username}" if user.telegram_username else messages.USERS_NO_USERNAME
+    username = (
+        f"@{user.telegram_username}" if user.telegram_username else messages.USERS_NO_USERNAME
+    )
     return messages.USERS_LINE.format(
         telegram_user_id=user.telegram_user_id,
         name=name or messages.USERS_NO_NAME,
