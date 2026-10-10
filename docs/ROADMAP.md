@@ -227,6 +227,10 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       benchmark harness for Recall@1/3/5, MRR, exact-identity precision,
       false-positive rate and similar-product Recall@5; tests use synthetic
       identifiers only. See docs/PHASE12B-BENCHMARK.md.
+- [x] Phase 12B OCR evaluation added: private JSONL visible-code truth and OCR-candidate
+      prediction inputs; deterministic code precision/recall/F1, false alarm rates,
+      exact-set accuracy and per-scenario reporting, with no product identity inference.
+      Real OCR engine execution and local visual model benchmark are still pending.
 - [ ] Phase 12B: OCR and visual embedding benchmark on a representative,
       non-public company dataset; do not declare an embedding model selected
       based only on synthetic samples.
