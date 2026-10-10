@@ -187,13 +187,10 @@ def test_local_ocr_engine_failure_is_redacted(
 ) -> None:
     from office_assistant.scripts import run_local_ocr
 
-    monkeypatch.setattr(
-        run_local_ocr.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=1, stdout="PRIVATE-KA45", stderr="secret path"
-        ),
-    )
+    def fake_failure(*args: object, **kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(returncode=1, stdout="PRIVATE-KA45", stderr="secret path")
+
+    monkeypatch.setattr(run_local_ocr.subprocess, "run", fake_failure)
     with pytest.raises(ValueError, match="Local OCR engine failed") as error:
         read_tesseract(tmp_path / "image.png", "tesseract", "eng", 30)
     assert "PRIVATE" not in str(error.value)
