@@ -4,6 +4,41 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5C follow-up 3 — Q32 widened to any instruction that binds (2026-10-10)
+
+The owner rejected the first-pass grammar as unnecessarily restrictive: requiring both a naming copula
+and the two-word phrase `yadda saxla` refused four of the five instructions a person would actually
+type with a picture. Recognition is now an **instruction that binds**, and binding — not a fixed
+phrase — is what keeps a mention from becoming consent (invariant 1).
+
+- `business/reference_confirmation.py` accepts when a save/link verb (`saxla`, `yadda saxla`, `bağla`)
+  closes the caption, exactly one **distinct** canonical code appears, and that code is tied to the
+  picture either by the naming copula as before (`KA45-dir`, `KA45 dır`, `KA45dır`) or by the next
+  word being `şəki?l`, `məhsul`, `referans` or `üçün`. The picture word is matched as a prefix because
+  Azerbaijani folds the case ending into the word, so `şəkli`, `şəkilini` and `şəklidir` all count.
+- All five owner forms now confirm: `Bu KA45-dir, yadda saxla`, `KA45 şəklini yadda saxla`,
+  `Bu şəkli KA45 məhsuluna bağla`, `KA45 üçün referans şəkil kimi saxla`,
+  `Bu KA45 məhsulunun şəklidir, yadda saxla`.
+- Still refused, all writing nothing: no instruction (`Bu KA45-dir`, `KA45 şəklini göndərdim`,
+  `Bu KA45 nədir`), instruction without binding (`Bu məhsul KA45, yadda saxla`,
+  `KA45 anbarda var, yadda saxla`, `Bu KA45-in qiyməti nə qədər, saxla`), negated verb
+  (`KA45 şəklini yadda saxlama`, `Bu şəkli KA45 məhsuluna bağlama`, `Bu KA45-dir, saxlanılsın`),
+  denial (`Bu KA45 məhsulunun şəkili deyil, yadda saxla`), question (`KA45 nədir, yadda saxla?`),
+  no digit-bearing code (`Bu şəkli yadda saxla`), several distinct codes (`Bu şəkli KA45 və KA46 üçün
+  bağla`) reported as ambiguity instead of one being chosen.
+- One behavior moved from refusal to acceptance beyond the owner's list: `Bu KA45-dir, zəhmət olmasa
+  saxla` and any bare trailing `saxla`/`bağla` now confirm, because the verb — not the phrase — is the
+  instruction. Identity stayed strict, so `KA45-in şəklini yadda saxla` reads as `KA45IN` and the
+  registry answers "no such product" rather than the parser guessing back to `KA45`.
+- The `/saxla` commit boundary (Q31), the photo-only rule, the Telegram routing,
+  `CAPTION_COMMAND_FILE_SKIPPED` and every security constraint are unchanged. No migration, no new
+  abstraction.
+- Tests: the recognizer file parametrizes 23 instruction forms that confirm and 35 that must write
+  nothing (refusal or reported ambiguity), and checks canonical identity separately; the routing file
+  queues a pending claim for each of the five owner captions and asserts that ordinary captions still
+  reach only ingestion. 450 unit and 53 integration tests pass; ruff check, ruff format and pyright
+  are clean.
+
 ### Deploy: migrations 0016 and 0017 applied to the local development stack (2026-10-10)
 
 Decision 1, executed under its nine conditions. The target was confirmed local development before

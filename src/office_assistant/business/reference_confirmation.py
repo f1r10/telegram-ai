@@ -1,20 +1,28 @@
 """Deterministic reading of a caption that names the product in a picture (Master Spec §23.7).
 
 ``Bu KA45-dir, yadda saxla`` is an explicit human statement, and §23.7 requires it to cost no model
-tokens when the code can be read off the text. So this module is a pattern, not a guesser, and four
-rules keep an ordinary caption from being read as an instruction the user never wrote (invariant 1):
+tokens when the code can be read off the text. So this module is a pattern, not a guesser. Three
+parts have to be present at once, or nothing is read (invariant 1):
 
-* the save phrase has to close the caption, so prose *about* saving stays an upload;
-* a code has to be *asserted* — carried by an Azerbaijani naming copula (``KA45-dir``,
-  ``KA45 dır``), because a bare code inside a sentence is a mention and a mention is not consent;
-* a denial (``deyil``) right after the name, or a question mark anywhere in the caption, cancels the
-  statement: the user then said the picture is *not* that product, or asked which product it is;
-* more than one distinct code in the caption is reported as ambiguity instead of one being chosen.
+* an explicit save or link instruction closing the caption — ``saxla``, ``yadda saxla``, ``bağla``;
+* exactly one distinct product code, compared after the registry's own identity normalization, so
+  ``KA-45`` and ``ka45`` are one product while ``KA45`` and ``KA46`` are two — several codes are
+  reported as ambiguity and none of them is chosen;
+* a binding that says this code *is* the product of the picture: an Azerbaijani naming copula
+  (``KA45-dir``, ``KA45 dır``, ``KA45dır``) or a picture word right after it (``KA45 şəklini``,
+  ``KA45 məhsuluna``, ``KA45 üçün``, ``KA45 məhsulunun şəklidir``, ``KA45 referans şəkil``).
 
-A code also has to contain a digit, which is what stops an ordinary word ("şəkil", "məhsul") from
-becoming an identity claim. Photos only: a document caption carrying the phrase still reaches the
-service, which finds no picture in that message and refuses, so nothing is inferred from a document
-(Q32, resolved by the owner 2026-10-10).
+A bare mention is not a binding, so ``Bu məhsul KA45, yadda saxla`` stays an ordinary caption. A
+denial (``deyil`` anywhere in the naming part) and a question mark anywhere in the caption cancel
+the statement, because the user then said the picture is *not* that product or asked which it is.
+Prose about saving rather than an order — ``saxlama``, ``saxlanılsın``, ``yadda saxla, bu KA45-dir``
+— is no instruction at all. A code keeps the letters it was typed with after normalization, so
+``KA45-in`` is read as ``KA45IN`` and not guessed to be ``KA45``: inventing an identity is exactly
+what strict product-code matching forbids, and the registry then answers "no such product".
+
+Nothing is authoritative here: a parse only queues a claim and ``/saxla`` is the commit boundary
+(Q31). Photos only — a document caption still reaches the service, which finds no picture in the
+message and refuses (Q32).
 """
 
 import re
@@ -23,23 +31,27 @@ from dataclasses import dataclass
 
 from office_assistant.business.normalization import normalize_product_code
 
-# ``\W*$`` closes the phrase without letting a negation in: ``saxlama``, ``saxlamaq`` and
-# ``saxlanılsın`` all keep letter characters after ``saxla``, while ``!``, ``.`` or an emoji do not.
-_SAVE_PHRASE = re.compile(r"\byadda\s+saxla\W*$", re.IGNORECASE)
+# The instruction has to close the caption, and only as a whole word: ``saxlama``, ``saxlamaq`` and
+# ``saxlanılsın`` all keep letters after the verb, while ``!``, ``.`` or an emoji do not.
+_INSTRUCTION = re.compile(r"\b(?:saxla|bağla)\W*$", re.IGNORECASE)
 _CODE_LIKE = re.compile(r"^(?=.*[0-9])[A-Za-z0-9][A-Za-z0-9._\-]+$")
-# The Azerbaijani copula that attaches the naming to the thing: ``KA45-dir``, ``KA45-dır``,
-# ``KA45-dur``, ``KA45-dür``, and the clipped ``-dı``/``-di`` a fast typist leaves it as. The hyphen
-# is optional, because ``KA45dır`` is the same statement typed without stopping to separate it.
+# The copula that attaches the naming to the thing: ``KA45-dir``, ``KA45-dır``, ``KA45-dur``,
+# ``KA45-dür``, the clipped ``-dı``/``-di``, and the same ending with no hyphen (``KA45dır``).
 _COPULA = re.compile(r"-?(?:d[ıiəuü]r|d[ıiəuü])$", re.IGNORECASE)
 # The same copula standing as its own word: ``Bu KA45 dır, yadda saxla``.
 _COPULA_ALONE = re.compile(r"^d[ıiəuü]r?$", re.IGNORECASE)
+# A code binds the picture to a product when the word after it is the picture, the product, its
+# reference role, or what the picture is for: ``KA45 şəklini``, ``KA45 məhsuluna``, ``KA45 üçün``,
+# ``KA45 referans şəkil kimi``. Prefixes, because Azerbaijani folds case endings into the word —
+# and ``şəkli``, ``şəkilini`` and ``şəklidir`` all count, so the optional vowel is in the pattern.
+_BINDING = re.compile(r"^(?:şəki?l|məhsul|referans|üçün)", re.IGNORECASE)
 _DENIAL = re.compile(r"^deyil$", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[,.:;\"“”()\[\]]")
 
 
 @dataclass(frozen=True, slots=True)
 class ProductPictureConfirmation:
-    """The caption asserted exactly one product as the subject of the picture."""
+    """The caption instructed that this product's picture be kept."""
 
     code: str
 
@@ -60,27 +72,29 @@ ReferenceCaption = ProductPictureConfirmation | AmbiguousPictureConfirmation | N
 
 
 def parse_reference_confirmation(caption: str | None) -> ReferenceCaption:
-    """Read ``Bu KA45-dir, yadda saxla`` without a model, or refuse to invent one."""
+    """Read a save-or-link instruction that binds one product to this picture, or refuse."""
 
     if not caption:
         return NoPictureConfirmation()
     text = unicodedata.normalize("NFKC", caption).strip()
-    ending = _SAVE_PHRASE.search(text)
+    instruction = _INSTRUCTION.search(text)
     # A question mark anywhere means the user was asking what the picture shows, not saying it.
-    if ending is None or "?" in text:
+    if instruction is None or "?" in text:
         return NoPictureConfirmation()
-    words = _PUNCTUATION.sub(" ", text[: ending.start()]).split()
-    # Canonical code -> asserted as the picture's identity at least once, in the order the caption
-    # named them. A product named twice is still one product, so identity decides ambiguity.
+    words = _PUNCTUATION.sub(" ", text[: instruction.start()]).split()
+    # Canonical code -> bound to the picture at least once, in the order the caption named them. A
+    # product named twice is still one product, so identity rather than spelling decides ambiguity.
     codes: dict[str, bool] = {}
     for index, word in enumerate(words):
         code = _code_of(word)
         if code is None:
             continue
-        codes[code] = codes.get(code, False) or _is_asserted(words, index)
+        codes[code] = codes.get(code, False) or _is_bound(words, index)
     if len(codes) > 1:
         return AmbiguousPictureConfirmation(tuple(codes))
-    named = next((code for code, asserted in codes.items() if asserted), None)
+    if any(_DENIAL.match(word) for word in words):
+        return NoPictureConfirmation()
+    named = next((code for code, bound in codes.items() if bound), None)
     if named is None:
         return NoPictureConfirmation()
     return ProductPictureConfirmation(named)
@@ -89,8 +103,8 @@ def parse_reference_confirmation(caption: str | None) -> ReferenceCaption:
 def _code_of(word: str) -> str | None:
     """The product code a word carries, or nothing when it carries none.
 
-    The copula is cut before the lookup, so ``KA45-dir`` reaches the registry as ``KA45`` and the
-    name cannot be missed because of a suffix the user attached to it.
+    The copula is cut before the lookup, so ``KA45-dir`` reaches the registry as ``KA45`` and a
+    suffix the user attached to the name cannot make the product unfindable.
     """
 
     name = _COPULA.sub("", word.strip())
@@ -102,12 +116,12 @@ def _code_of(word: str) -> str | None:
         return None
 
 
-def _is_asserted(words: list[str], index: int) -> bool:
-    """Whether the code at ``index`` is named as what the picture shows, not merely mentioned."""
+def _is_bound(words: list[str], index: int) -> bool:
+    """Whether the code at ``index`` is named as the product of this picture, not mentioned."""
 
-    has_copula = _COPULA.search(words[index]) is not None or (
-        index + 1 < len(words) and _COPULA_ALONE.match(words[index + 1]) is not None
+    following = words[index + 1] if index + 1 < len(words) else ""
+    return (
+        _COPULA.search(words[index]) is not None
+        or _COPULA_ALONE.match(following) is not None
+        or _BINDING.match(following) is not None
     )
-    if not has_copula:
-        return False
-    return not any(_DENIAL.match(word) for word in words[index + 1 : index + 3])

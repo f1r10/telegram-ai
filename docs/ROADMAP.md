@@ -188,6 +188,23 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       two distinct codes still refuse to be chosen. The digit requirement, the canonical code path,
       the photo-only boundary, the Telegram routing and `CAPTION_COMMAND_FILE_SKIPPED` are untouched.
       No migration.
+- [x] Block 5C follow-up 3: the Q32 recognizer widened (owner, 2026-10-10) — requiring the copula and
+      the two-word phrase `yadda saxla` was narrower than the approved requirement, so four of the
+      five instructions an owner would actually type were refused. The rule is now an *instruction
+      that binds*: a save/link verb (`saxla`, `yadda saxla`, `bağla`) still has to close the caption,
+      and the single distinct code still has to be tied to the picture — either by the naming copula
+      as before, or by `şəki?l` / `məhsul` / `referans` / `üçün` as the next word, matched as a prefix
+      because Azerbaijani folds the case ending into the word (`şəklini`, `şəklidir`). So
+      `KA45 şəklini yadda saxla`, `Bu şəkli KA45 məhsuluna bağla`,
+      `KA45 üçün referans şəkil kimi saxla` and `Bu KA45 məhsulunun şəklidir, yadda saxla` confirm
+      alongside `Bu KA45-dir, yadda saxla`. Binding is what keeps the refusal honest: `Bu KA45-dir`
+      and `KA45 şəklini göndərdim` say nothing to store, and `Bu məhsul KA45, yadda saxla` still
+      writes nothing because the code is mentioned rather than bound. Negated verbs (`saxlama`,
+      `bağlama`), `deyil` anywhere, a question mark anywhere, several distinct codes, and a caption
+      without a digit-bearing code all stay refusals, and identity stays strict — `KA45-in` reads as
+      `KA45IN`, a different product, never guessed back to `KA45`. No migration, no new abstraction;
+      the `/saxla` commit boundary (Q31), the photo-only rule and the Telegram routing are unchanged.
+
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

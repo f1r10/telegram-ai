@@ -216,11 +216,21 @@ def _run_save(services: TelegramServices) -> FakeMessage:
     return message
 
 
-def test_the_naming_caption_queues_the_picture_it_carried(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "caption",
+    [
+        NAMING_CAPTION,
+        "KA45 şəklini yadda saxla",
+        "Bu şəkli KA45 məhsuluna bağla",
+        "KA45 üçün referans şəkil kimi saxla",
+        "Bu KA45 məhsulunun şəklidir, yadda saxla",
+    ],
+)
+def test_the_naming_caption_queues_the_picture_it_carried(tmp_path: Path, caption: str) -> None:
     ingestion = _ingestion()
     reference_images, queue = _reference()
     services = _services(tmp_path, ingestion=ingestion, reference_images=reference_images)
-    message = _run(services, _photo_update(NAMING_CAPTION))
+    message = _run(services, _photo_update(caption))
 
     call = queue.await_args
     assert call is not None
@@ -245,7 +255,16 @@ def test_an_ambiguous_caption_answers_and_queues_nothing(tmp_path: Path) -> None
 
 
 @pytest.mark.parametrize(
-    "caption", ["Qiymət siyahısıdır", "Bu şəkli yadda saxla", "Bu məhsul KA45, yadda saxla", None]
+    "caption",
+    [
+        "Qiymət siyahısıdır",
+        "Bu şəkli yadda saxla",
+        "Bu məhsul KA45, yadda saxla",
+        "Bu KA45-dir",
+        "KA45 nədir, yadda saxla?",
+        "KA45 şəklini saxlama",
+        None,
+    ],
 )
 def test_an_ordinary_caption_never_reaches_the_reference_service(
     tmp_path: Path, caption: str | None
