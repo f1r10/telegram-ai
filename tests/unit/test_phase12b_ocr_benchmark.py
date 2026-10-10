@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -56,8 +57,10 @@ def test_metrics_are_micro_averaged_and_report_negative_cases() -> None:
 
 
 def test_scenario_metrics_use_correct_case_denominators() -> None:
-    by_scenario = evaluate_ocr(_truth(), _predictions())["by_scenario"]
-    assert isinstance(by_scenario, dict)
+    by_scenario = cast(
+        dict[str, dict[str, int | float | None]],
+        evaluate_ocr(_truth(), _predictions())["by_scenario"],
+    )
     phone = by_scenario["phone_photo"]
     unrelated = by_scenario["unrelated_item"]
     assert phone["queries"] == 2
