@@ -2,40 +2,34 @@
 
 Private internal company AI assistant foundation. The planned primary interface is a Telegram bot in Azerbaijani, backed by company data, documents, and controlled external search.
 
-## Current status
+## Current status (2026-10-10)
 
-This repository currently contains **Phases 0-10**:
+The codebase contains the completed Phases 0-11 and the **Phase 12A image foundation**.
+The separate reminder and live-test remediation blocks are also recorded in
+[ROADMAP](docs/ROADMAP.md); their historical numbering differs from the owner's
+Master Spec phase numbering.
 
-- typed environment settings;
-- lightweight redacted logging;
-- minimal application entrypoint;
-- deterministic `uv` dependency management;
-- pytest, Ruff, and Pyright configuration;
-- Docker image and minimal Compose foundation;
-- PostgreSQL 17 persistence foundation with async SQLAlchemy;
-- Alembic migration configuration and the initial technical migration;
-- PostgreSQL health check and integration tests;
-- Telegram authentication and private-chat raw file ingestion;
-- a PostgreSQL-backed deterministic ingestion worker;
-- TXT, PDF, DOCX, XLSX, and deferred image parser adapters;
-- versioned normalized parse artifacts and a Telegram notification outbox;
-- a lease-driven PostgreSQL knowledge-index job;
-- deterministic provenance-preserving chunks;
-- local FastEmbed dense and BM25 sparse vectors;
-- a versioned Qdrant collection with a logical alias and hybrid RRF retrieval;
-- grounded `/baza` answers through the OpenAI Responses API with validated citations;
-- bounded Azerbaijani general chat with application-owned conversations and token telemetry.
-- authoritative PostgreSQL products, customers, prices, payments, events, and proposals;
-- candidate-first structured extraction with explicit Telegram review.
-- typed, read-only PostgreSQL business tools with an explicit allowlisted registry.
-- bounded natural-language routing across general chat, PostgreSQL business tools,
-  and Qdrant document evidence;
-- application-owned unified citations, conflict surfacing, and secure recent-source
-  delivery of original committed files through Telegram.
+Implemented capabilities include:
 
-The following remain outside Phase 10: web search, OCR, image embeddings,
-exchange-rate conversion, reports, reranking, mutation tools, and autonomous agent
-orchestration.
+- private Telegram authentication and role-based administration;
+- PostgreSQL 17 business records, ingestion sessions, audit history and a durable worker;
+- PDF/DOCX/XLSX/TXT processing, image asset registration and embedded image provenance;
+- Qdrant hybrid retrieval, grounded internal responses, source citations and original-file delivery;
+- structured extraction with review, product pricing, payments and proposals;
+- explicitly separated internal search (`/baza`), external web search (`/internet`) and
+  combined internal/external search (`/tamaxtar`);
+- staged product-reference photo confirmations finalized by `/saxla`, cancelled by
+  `/cancel`, and revocable by an administrator through `/leqv_et`.
+
+Phase 12B (OCR and visual model benchmarks), Phase 12C (multimodal product search),
+visual internet search, disaster-recovery verification and final production UAT **are not
+implemented or approved as complete**. Automated test results do not substitute
+for live Telegram tests with real accounts and a representative product corpus.
+
+The owner's separate Master Specification (dated 2026-10-07) is the primary product
+contract when furnished to an agent. It has not been published in this public
+repository. `docs/SPEC.md` is an earlier reconciled design record; see
+`AGENTS.md` and `docs/OPEN-QUESTIONS.md` for precedence and later decisions.
 
 ## Prerequisites
 
