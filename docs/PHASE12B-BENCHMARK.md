@@ -105,6 +105,47 @@ owner-approved, private corpus, then submit their candidates in the above format
 **No OCR engine, trained model, benchmark score, or accuracy threshold has yet been
 selected or demonstrated by these fixture-only tests.**
 
+## Optional local Tesseract candidate runner
+
+A non-production, opt-in **local** OCR experiment runner is provided. It requires a
+separately installed Tesseract executable with the selected language packs; the
+application container and production dependency graph are unchanged. The Tesseract
+project is distributed under Apache-2.0; check your particular installation's
+package and language-data licenses before enterprise use. This is one benchmark
+candidate, not a selected final OCR solution.
+
+Keep a private image directory and a private product-code allowlist outside Git.
+The allowlist contains one existing, approved product code per line. Do not include
+customer identifiers, secrets, or unrelated documents. The experiment must run in
+a trusted, isolated, network-restricted local environment: Tesseract parses
+potentially untrusted images, and this wrapper is **not** an OS sandbox.
+
+The image manifest uses strict JSONL records and relative PNG/JPEG paths:
+
+    {"query_id":"example-1","image":"products/front/01.jpg"}
+    {"query_id":"example-2","image":"products/other/02.png"}
+
+The runner rejects absolute paths, drive-qualified paths, traversal, symlinks
+outside the selected root, missing/empty images, and images over 25 MiB. It runs
+one local OCR request at a time with a bounded timeout and never relays raw OCR
+text into logs. It checks recognized text **only** against canonicalized codes
+from the private allowlist; no similar-code substitution or auto-product creation
+is allowed. The output is a private JSONL predictions file using
+`query_id` and `extracted_codes` fields.
+
+    uv run --no-sync python -m office_assistant.scripts.run_local_ocr --images var/benchmark/private/images.jsonl --image-root var/benchmark/private/images --codes var/benchmark/private/product-codes.txt --output var/benchmark/private/tesseract-predictions.jsonl --languages eng --timeout-seconds 30
+
+If Azerbaijani trained data is installed and relevant, try `--languages eng+aze`
+as a separate benchmark configuration. Never silently fall back to another
+language. No OCR engine is downloaded automatically. The output contains private
+product codes and query IDs: **never commit it to a public repository**.
+
+Evaluate output with the OCR scoring command above, using a separate verified
+`ocr-truth.jsonl`. Record the exact Tesseract version, installed language packs,
+CPU, runtime, preprocessing configuration and any failure cases in the private
+benchmark record. Compare competing OCR candidates on the same data before
+selecting a production OCR engine.
+
 ## Remaining acceptance gates
 
 1. Assemble a private, versioned, representative dataset with human-approved

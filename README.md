@@ -44,7 +44,11 @@ Evaluate local OCR candidate outputs with:
 uv run --no-sync python -m office_assistant.scripts.benchmark_ocr --truth var/benchmark/private/ocr-truth.jsonl --predictions var/benchmark/private/ocr-predictions.jsonl
 ```
 
-Actual local OCR/embedding model benchmarks and Phase 12C search are still pending.
+An optional local Tesseract runner can now produce OCR candidate predictions from
+private PNG/JPEG images using an explicit product-code allowlist; see the Phase 12B
+benchmark protocol for installation, license, security and run instructions.
+It is a benchmark-only CLI, not deployed bot behavior. Representative OCR comparisons,
+visual embedding benchmarks and Phase 12C search are still pending.
 
 ## Prerequisites
 
