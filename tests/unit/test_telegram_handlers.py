@@ -37,9 +37,9 @@ from office_assistant.integrations.telegram.messages import (
     HELP_TEXT,
     QDRANT_UNAVAILABLE,
     USERS_LINE,
-    USERS_NONE_REGISTERED,
     USERS_NO_NAME,
     USERS_NO_USERNAME,
+    USERS_NONE_REGISTERED,
     WELCOME,
     WHOAMI_DETAILS,
 )
