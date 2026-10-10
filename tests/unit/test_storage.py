@@ -48,6 +48,18 @@ def test_storage_paths_are_traversal_safe(tmp_path: Path) -> None:
     assert storage.path_for_key(key) == path
 
 
+@pytest.mark.parametrize(
+    "suffix",
+    [".jpg/../../secret", r".png\..\secret", ".jpg:metadata", ".tar.gz", "\x00.jpg"],
+)
+def test_staging_suffix_never_supplies_a_path(tmp_path: Path, suffix: str) -> None:
+    storage = LocalFileStorage(tmp_path / "storage")
+    path, key = storage.create_staging_path(suffix)
+    assert path.parent == storage.staged_root
+    assert path.suffix == ""
+    assert key == f"staged/{path.name}"
+
+
 def test_storage_keys_cannot_follow_symlinks_outside_root(tmp_path: Path) -> None:
     storage = LocalFileStorage(tmp_path / "storage")
     outside = tmp_path / "outside"
