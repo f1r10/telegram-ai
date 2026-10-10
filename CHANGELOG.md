@@ -4,6 +4,16 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12B optional local OCR candidate runner (2026-10-10)
+
+- Added CLI integration with a locally installed Tesseract executable for
+  bounded, sequential OCR experiments on private PNG/JPEG inputs; no automatic
+  model download or production service changes.
+- Uses an explicit product-code allowlist with strict normalization, validates
+  relative image paths and file-size limits, and writes candidate JSONL atomically.
+- Added synthetic tests covering OCR output matching, filesystem confinement,
+  subprocess argument safety and redacted errors.
+
 ### Phase 12B OCR scoring groundwork (2026-10-10)
 
 - Added private, deterministic OCR code-extraction benchmark scoring with strict
