@@ -29,7 +29,7 @@ class LocalFileStorage:
         self.image_asset_root.mkdir(parents=True, exist_ok=True)
 
     def create_staging_path(self, suffix: str = "") -> tuple[Path, str]:
-        safe_suffix = suffix.lower() if suffix and suffix.startswith(".") else ""
+        safe_suffix = suffix.lower() if suffix.startswith(".") and suffix[1:].isalnum() else ""
         name = f"{token_hex(16)}{safe_suffix}"
         path = self.staged_root / name
         return path, f"staged/{name}"
