@@ -40,7 +40,7 @@ class LocalFileStorage:
         # accepted here must never become a traversal if storage moves between hosts.
         if (
             not storage_key
-            or any(character in storage_key for character in ("\\", ":", "\\x00"))
+            or any(character in storage_key for character in ("\\", ":", chr(0)))
             or any(part in ("", ".", "..") for part in storage_key.split("/"))
         ):
             raise StorageError("Invalid storage key")
