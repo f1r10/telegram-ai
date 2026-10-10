@@ -9,7 +9,7 @@
 | Q4  | TG Transport | OPEN   | Long polling is default for V1. Should webhook implementation be prepared now? |
 | Q5  | Facts Schema | OPEN   | Define exact JSON structure for company/customer facts. Assumption: Key-value with validity dates. |
 | Q9  | Compliance   | OPEN   | Cross-border data transfer rules (Azerbaijan legislation). Technical assumption: Logs and DB will minimize PII. |
-| Q13 | CI System    | OPEN   | GitHub Actions or GitLab CI? Assumption: Local Makefile serves as the CI runner baseline. |
+| Q13 | CI system | RESOLVED (2026-10-10) | GitHub Actions `.github/workflows/quality.yml` runs offline unit tests, Ruff lint/format and strict Pyright on push/PR. PostgreSQL/Qdrant integration checks and live Telegram UAT are separate environment-dependent gates; CI passing alone does not imply production readiness. |
 | Q14 | Seed script  | OPEN   | `make seed` is defined per AGENTS.md but no seed dataset was specified. ASSUMPTION: target and content pending owner decision; the Makefile target fails with a pointer until defined. |
 | Q15 | Reminder proposal durability | OPEN | ASSUMPTION: unconfirmed reminder proposals, the "type a new time" wait and the `/verilerimi_sil` confirmation are held in bounded in-process stores (same pattern as password entry state). A restart silently drops them; nothing half-typed is ever written to PostgreSQL. Persist proposals if restarts must survive them. |
 | Q16 | Failed reminder delivery | OPEN | ASSUMPTION: after three outbox send attempts the delivery row terminates in `FAILED` and the reminder stays `PAUSED` (never re-claimed, because `(reminder_id, scheduled_for)` is unique). No operator alert or manual retry UI exists yet. Decide whether to notify admins or allow a retry command. |
