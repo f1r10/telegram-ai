@@ -212,6 +212,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       reported as remaining work rather than changed here. Text unchanged, so no user-visible change.
 
 
+- [x] Cross-platform storage-key hardening identified by GitHub Actions Linux
+      tests: reject Windows drive/backslash keys and dot segments, retain
+      symlink confinement, and test portable path safety.
 - [x] Post-delivery Telegram text cleanup (2026-10-10): Q33 closed by moving the
       `_user_label` line template and both fallback labels into `messages.py` without
       changing existing text. Unit tests now cover missing and present names/handles.
