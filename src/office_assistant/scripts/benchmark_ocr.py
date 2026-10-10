@@ -188,9 +188,7 @@ def _metrics(
     }
 
 
-def evaluate_ocr(
-    truth: list[OcrTruth], predictions: list[OcrPrediction]
-) -> dict[str, object]:
+def evaluate_ocr(truth: list[OcrTruth], predictions: list[OcrPrediction]) -> dict[str, object]:
     _unique_records(truth)
     _unique_records(predictions)
     by_id = {prediction.query_id: prediction for prediction in predictions}
