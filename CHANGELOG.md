@@ -11,6 +11,9 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 - Fixed `/help` to identify `/tamaxtar` as combined internal/external search;
   conversational source-file delivery is described separately.
 - Added regression tests for both behaviors.
+- Fixed a cross-platform storage-key validation gap found by Linux CI: Windows-style
+  backslashes, drive-qualified paths, NUL bytes and dot components now fail closed;
+  symlink containment remains enforced. Expanded hostile-path tests.
 - Refreshed README and agent/spec precedence guidance to reflect delivered
   Phase 11 / 12A and the separate, unpublished owner Master Specification.
 - Added a GitHub Actions gate for offline unit tests, Ruff and strict Pyright.
