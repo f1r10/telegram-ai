@@ -27,12 +27,16 @@ from office_assistant.integrations.telegram.handlers import (
     handle_password_text,
     handle_start,
     handle_tamaxtar,
+    handle_users,
+    handle_whoami,
 )
 from office_assistant.integrations.telegram.messages import (
     AUTH_PROMPT,
     COMBINED_INTERNAL_UNAVAILABLE,
     QDRANT_UNAVAILABLE,
+    USERS_NONE_REGISTERED,
     WELCOME,
+    WHOAMI_DETAILS,
 )
 from office_assistant.integrations.telegram.state import PasswordAttemptLimiter, PasswordEntryState
 from office_assistant.internal_evidence.delivery import DeliverableFile, SourceFileDeliveryService
@@ -69,12 +73,16 @@ class FakeUsers:
     def __init__(self, user: User | None) -> None:
         self.user = user
         self.touched = False
+        self.registered: list[User] = []
 
     async def get_by_telegram_id(self, telegram_user_id: int) -> User | None:
         return self.user
 
     async def touch_active_user(self, telegram_user_id: int) -> None:
         self.touched = True
+
+    async def list_users_for_actor(self, telegram_user_id: int) -> list[User]:
+        return self.registered
 
 
 def _services(users: FakeUsers) -> TelegramServices:
@@ -333,3 +341,25 @@ def test_colloquial_file_request_completes_the_turn_without_calling_the_model(
     )
     assert message.reply_document.await_args.kwargs["filename"] == "catalog.pdf"  # type: ignore[union-attr]
     services.internal_evidence.answer.assert_not_called()  # type: ignore[union-attr]
+
+
+def test_whoami_answers_from_the_message_catalog() -> None:
+    """No handler composes user-facing text inline; the catalog is the only source."""
+
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    message = _run_handler(handle_whoami, _services(FakeUsers(user)), "/kim")
+
+    call = message.reply_text.await_args
+    assert call is not None
+    assert call.args[0] == WHOAMI_DETAILS.format(
+        telegram_user_id=user.telegram_user_id, role=user.role, status=user.status
+    )
+
+
+def test_an_empty_user_list_answers_from_the_message_catalog() -> None:
+    user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    message = _run_handler(handle_users, _services(FakeUsers(user)), "/istifadəçilər")
+
+    call = message.reply_text.await_args
+    assert call is not None
+    assert call.args[0] == USERS_NONE_REGISTERED

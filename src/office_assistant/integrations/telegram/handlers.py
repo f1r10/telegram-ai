@@ -1355,7 +1355,9 @@ async def handle_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text(messages.WHOAMI_UNKNOWN)
         return
     await message.reply_text(
-        f"Telegram ID: {user.telegram_user_id}\nRol: {user.role}\nStatus: {user.status}"
+        messages.WHOAMI_DETAILS.format(
+            telegram_user_id=user.telegram_user_id, role=user.role, status=user.status
+        )
     )
 
 
@@ -1376,7 +1378,7 @@ async def handle_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
     if not users:
-        await message.reply_text("Qeydiyyatda istifadəçi yoxdur.")
+        await message.reply_text(messages.USERS_NONE_REGISTERED)
         return
     for user in users:
         await message.reply_text(_user_label(user), reply_markup=_user_keyboard(user))

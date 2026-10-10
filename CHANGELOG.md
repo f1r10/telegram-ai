@@ -4,6 +4,26 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A message hygiene — the last user-facing text left the handlers (2026-10-10)
+
+The project rule puts every bot-facing string in `integrations/telegram/messages.py`. Two strings that
+answer the user were still built inside `handlers.py`, so a wording change would have meant editing
+routing code.
+
+- `handle_users` answered an empty registry with the literal `"Qeydiyyatda istifadəçi yoxdur."`; that
+  text is now `messages.USERS_NONE_REGISTERED`, character for character, so nothing a user reads
+  changed.
+- `handle_whoami` composed `"Telegram ID: …\nRol: …\nStatus: …"` inline. It moved to
+  `messages.WHOAMI_DETAILS` as a template and the handler formats it, which keeps the rendered answer
+  identical.
+- Both replies are now asserted against the catalog in `test_telegram_handlers.py`, so a future inline
+  string that drifts from the catalog fails a test. The remaining inline text is `_user_label`, which
+  builds the admin user-list line (`ID: … | Ad yoxdur | username yoxdur | status`); it is pre-existing,
+  not user-facing wording the owner asked about, and is left for its own decision — reported here
+  rather than changed silently.
+- No behavior, routing or permission change. 452 unit and 53 integration tests pass; ruff check, ruff
+  format and pyright are clean.
+
 ### Phase 12A Block 5C follow-up 3 — Q32 widened to any instruction that binds (2026-10-10)
 
 The owner rejected the first-pass grammar as unnecessarily restrictive: requiring both a naming copula
