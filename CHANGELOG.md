@@ -4,6 +4,48 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Deploy: migrations 0016 and 0017 applied to the local development stack (2026-10-10)
+
+Decision 1, executed under its nine conditions. The target was confirmed local development before
+anything was touched — `APP_ENV=development`, and `postgres`, `qdrant` and `searxng` publish on
+`127.0.0.1` only (5435/6335/18085) inside the `qoder_`-namespaced compose project with `qoder_`
+volumes. No volume was reset, no database was recreated, nothing was deleted.
+
+- Backup first: `pg_dump -Fc office_assistant` → `Downloads/pg_backups/office_assistant_pre0017_20261010T1.dump`,
+  138 781 bytes, SHA-256 `e21d7c7ff8ad9004d990b309f293e80a5c43ef1a12760a2429c3458dcec7b7ac`, 279 TOC
+  entries. Verified by restoring it into a scratch database with `--exit-on-error`: 36 tables,
+  `alembic_version` back at `0015_image_asset_foundation`, and `file_objects`, `audit_events`,
+  `ai_messages`, `users`, `ingestion_session_items` all counting the same as the live database. The
+  scratch database and the container-side dump were then removed; the `.dump` stays.
+- Chain validated: one head (`0017_pending_image_confirmations`, 31 characters, inside the
+  `varchar(32)` the schema gives `alembic_version.version_num`), linear `0014 → 0015 → 0016 → 0017`.
+  `alembic upgrade 0015:0017 --sql` was reviewed before applying and is purely additive — two
+  `CREATE TABLE`, their indexes, three partial unique indexes, and two `UPDATE alembic_version`
+  rows. No `DROP`, no `DELETE`, no rewrite of an existing column.
+- Applied: `0015_image_asset_foundation → 0017_pending_image_confirmations` against
+  `office_assistant`. Row counts before and after are identical (`file_objects=3`,
+  `ingestion_sessions=4`, `ingestion_session_items=6`, `ingestion_jobs=3`, `users=1`,
+  `audit_events=20`, `ai_messages=24`), and the new tables arrived empty, as they should. Catalog
+  check: 2 CHECK, 7 FK, 2 PK constraints and the three partial unique indexes
+  (`uq_product_image_active_confirmation`, `uq_product_image_relation_active`,
+  `uq_pending_product_image_open_item`) are present with the predicates the schema defines.
+- Rebuilt and restarted `app` and `worker` only; both new containers took a new image id, both report
+  `restarts=0`, and `TELEGRAM_POLLING_ENABLED=true` stayed true — polling was not disabled.
+- Runtime verified from the logs: startup clock check passed (drift −0.013 s), Qdrant reachable,
+  Telegram `getMe` and `deleteWebhook` then `Application started`, and `getUpdates` returning
+  `200 OK` every 10 seconds. The worker printed `Ingestion worker started | worker_id=…`, and the
+  job queue is drained (`pending_jobs=0`, `open_sessions=0`, `live_claims=0`). All 3 existing
+  `ingestion_jobs` are still `SUCCEEDED`.
+- Deployed code probed inside the images, not just on the host: `qoder_app` reads a naming caption as
+  assert-only (mention, denial and question all write nothing) and registers `leqv_et`; `qoder_worker`
+  carries the follow-up where `IngestionSessionService.commit()` promotes the queued claims and
+  `cancel()` discards them. Both containers connect to `office_assistant` at schema
+  `0017_pending_image_confirmations` through the application's own engine and settings.
+- Not done, and it is not a code problem: there is no git remote configured in this working copy and
+  no `gh` on the machine, so nothing could be pushed and no remote branch could be verified. Creating
+  a repository was not in scope (the owner asked for the existing one), so the three commits
+  (`d537210`, `524af5b`, `8661f0a`) sit on local `master` awaiting a remote URL.
+
 ### Phase 12A Block 5C follow-up 2 — Q32 resolved: a naming caption must assert, not mention (2026-10-10)
 
 Decision 4. The recognizer read any caption that closed with `yadda saxla` and contained a
