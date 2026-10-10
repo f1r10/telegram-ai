@@ -244,7 +244,9 @@ def test_an_ambiguous_caption_answers_and_queues_nothing(tmp_path: Path) -> None
     assert messages.REFERENCE_IMAGE_AMBIGUOUS in message.replies
 
 
-@pytest.mark.parametrize("caption", ["Qiymət siyahısıdır", "Bu şəkli yadda saxla", None])
+@pytest.mark.parametrize(
+    "caption", ["Qiymət siyahısıdır", "Bu şəkli yadda saxla", "Bu məhsul KA45, yadda saxla", None]
+)
 def test_an_ordinary_caption_never_reaches_the_reference_service(
     tmp_path: Path, caption: str | None
 ) -> None:

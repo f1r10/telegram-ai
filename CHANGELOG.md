@@ -4,6 +4,44 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12A Block 5C follow-up 2 — Q32 resolved: a naming caption must assert, not mention (2026-10-10)
+
+Decision 4. The recognizer read any caption that closed with `yadda saxla` and contained a
+digit-bearing token, which meant `Bu məhsul KA45, yadda saxla` — a message *about* KA45 — confirmed a
+picture for it, and so did `Bu KA45-dir deyil, yadda saxla`, where the user had just said the picture
+was **not** KA45. Q32 is now resolved as owner decision (2026-10-10): the vocabulary is the
+assertion, not the mention.
+
+- `business/reference_confirmation.py` requires four things before it returns
+  `ProductPictureConfirmation`: the phrase `yadda saxla` closes the caption; exactly one **distinct**
+  product code appears, compared after canonical normalization; that code carries an Azerbaijani
+  naming copula, attached (`KA45-dir`, `KA45-dı`, the unhyphenated `KA45dır`) or standing as its own
+  word (`KA45 dır`); and nothing cancels the statement — a `deyil` within two words of the name
+  denies it, and a question mark anywhere in the caption means the user was asking which product the
+  picture shows. A bare code in a sentence is now a mention, and a mention is not consent
+  (invariant 1).
+- Refused from now on, all writing nothing: `Bu məhsul KA45, yadda saxla`,
+  `KA45 anbarda var, yadda saxla`, `Bu KA45-in qiyməti, yadda saxla`,
+  `Bu KA45-dir deyil, yadda saxla`, `Bu KA45 dır deyil, yadda saxla`, `Bu KA45-dir? yadda saxla`,
+  `Bu KA45-dir, yadda saxla?`, `Bu KA45-dir, yadda saxlanılsın`,
+  `Bu KA45-dir, zəhmət olmasa saxla`.
+- Accepted from now on: `Bu KA45dır, yadda saxla` (copula welded on), `Bu KA45-dir, yadda saxla ✅`
+  (a trailing non-letter mark cannot undo a closed phrase), and `Bu KA45-dir, KA45-dır, yadda saxla`
+  — one product named twice was reported ambiguous before, because the pattern counted tokens rather
+  than identities. Naming the same product twice is not a choice between two, so this is the one
+  widening in the block and it is a deduplication, not a guess.
+- Unchanged, deliberately: the digit requirement (an ordinary word must not become an identity
+  claim), `normalize_product_code` as the only path to a code, two distinct codes staying
+  `AmbiguousPictureConfirmation` with nothing chosen, photos only (a document caption reaches the
+  service, finds no picture in the message and is refused), the Telegram routing, and
+  `CAPTION_COMMAND_FILE_SKIPPED` — an explicit command still beats ingestion.
+- Tests: `tests/unit/test_phase12c_reference_confirmation.py` grew from 17 to 40 and states the four
+  rules in its module docstring, with a `test_a_mention_a_denial_or_a_question_is_not_authorization`
+  table for the refusals; `test_phase12c_reference_routing.py` pins that `Bu məhsul KA45, yadda
+  saxla` never reaches the reference service while the photo still uploads normally.
+- Gates: 422 unit, 53 integration, ruff, format (173 files under `src tests`), pyright strict 0
+  errors. No migration — this block reads prose, it stores nothing.
+
 ### Phase 12A Block 5D — `/leqv_et`: the ADMIN-only explicit revoke the owner approved (2026-10-10)
 
 Decision 3, part (b) of Q31. A confirmation a human gave is business history, so retiring it had to be

@@ -176,6 +176,18 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       "nothing active" rather than an error. The retired picture stops answering the active reads, so
       the next caption for those bytes is a fresh decision instead of a conflict (§22.7 guards a live
       claim only). No migration: §23.6 already defined the lifecycle column this needs.
+- [x] Block 5C follow-up 2: Q32 resolved (owner, 2026-10-10) — the naming caption has to *assert*, not
+      merely mention. A caption authorizes a picture only when `yadda saxla` closes it, exactly one
+      distinct product code appears after canonical normalization, that code carries an Azerbaijani
+      naming copula (`KA45-dir`, `KA45 dır`, `KA45dır`), and nothing cancels the statement: `deyil`
+      after the name denies it and a question mark anywhere means the user was asking. So
+      `Bu məhsul KA45, yadda saxla`, `KA45 anbarda var, yadda saxla` and
+      `Bu KA45-dir deyil, yadda saxla` write nothing, where before they confirmed — the second one
+      being the exact shape §22.7's "the human said it" cannot survive. One product named twice is
+      deduplicated rather than called ambiguous, since identity and not spelling decides ambiguity;
+      two distinct codes still refuse to be chosen. The digit requirement, the canonical code path,
+      the photo-only boundary, the Telegram routing and `CAPTION_COMMAND_FILE_SKIPPED` are untouched.
+      No migration.
 
 ## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
