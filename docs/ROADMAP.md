@@ -231,6 +231,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       prediction inputs; deterministic code precision/recall/F1, false alarm rates,
       exact-set accuracy and per-scenario reporting, with no product identity inference.
       Real OCR engine execution and local visual model benchmark are still pending.
+- [x] Added opt-in local Tesseract candidate runner for a private image manifest;
+      image path confinement, timeout, code allowlist and synthetic tests included.
+      No new production dependency; real model comparison remains open.
 - [ ] Phase 12B: OCR and visual embedding benchmark on a representative,
       non-public company dataset; do not declare an embedding model selected
       based only on synthetic samples.
