@@ -4,6 +4,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Phase 12B OCR scoring groundwork (2026-10-10)
+
+- Added private, deterministic OCR code-extraction benchmark scoring with strict
+  JSONL manifests and approved product-code normalization. Reports aggregate
+  micro precision/recall/F1, query exact sets, false alarms and scenario slices.
+- Added synthetic unit tests for false alarms, lookalike codes, malformed input,
+  deduplication and privacy-safe report output. No OCR engine or embedding model
+  was installed or selected; real-corpus benchmarks remain pending.
+
 ### Phase 12B evaluation harness (2026-10-10)
 
 - Added an offline, no-provider visual product ranking evaluator with strict JSONL
