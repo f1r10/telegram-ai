@@ -138,7 +138,9 @@ def evaluate(
     exact_cases = [case for case in truth if case.exact_code is not None]
     no_exact_cases = [case for case in truth if case.exact_code is None]
     similar_cases = [case for case in no_exact_cases if case.similar_codes]
-    declared_exact = [prediction for prediction in predictions if prediction.status == "EXACT_MATCH"]
+    declared_exact = [
+        prediction for prediction in predictions if prediction.status == "EXACT_MATCH"
+    ]
 
     def hits_at(k: int) -> int:
         return sum(
