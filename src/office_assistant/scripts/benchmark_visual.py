@@ -32,9 +32,12 @@ class Prediction:
 
 
 def _mapping(raw: object) -> dict[str, object]:
-    if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
+    if not isinstance(raw, dict):
         raise ValueError("JSONL records must be objects with string keys")
-    return cast(dict[str, object], raw)
+    mapping = cast(dict[object, object], raw)
+    if not all(isinstance(key, str) for key in mapping):
+        raise ValueError("JSONL records must be objects with string keys")
+    return cast(dict[str, object], mapping)
 
 
 def _fields(record: dict[str, object], required: set[str]) -> None:
@@ -58,9 +61,12 @@ def _code(value: str) -> str:
 
 def _codes(record: dict[str, object], key: str) -> tuple[str, ...]:
     raw = record[key]
-    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+    if not isinstance(raw, list):
         raise ValueError(f"{key} must be a list of product-code strings")
-    values = tuple(_code(item) for item in cast(list[str], raw))
+    items = cast(list[object], raw)
+    if not all(isinstance(item, str) for item in items):
+        raise ValueError(f"{key} must be a list of product-code strings")
+    values = tuple(_code(item) for item in cast(list[str], items))
     if len(set(values)) != len(values):
         raise ValueError(f"{key} has duplicate canonical product codes")
     return values
