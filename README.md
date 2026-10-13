@@ -84,6 +84,33 @@ company information into an external search request. See
 
 Python 3.12 is selected for the project and is enforced by `pyproject.toml`.
 
+## WSL2 / Linux: initialize the Docker database
+
+For a **fresh** WSL2 installation, create a local `.env` from `.env.example`,
+set a strong `POSTGRES_PASSWORD`, and initially keep
+`TELEGRAM_POLLING_ENABLED=false`. Never commit or share `.env`.
+
+```bash
+sudo docker compose --env-file .env up -d postgres qdrant searxng
+sudo docker compose --env-file .env build app
+sudo docker compose --env-file .env run --rm app \
+  uv run --no-dev alembic upgrade head
+sudo docker compose --env-file .env run --rm \
+  -e DATABASE_CHECK_ON_STARTUP=true app
+sudo docker compose --env-file .env up -d worker
+sudo docker compose --env-file .env ps
+```
+
+The Docker image **must** contain `/app/alembic.ini` and
+`/app/migrations/versions`; without them Alembic reports
+`No 'script_location' key found in configuration`. The Dockerfile
+copies both files in the current version. After pulling Dockerfile changes,
+rebuild the `app` image before retrying migrations.
+
+Do **not** use `docker compose down -v` or prune Docker volumes to fix a
+migration error. `alembic upgrade head` is designed to be safely rerun
+against the same database.
+
 ## Local setup
 
 ```powershell
