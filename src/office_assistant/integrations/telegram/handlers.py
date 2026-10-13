@@ -509,7 +509,7 @@ async def _try_text_note_upload(
     staging_path, staging_key = services.storage.create_staging_path(".txt")
     try:
         staging_path.write_text(payload, encoding="utf-8")
-        result = await services.ingestion.add_file(
+        await services.ingestion.add_file(
             user,
             UploadMetadata(
                 original_filename=f"telegram_qeyd_{message.message_id}.txt",
