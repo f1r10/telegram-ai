@@ -4,6 +4,16 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Sales-office web reliability and guided Telegram UX (2026-10-13)
+
+- Classified malformed SearXNG/Tavily root JSON and decoding/protocol failures as
+  controlled provider errors so configured fallback can work reliably.
+- Added an authenticated, one-question Telegram `/menu` with buttons for internal,
+  external, combined search, upload guidance and help; no additional infrastructure.
+- Ensured menu selection is user-scoped, one-shot, time-bounded and inaccessible to
+  PENDING/DISABLED users. Explicit web use includes a confidentiality warning.
+- Added regression tests; integration and live sales-office UAT remain mandatory.
+
 ### Phase 12B optional local OCR candidate runner (2026-10-10)
 
 - Added CLI integration with a locally installed Tesseract executable for

@@ -239,5 +239,20 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       based only on synthetic samples.
 
 
-## Explicitly out of scope (recorded): recurring reminders, scanned-PDF OCR, image embeddings,
+## Explicitly out of scope (recorded):## Sales-office productization (owner direction 2026-10-13)
+
+- [x] Web provider malformed-response/transport error correction with fallback tests.
+- [x] Short `/menu` for active private-chat users and one-message guided internal,
+      internet, and combined search; see `docs/SALES-OFFICE-UX.md`.
+- [ ] Confirm actual natural-language intent quality using misspelled sales queries,
+      with OpenAI bounded planner evaluation against the owner's private scenarios.
+- [ ] Fix remaining real SearXNG/Tavily search-quality failures based on reproducible
+      screenshots, safe logs, and query examples (no credentials).
+- [ ] Run real PostgreSQL/Qdrant integration and Docker smoke on current branch.
+- [ ] Run 3–4-user concurrency, restart and resource/capacity test.
+- [ ] Complete real Telegram photo reference save/search/revoke acceptance,
+      cross-user source isolation, backup+restore drill and final product UAT.
+- [ ] Finish representative local OCR/visual model benchmark before Phase 12C.
+
+ recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.

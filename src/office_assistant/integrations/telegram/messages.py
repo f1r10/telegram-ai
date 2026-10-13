@@ -13,6 +13,38 @@ PRIVATE_ONLY = "Bu bot yalnız şəxsi söhbətdə istifadə edilə bilər."
 UNKNOWN_USER = "Əvvəlcə /start əmrini göndərin və giriş prosesini tamamlayın."
 NO_PERMISSION = "Bu əməliyyat üçün icazəniz yoxdur."
 WELCOME = "Xoş gəlmisiniz. Hesabınız aktivdir."
+MENU_TITLE = (
+    "Nə etmək istəyirsiniz? Aşağıdakı seçimlərdən birinə toxunun. "
+    "Daxili məlumatları adi mesajla da soruşa bilərsiniz."
+)
+MENU_INTERNAL_BUTTON = "Bizim bazada axtar"
+MENU_INTERNET_BUTTON = "İnternetdə axtar"
+MENU_COMBINED_BUTTON = "Bizdə və internetdə axtar"
+MENU_UPLOAD_BUTTON = "Fayl və şəkil saxla"
+MENU_HELP_BUTTON = "Ətraflı kömək"
+MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Sualınızı adi mesajla göndərin."
+MENU_ASK_INTERNET = (
+    "İnternetdə nə axtarım? Sualınızı adi mesajla göndərin. "
+    "Bu rejim daxili şirkət bazasını axtarmır. Məxfi şirkət məlumatı göndərməyin."
+)
+MENU_ASK_COMBINED = (
+    "Bizdə və internetdə nəyi müqayisə edim? Sualınızı adi mesajla göndərin. "
+    "Daxili və xarici məlumatlar cavabda ayrılacaq."
+)
+MENU_UPLOAD_GUIDE = (
+    "PDF, Word, Excel, mətn faylı və ya JPG/PNG şəkil göndərin. "
+    "Yaddaşa yazmaq üçün /saxla, imtina etmək üçün /cancel göndərin. "
+    "Məhsul şəklini təsdiqləmək üçün şəklə «Bu KA45-dir, yadda saxla» "
+    "kimi qeyd əlavə edin. KA45-i öz məhsul kodunuzla əvəz edin."
+)
+MENU_ACTIVE_SESSION = (
+    "Hazırda yadda saxlama sessiyanız açıqdır. Əvvəlcə /saxla ilə tamamlayın "
+    "və ya /cancel ilə imtina edin. Sonra menyudan axtarış seçin."
+)
+MENU_SESSION_EXPIRED = "Əvvəlki menyu seçiminin vaxtı keçib. /menu ilə yenidən seçin."
+MENU_TEMPORARY_UNAVAILABLE = (
+    "Menyu seçimi saxlanılmadı. /baza, /internet və ya /tamaxtar əmri ilə soruşa bilərsiniz."
+)
 PENDING_STATUS = "Hesabınız administrator təsdiqini gözləyir."
 WHOAMI_UNKNOWN = "Sizin üçün qeydiyyatdan keçmiş aktiv hesab tapılmadı."
 WHOAMI_DETAILS = "Telegram ID: {telegram_user_id}\nRol: {role}\nStatus: {status}"
@@ -102,6 +134,7 @@ WEEKDAY_NAMES = (
 HELP_TEXT = (
     "Mümkün əmrlər:\n\n"
     "/start — hesabı açmaq və giriş etmək\n"
+    "/menu — sadə seçim menyusunu açmaq\n"
     "/baza <sual> — daxili bilik bazasından cavab almaq\n"
     "/internet <sual> — internetdən müvəqqəti cavab almaq (yaddaşa yazılmır)\n"
     "/tamaxtar <sual> — daxili və internet mənbələrində birlikdə axtarmaq\n"
