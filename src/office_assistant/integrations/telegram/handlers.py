@@ -475,7 +475,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if services.ingestion is not None and await services.ingestion.has_open_session(user):
             await query.edit_message_text(messages.MENU_ACTIVE_SESSION)
             return
-        data = context.user_data
+        data = getattr(context, "user_data", None)
         if data is None:
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
             return
@@ -497,7 +497,7 @@ async def _try_menu_question(
 ) -> bool:
     """Consume one text turn with the selected explicit scope, then clear the selection."""
 
-    data = context.user_data
+    data = getattr(context, "user_data", None)
     if data is None:
         return False
     selected = data.pop(MENU_SELECTION_KEY, None)
@@ -1082,7 +1082,11 @@ async def handle_baza(
         return
     turn = build_turn_context(
         message,
-        text=question_override if question_override is not None else _command_text(message).partition(" ")[2].strip(),
+        text=(
+            question_override
+            if question_override is not None
+            else _command_text(message).partition(" ")[2].strip()
+        ),
     )
     question = turn.text
     if not question:
@@ -1138,7 +1142,11 @@ async def _handle_web_command(
         return
     turn = build_turn_context(
         message,
-        text=question_override if question_override is not None else _command_text(message).partition(" ")[2].strip(),
+        text=(
+            question_override
+            if question_override is not None
+            else _command_text(message).partition(" ")[2].strip()
+        ),
     )
     question = turn.text
     if not question:
