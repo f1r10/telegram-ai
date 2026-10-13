@@ -216,9 +216,7 @@ def test_expired_menu_selection_must_not_trigger_external_search(
     _select(context, "internet")
     monkeypatch.setattr(handlers, "monotonic", lambda: 1000.0)
     message = _message("Bu məhsulu internetdə axtar")
-    asyncio.run(
-        handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     message.reply_text.assert_awaited_once_with(messages.MENU_SESSION_EXPIRED)
     web.answer_internet.assert_not_called()
     assert MENU_SELECTION_KEY not in context.user_data
