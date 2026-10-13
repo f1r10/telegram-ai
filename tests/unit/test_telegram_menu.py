@@ -78,7 +78,8 @@ def _message(text: str) -> SimpleNamespace:
 
 
 def _update(
-    message: SimpleNamespace, query: SimpleNamespace | None = None,
+    message: SimpleNamespace,
+    query: SimpleNamespace | None = None,
     telegram_user_id: int = 123,
 ) -> Update:
     fake = SimpleNamespace(
@@ -90,9 +91,7 @@ def _update(
     return cast(Update, fake)
 
 
-def _select(
-    context: SimpleNamespace, mode: str, telegram_user_id: int = 123
-) -> SimpleNamespace:
+def _select(context: SimpleNamespace, mode: str, telegram_user_id: int = 123) -> SimpleNamespace:
     query = SimpleNamespace(
         data=f"om:{mode}",
         answer=AsyncMock(),
@@ -248,7 +247,6 @@ def test_unsupported_callback_value_never_selects_a_scope() -> None:
     query.answer.assert_awaited_once()
     query.edit_message_text.assert_not_awaited()
     assert MENU_SELECTION_KEY not in context.user_data
-
 
 
 @pytest.mark.parametrize(
