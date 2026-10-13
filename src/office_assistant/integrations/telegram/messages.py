@@ -25,7 +25,7 @@ MENU_HELP_BUTTON = "Ətraflı kömək"
 MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Sualınızı adi mesajla göndərin."
 MENU_ASK_INTERNET = (
     "İnternetdə nə axtarım? Sualınızı adi mesajla göndərin. "
-    "Bu rejim daxili şirkət bazasını axtarmır."
+    "Bu rejim daxili şirkət bazasını axtarmır. Məxfi şirkət məlumatı göndərməyin."
 )
 MENU_ASK_COMBINED = (
     "Bizdə və internetdə nəyi müqayisə edim? Sualınızı adi mesajla göndərin. "
