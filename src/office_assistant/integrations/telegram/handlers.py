@@ -406,7 +406,6 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
     return None
 
 
-
 def _menu_keyboard() -> InlineKeyboardMarkup:
     """A short, touch-first menu; no authoritative operation is performed by a tap."""
 
@@ -492,9 +491,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
-async def _try_menu_question(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
-) -> bool:
+async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     """Consume one text turn with the selected explicit scope, then clear the selection."""
 
     data = getattr(context, "user_data", None)
@@ -504,9 +501,7 @@ async def _try_menu_question(
     if not isinstance(selected, tuple) or len(selected) != 2:
         return False
     mode, expires_at = selected
-    if mode not in {"baza", "internet", "tamaxtar"} or not isinstance(
-        expires_at, (int, float)
-    ):
+    if mode not in {"baza", "internet", "tamaxtar"} or not isinstance(expires_at, (int, float)):
         return False
     if monotonic() > expires_at:
         if update.effective_message is not None:
@@ -1123,8 +1118,11 @@ async def handle_baza(
 
 
 async def _handle_web_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, combined: bool,
-    question_override: str | None = None
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    combined: bool,
+    question_override: str | None = None,
 ) -> None:
     if not _is_private(update):
         return
