@@ -10,6 +10,8 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
   Qdrant 1.19, applying schema migrations and exercising real integration tests.
 - Uses an isolated database whose name ends in `_test`, no production credentials,
   no Telegram polling and no persistent customer data.
+- First CI integration run: 52 passed, one real SearXNG test skipped because its
+  live external-search URL was not supplied. That is not a claim of 53/53 passed.
 - Live Telegram UAT, 3–4-user load and company data evaluation remain separate gates.
 
 ## [Unreleased]
