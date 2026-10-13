@@ -76,6 +76,20 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             business_tool_calls=[_tool_call("resolve_product_price", {"product": product})],
             reason_code="product_price_may_have_document_evidence",
         )
+    # A catalog match proves the product exists in the approved catalog, not in stock.
+    # Resolve the exact code first; documents are supporting evidence only.
+    if product and any(
+        phrase in text
+        for phrase in ("varmi", "var?", "bizde var", "bizde yox", "stok", "elde var")
+    ):
+        return EvidencePlan(
+            category=RoutingCategory.INTERNAL_HYBRID,
+            intent="PRODUCT_LOOKUP",
+            use_structured_tools=True,
+            use_document_search=True,
+            business_tool_calls=[_tool_call("find_product", {"code_or_alias": product})],
+            reason_code="exact_catalog_identity_before_documents",
+        )
     if product and any(word in text for word in ("zemanet", "sert", "sened", "muqavile")):
         return EvidencePlan(
             category=RoutingCategory.INTERNAL_DOCUMENT,
