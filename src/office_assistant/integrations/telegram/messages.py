@@ -41,9 +41,7 @@ MENU_ACTIVE_SESSION = (
     "Hazırda yadda saxlama sessiyanız açıqdır. Əvvəlcə /saxla ilə tamamlayın "
     "və ya /cancel ilə imtina edin. Sonra menyudan axtarış seçin."
 )
-MENU_SESSION_EXPIRED = (
-    "Əvvəlki menyu seçiminin vaxtı keçib. /menu ilə yenidən seçin."
-)
+MENU_SESSION_EXPIRED = "Əvvəlki menyu seçiminin vaxtı keçib. /menu ilə yenidən seçin."
 MENU_TEMPORARY_UNAVAILABLE = (
     "Menyu seçimi saxlanılmadı. /baza, /internet və ya /tamaxtar əmri ilə soruşa bilərsiniz."
 )
