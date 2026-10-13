@@ -428,9 +428,7 @@ def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
         data.pop(MENU_SELECTION_KEY, None)
 
 
-async def handle_menu_interruption(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_menu_interruption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear one-shot search intent before processing commands, photos or documents."""
 
     if _is_private(update):
