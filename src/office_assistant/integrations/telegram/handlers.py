@@ -507,9 +507,17 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     action = query.data
     if action not in {
-        "om:ask", "om:product", "om:sales", "om:home",
-        "om:baza", "om:internet", "om:tamaxtar",
-        "om:upload", "om:help", "om:save", "om:cancel",
+        "om:ask",
+        "om:product",
+        "om:sales",
+        "om:home",
+        "om:baza",
+        "om:internet",
+        "om:tamaxtar",
+        "om:upload",
+        "om:help",
+        "om:save",
+        "om:cancel",
     }:
         return
     # A later tap replaces the earlier scope, including help, upload and access denial.
