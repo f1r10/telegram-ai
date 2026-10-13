@@ -25,6 +25,7 @@ from office_assistant.integrations.telegram.handlers import (
     handle_error,
     handle_extraction_callback,
     handle_menu_callback,
+    handle_menu_interruption,
     handle_password_text,
     handle_photo,
     handle_reminder_callback,
@@ -88,6 +89,15 @@ def create_telegram_application(
     )
     application.bot_data[SERVICES_KEY] = services
     application.add_error_handler(handle_error)
+    # Run before all command/photo/document handlers. A search scope chosen earlier
+    # must not unexpectedly apply to a later message after another action.
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & (filters.COMMAND | filters.PHOTO | filters.Document.ALL),
+            handle_menu_interruption,
+        ),
+        group=-1,
+    )
     for name, callback in COMMAND_CALLBACKS.items():
         application.add_handler(CommandHandler(name, callback))
     application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^ua:"))

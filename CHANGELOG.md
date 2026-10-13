@@ -4,6 +4,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Telegram search-scope privacy and small-office concurrency (2026-10-13)
+
+- Clear pending external/internal search intent on menu reopening, different menu
+  choices, commands, photos and documents; avoid stale external-search disclosure.
+- Cover 4 concurrent synthetic Telegram users with independent internal,
+  external and combined scopes, plus cancellation and role-denial regressions.
+- This does not replace real four-account Telegram load and privacy testing.
+
+
 ### Web search provider contract corrections (2026-10-13)
 
 - Recognize Tavily's documented HTTP 432 (plan credits exhausted) and 433

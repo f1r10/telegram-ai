@@ -254,7 +254,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [ ] Run a separate real SearXNG provider smoke test and production-like Docker
       smoke without using private production data.
 - [ ] Run real PostgreSQL/Qdrant integration and Docker smoke on current branch.
-- [ ] Run 3–4-user concurrency, restart and resource/capacity test.
+- [x] Add four-concurrent-user synthetic menu scope-isolation regression tests;
+      clear stale internet mode when another action is selected.
+- [ ] Run 3–4 real-account Telegram concurrency, restart and resource/capacity test.
 - [ ] Complete real Telegram photo reference save/search/revoke acceptance,
       cross-user source isolation, backup+restore drill and final product UAT.
 - [ ] Finish representative local OCR/visual model benchmark before Phase 12C.
