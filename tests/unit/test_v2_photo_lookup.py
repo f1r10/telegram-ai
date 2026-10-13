@@ -50,8 +50,13 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
     repo = SimpleNamespace(
         active_confirmation_holder_by_content=AsyncMock(return_value=(uuid4(), "KA45"))
     )
+    from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
+
+    def make_repo(_session: AsyncSession) -> ProductImageRelationRepository:
+        return cast(ProductImageRelationRepository, repo)
+
     cast(pytest.MonkeyPatch, monkeypatch).setattr(
-        handlers, "ProductImageRelationRepository", lambda _session: repo
+        handlers, "ProductImageRelationRepository", make_repo
     )
     upload = AsyncMock()
     cast(pytest.MonkeyPatch, monkeypatch).setattr(handlers, "_handle_upload", upload)
