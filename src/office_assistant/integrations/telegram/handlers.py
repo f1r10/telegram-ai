@@ -97,8 +97,8 @@ from office_assistant.internal_evidence.models import ImageReading, InternalAnsw
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.vision import ImageVisionExtractor
-from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
+from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
 
