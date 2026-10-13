@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from time import monotonic
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -98,6 +99,8 @@ from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailab
 from office_assistant.web_evidence.service import WebEvidenceService
 
 SERVICES_KEY = "phase2_services"
+MENU_SELECTION_KEY = "office_menu_selection"
+MENU_SELECTION_TTL_SECONDS = 600
 logger = logging.getLogger(__name__)
 
 
@@ -403,6 +406,121 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
     return None
 
 
+
+def _menu_keyboard() -> InlineKeyboardMarkup:
+    """A short, touch-first menu; no authoritative operation is performed by a tap."""
+
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(messages.MENU_INTERNAL_BUTTON, callback_data="om:baza")],
+            [InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet")],
+            [InlineKeyboardButton(messages.MENU_COMBINED_BUTTON, callback_data="om:tamaxtar")],
+            [InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload")],
+            [InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help")],
+        ]
+    )
+
+
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Offer ordinary-language guidance after verifying a private active account."""
+
+    if not _is_private(update):
+        return
+    identity = _identity(update)
+    message = update.effective_message
+    if identity is None or message is None:
+        return
+    try:
+        user = await _services(context).users.get_by_telegram_id(identity.telegram_user_id)
+    except SQLAlchemyError:
+        logger.exception("Telegram menu database lookup failed")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+    elif user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+    else:
+        await message.reply_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
+
+
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """One menu tap selects the route for exactly one subsequent ordinary text message."""
+
+    if not _is_private(update):
+        return
+    identity = _identity(update)
+    query = update.callback_query
+    if identity is None or query is None or not query.data:
+        return
+    await query.answer()
+    action = query.data
+    if action not in {"om:baza", "om:internet", "om:tamaxtar", "om:upload", "om:help"}:
+        return
+    services = _services(context)
+    try:
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if user is None:
+            await query.edit_message_text(messages.UNKNOWN_USER)
+            return
+        if user.status != UserStatus.ACTIVE:
+            await query.edit_message_text(_status_message(user))
+            return
+        if action == "om:help":
+            await query.edit_message_text(messages.HELP_TEXT)
+            return
+        if action == "om:upload":
+            await query.edit_message_text(messages.MENU_UPLOAD_GUIDE)
+            return
+        if services.ingestion is not None and await services.ingestion.has_open_session(user):
+            await query.edit_message_text(messages.MENU_ACTIVE_SESSION)
+            return
+        data = context.user_data
+        if data is None:
+            await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
+            return
+        mode = action.partition(":")[2]
+        data[MENU_SELECTION_KEY] = (mode, monotonic() + MENU_SELECTION_TTL_SECONDS)
+        prompt = {
+            "baza": messages.MENU_ASK_INTERNAL,
+            "internet": messages.MENU_ASK_INTERNET,
+            "tamaxtar": messages.MENU_ASK_COMBINED,
+        }[mode]
+        await query.edit_message_text(prompt)
+    except SQLAlchemyError:
+        logger.exception("Telegram menu callback database lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def _try_menu_question(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
+) -> bool:
+    """Consume one text turn with the selected explicit scope, then clear the selection."""
+
+    data = context.user_data
+    if data is None:
+        return False
+    selected = data.pop(MENU_SELECTION_KEY, None)
+    if not isinstance(selected, tuple) or len(selected) != 2:
+        return False
+    mode, expires_at = selected
+    if mode not in {"baza", "internet", "tamaxtar"} or not isinstance(
+        expires_at, (int, float)
+    ):
+        return False
+    if monotonic() > expires_at:
+        if update.effective_message is not None:
+            await update.effective_message.reply_text(messages.MENU_SESSION_EXPIRED)
+        return True
+    if mode == "baza":
+        await handle_baza(update, context, question_override=text)
+    else:
+        await _handle_web_command(
+            update, context, combined=(mode == "tamaxtar"), question_override=text
+        )
+    return True
+
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update):
         return
@@ -423,7 +541,10 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if user.status == UserStatus.ACTIVE:
         await services.users.touch_active_user(identity.telegram_user_id)
-    await message.reply_text(_status_message(user))
+    if user.status == UserStatus.ACTIVE:
+        await message.reply_text(messages.WELCOME, reply_markup=_menu_keyboard())
+    else:
+        await message.reply_text(_status_message(user))
 
 
 async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -457,6 +578,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
             elif await _try_file_delivery(
                 message, services, identity.telegram_user_id, message.text
             ):
+                return
+            elif await _try_menu_question(update, context, message.text):
                 return
             elif await _try_reminder_proposal(message, services, user, message.text):
                 return
@@ -940,7 +1063,9 @@ async def handle_extraction_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
-async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_baza(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, question_override: str | None = None
+) -> None:
     if not _is_private(update):
         return
     identity = _identity(update)
@@ -955,7 +1080,10 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    turn = build_turn_context(message, text=_command_text(message).partition(" ")[2].strip())
+    turn = build_turn_context(
+        message,
+        text=question_override if question_override is not None else _command_text(message).partition(" ")[2].strip(),
+    )
     question = turn.text
     if not question:
         await message.reply_text(messages.AI_INVALID_QUESTION)
@@ -991,7 +1119,8 @@ async def handle_baza(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def _handle_web_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, combined: bool
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, combined: bool,
+    question_override: str | None = None
 ) -> None:
     if not _is_private(update):
         return
@@ -1007,7 +1136,10 @@ async def _handle_web_command(
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    turn = build_turn_context(message, text=_command_text(message).partition(" ")[2].strip())
+    turn = build_turn_context(
+        message,
+        text=question_override if question_override is not None else _command_text(message).partition(" ")[2].strip(),
+    )
     question = turn.text
     if not question:
         await message.reply_text(messages.WEB_INVALID_QUESTION)
@@ -1441,6 +1573,7 @@ CommandCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, A
 
 COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "start": handle_start,
+    "menu": handle_menu,
     "whoami": handle_whoami,
     "users": handle_users,
     "cancel": handle_cancel,
