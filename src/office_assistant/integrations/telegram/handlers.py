@@ -1373,8 +1373,8 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             ).active_confirmation_holder_by_content(digest)
             if holder is not None:
                 await message.reply_text(
-                    f"📦 MƏHSUL TAPILDI\\n\\nKod: {holder[1]}\\n"
-                    "Uyğunluq: eyni şəkil faylı təsdiqlənib.\\n\\n"
+                    f"📦 MƏHSUL TAPILDI\n\nKod: {holder[1]}\n"
+                    "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
                     "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
                 )
                 return
