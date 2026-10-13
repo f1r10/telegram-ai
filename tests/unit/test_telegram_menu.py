@@ -378,9 +378,7 @@ def test_v2_product_and_sales_buttons_keep_questions_internal() -> None:
         asyncio.run(
             handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
         )
-        internal.answer.assert_awaited_with(
-            user, question, force_internal=True, image_readings=[]
-        )
+        internal.answer.assert_awaited_with(user, question, force_internal=True, image_readings=[])
         assert MENU_SELECTION_KEY not in context.user_data
     assert internal.answer.await_count == 2
     external.answer_internet.assert_not_awaited()
@@ -404,9 +402,7 @@ def test_v2_save_natural_language_only_proposes_confirmation() -> None:
     )
     services.ingestion = cast(IngestionSessionService, ingestion)
     message = _message("Bunu bazaya yaz")
-    asyncio.run(
-        handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     message.reply_text.assert_awaited_once()
     assert message.reply_text.await_args.args == (messages.MENU_SAVE_CONFIRM,)
     assert message.reply_text.await_args.kwargs["reply_markup"] is not None
