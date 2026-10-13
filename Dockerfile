@@ -15,6 +15,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
 COPY README.md ./README.md
+# Alembic migrations are executed inside the app image during fresh installations.
+# Keep the configuration and revision graph together at their expected paths.
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 10001 appuser \
