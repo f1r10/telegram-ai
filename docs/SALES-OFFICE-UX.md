@@ -18,7 +18,11 @@ Aktiv istifadəçi /start və ya /menu yazdıqda beş seçim görür:
 
 Seçimlər yalnız ACTIVE istifadəçiyə və yalnız private chat-da açılır.
 Axtarış üçün seçim 10 dəqiqə ərzində **bir adi mesaj** üçün qüvvədədir,
-sonra avtomatik silinir. Bu, application user_data-da müvəqqəti UX vəziyyətidir,
+sonra avtomatik silinir. İstifadəçi /menu ilə menyunu yenidən açdıqda,
+«Fayl və şəkil saxla» və ya «Ətraflı kömək» seçdikdə, başqa əmr yazdıqda
+və ya foto/sənəd göndərdikdə əvvəlki axtarış seçimi ləğv olunur. Beləliklə,
+əvvəl seçilmiş internet axtarışı sonradan göndərilən şəxsi məlumatı
+səhvən xaricə ötürmür. Bu, application user_data-da müvəqqəti UX vəziyyətidir,
 authoritative biznes yazısı deyil. Bot yenidən başladıqda seçim itə bilər;
 istifadəçi /menu ilə yenidən seçir.
 
