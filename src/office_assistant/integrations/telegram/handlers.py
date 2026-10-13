@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from hashlib import sha256
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -460,6 +461,82 @@ def _is_save_intent(text: str) -> bool:
     }
 
 
+def _note_payload(text: str) -> str | None:
+    """Extract only explicitly labelled text notes; do not infer a write from chat."""
+
+    match = re.match(r"^\\s*(?:bazaya yaz|yadda saxla)\\s*[:：-]\\s*(.+)$", text, re.I | re.S)
+    if match is None:
+        return None
+    payload = match.group(1).strip()
+    return payload if 0 < len(payload) <= 4000 else None
+
+
+async def _try_text_note_upload(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Stage an explicit text note as TXT so the existing parser and worker can index it."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None:
+        return False
+    payload = _note_payload(text)
+    if payload is None and _is_save_intent(text):
+        replied = message.reply_to_message
+        if (
+            replied is not None
+            and replied.from_user is not None
+            and replied.from_user.id == identity.telegram_user_id
+            and replied.text
+            and len(replied.text) <= 4000
+        ):
+            payload = replied.text
+        else:
+            await message.reply_text(
+                "Nəyi bazaya yazım? Mətni «Bazaya yaz: KA45 50 AZN-dir» "
+                "şəklində göndərin və ya öz mesajınıza cavab verib «Bunu bazaya yaz» yazın."
+            )
+            return True
+    if payload is None:
+        return False
+    if services.storage is None or services.ingestion is None:
+        await message.reply_text(messages.STORAGE_ERROR)
+        return True
+    staging_path, staging_key = services.storage.create_staging_path(".txt")
+    try:
+        staging_path.write_text(payload, encoding="utf-8")
+        result = await services.ingestion.add_file(
+            user,
+            UploadMetadata(
+                original_filename=f"telegram_qeyd_{message.message_id}.txt",
+                content_type="text/plain",
+                staging_path=staging_path,
+                staging_key=staging_key,
+                telegram_chat_id=message.chat_id,
+                telegram_message_id=message.message_id,
+                telegram_update_id=update.update_id,
+                caption=None,
+            ),
+        )
+    except (ApplicationError, SQLAlchemyError, StorageError, OSError) as error:
+        logger.warning("Text note staging failed | error_type=%s", type(error).__name__)
+        services.storage.delete(staging_key)
+        await message.reply_text(messages.STORAGE_ERROR)
+        return True
+    await message.reply_text(
+        "📝 MƏLUMAT TƏKLİFİ\\n\\n"
+        "Qeyd müvəqqəti sessiyaya əlavə olundu.\\n"
+        "Qeydlər yalnız təsdiqdən sonra emal edilir. "
+        "Qiymət, stok və satış kimi rəsmi qeydlər ayrıca yoxlanacaq.",
+        reply_markup=_upload_keyboard(),
+    )
+    return True
+
+
 def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
     """A scope choice is temporary; other actions must not leave it armed."""
 
@@ -664,6 +741,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
                 )
+                return
+            elif await _try_text_note_upload(update, context, services, user, message.text):
                 return
             elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
