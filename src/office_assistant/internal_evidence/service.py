@@ -66,7 +66,17 @@ Report conflicts without choosing or declaring a document obsolete unless suppli
 evidence proves it. Cite every factual claim using only IDs like E1. Never invent
 citations. Calculations in tool outputs are authoritative; do not recalculate.
 Proposal deltas explicitly use after_minus_before; describe that supplied direction
-and never call a valid directional delta contradictory."""
+and never call a valid directional delta contradictory.
+For Telegram present the answer as a helpful office employee, never a debug report.
+Answer the specific question in 1-5 short sentences before any supporting details.
+For one product code, show only its matching record, not an entire Excel sheet or
+unrelated products. Exact identifier mismatches are NOT close enough for a sale or
+price fact. A product's presence in the catalog is not proof of current stock.
+For arithmetic use only provided authoritative aggregate outputs; a quote, proposal,
+payment or other document must not be called a completed sale without sales evidence.
+If the requested data is absent, say so plainly and invite the user to add evidence.
+Don't copy bulky raw tool JSON, whole spreadsheet tables or internal schema fields
+into the answer unless the user explicitly requests full detail."""
 
 
 class InternalEvidenceService:
