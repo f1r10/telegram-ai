@@ -93,8 +93,7 @@ def create_telegram_application(
     # must not unexpectedly apply to a later message after another action.
     application.add_handler(
         MessageHandler(
-            filters.ChatType.PRIVATE
-            & (filters.COMMAND | filters.PHOTO | filters.Document.ALL),
+            filters.ChatType.PRIVATE & (filters.COMMAND | filters.PHOTO | filters.Document.ALL),
             handle_menu_interruption,
         ),
         group=-1,
