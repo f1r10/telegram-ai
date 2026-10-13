@@ -103,7 +103,11 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     assert args.args == (messages.MENU_TITLE,)
     keyboard = args.kwargs["reply_markup"]
     assert [row[0].callback_data for row in keyboard.inline_keyboard] == [
-        "om:baza", "om:internet", "om:tamaxtar", "om:upload", "om:help"
+        "om:baza",
+        "om:internet",
+        "om:tamaxtar",
+        "om:upload",
+        "om:help",
     ]
 
 
@@ -137,9 +141,7 @@ def test_internet_menu_routes_plain_message_externally_once() -> None:
     query.edit_message_text.assert_awaited_once_with(messages.MENU_ASK_INTERNET)
     text = "KA45 modelinin bazar qiyməti neçədir"
     message = _message(text)
-    asyncio.run(
-        handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     web.answer_internet.assert_awaited_once_with(user, text)
     internal.answer.assert_not_called()
     assert MENU_SELECTION_KEY not in context.user_data
