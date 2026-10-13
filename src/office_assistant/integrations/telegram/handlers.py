@@ -2,13 +2,16 @@
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import (
@@ -62,6 +65,7 @@ from office_assistant.business.reference_confirmation import (
 )
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import (
+    ImageAsset,
     Reminder,
     ReminderStatus,
     User,
@@ -95,6 +99,7 @@ from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
+from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
 
@@ -407,17 +412,129 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
-    """A short, touch-first menu; no authoritative operation is performed by a tap."""
+    """V2 touch-first dashboard, usable on mobile without memorizing commands."""
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(messages.MENU_INTERNAL_BUTTON, callback_data="om:baza")],
-            [InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet")],
-            [InlineKeyboardButton(messages.MENU_COMBINED_BUTTON, callback_data="om:tamaxtar")],
-            [InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload")],
-            [InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help")],
+            [
+                InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
+                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
+            ],
+            [
+                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
+                InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
+            ],
+            [
+                InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
+                InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
+            ],
         ]
     )
+
+
+def _upload_keyboard() -> InlineKeyboardMarkup:
+    """A write requires a distinct explicit tap; upload alone never commits."""
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.MENU_SAVE_BUTTON, callback_data="om:save"),
+                InlineKeyboardButton(messages.MENU_CANCEL_BUTTON, callback_data="om:cancel"),
+            ],
+            [InlineKeyboardButton("🏠 Əsas menyu", callback_data="om:home")],
+        ]
+    )
+
+
+def _is_save_intent(text: str) -> bool:
+    """Only unambiguous exact requests trigger the *confirmation prompt*, never a write."""
+
+    normalized = " ".join(text.casefold().rstrip("!?. ").split())
+    return normalized in {
+        "bazaya yaz",
+        "bunu bazaya yaz",
+        "yadda saxla",
+        "bunu yadda saxla",
+        "bunları yadda saxla",
+        "bu sənədi saxla",
+        "faylları saxla",
+    }
+
+
+def _note_payload(text: str) -> str | None:
+    """Extract only explicitly labelled text notes; do not infer a write from chat."""
+
+    match = re.match(r"^\s*(?:bazaya yaz|yadda saxla)\s*[:：-]\s*(.+)$", text, re.I | re.S)
+    if match is None:
+        return None
+    payload = match.group(1).strip()
+    return payload if 0 < len(payload) <= 4000 else None
+
+
+async def _try_text_note_upload(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Stage an explicit text note as TXT so the existing parser and worker can index it."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None:
+        return False
+    payload = _note_payload(text)
+    if payload is None and _is_save_intent(text):
+        replied = message.reply_to_message
+        if (
+            replied is not None
+            and replied.from_user is not None
+            and replied.from_user.id == identity.telegram_user_id
+            and replied.text
+            and len(replied.text) <= 4000
+        ):
+            payload = replied.text
+        else:
+            await message.reply_text(
+                "Nəyi bazaya yazım? Mətni «Bazaya yaz: KA45 50 AZN-dir» "
+                "şəklində göndərin və ya öz mesajınıza cavab verib «Bunu bazaya yaz» yazın."
+            )
+            return True
+    if payload is None:
+        return False
+    if services.storage is None or services.ingestion is None:
+        await message.reply_text(messages.STORAGE_ERROR)
+        return True
+    staging_path, staging_key = services.storage.create_staging_path(".txt")
+    try:
+        staging_path.write_text(payload, encoding="utf-8")
+        await services.ingestion.add_file(
+            user,
+            UploadMetadata(
+                original_filename=f"telegram_qeyd_{message.message_id}.txt",
+                content_type="text/plain",
+                staging_path=staging_path,
+                staging_key=staging_key,
+                telegram_chat_id=message.chat_id,
+                telegram_message_id=message.message_id,
+                telegram_update_id=update.update_id,
+                caption=None,
+            ),
+        )
+    except (ApplicationError, SQLAlchemyError, StorageError, OSError) as error:
+        logger.warning("Text note staging failed | error_type=%s", type(error).__name__)
+        services.storage.delete(staging_key)
+        await message.reply_text(messages.STORAGE_ERROR)
+        return True
+    await message.reply_text(
+        "📝 MƏLUMAT TƏKLİFİ\n\n"
+        "Qeyd müvəqqəti sessiyaya əlavə olundu.\n"
+        "Qeydlər yalnız təsdiqdən sonra emal edilir. "
+        "Qiymət, stok və satış kimi rəsmi qeydlər ayrıca yoxlanacaq.",
+        reply_markup=_upload_keyboard(),
+    )
+    return True
 
 
 def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -470,7 +587,19 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     await query.answer()
     action = query.data
-    if action not in {"om:baza", "om:internet", "om:tamaxtar", "om:upload", "om:help"}:
+    if action not in {
+        "om:ask",
+        "om:product",
+        "om:sales",
+        "om:home",
+        "om:baza",
+        "om:internet",
+        "om:tamaxtar",
+        "om:upload",
+        "om:help",
+        "om:save",
+        "om:cancel",
+    }:
         return
     # A later tap replaces the earlier scope, including help, upload and access denial.
     # Otherwise a prior internet selection may disclose an unrelated later plain message.
@@ -484,26 +613,45 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if user.status != UserStatus.ACTIVE:
             await query.edit_message_text(_status_message(user))
             return
+        if action == "om:home":
+            await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
+            return
         if action == "om:help":
-            await query.edit_message_text(messages.HELP_TEXT)
+            await query.edit_message_text(messages.HELP_TEXT, reply_markup=_menu_keyboard())
+            return
+        if action == "om:save":
+            await handle_save(update, context)
+            return
+        if action == "om:cancel":
+            await handle_cancel(update, context)
             return
         if action == "om:upload":
-            await query.edit_message_text(messages.MENU_UPLOAD_GUIDE)
+            await query.edit_message_text(
+                messages.MENU_UPLOAD_GUIDE, reply_markup=_upload_keyboard()
+            )
+            return
+        if action == "om:ask":
+            await query.edit_message_text(messages.MENU_CHAT_PROMPT)
             return
         if services.ingestion is not None and await services.ingestion.has_open_session(user):
-            await query.edit_message_text(messages.MENU_ACTIVE_SESSION)
+            await query.edit_message_text(
+                messages.MENU_ACTIVE_SESSION, reply_markup=_upload_keyboard()
+            )
             return
         data = getattr(context, "user_data", None)
         if data is None:
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
             return
-        mode = action.partition(":")[2]
+        choice = action.partition(":")[2]
+        mode = "baza" if choice in {"product", "sales"} else choice
         data[MENU_SELECTION_KEY] = (mode, monotonic() + MENU_SELECTION_TTL_SECONDS)
         prompt = {
             "baza": messages.MENU_ASK_INTERNAL,
+            "product": messages.MENU_PRODUCT_PROMPT,
+            "sales": messages.MENU_SALES_PROMPT,
             "internet": messages.MENU_ASK_INTERNET,
             "tamaxtar": messages.MENU_ASK_COMBINED,
-        }[mode]
+        }[choice]
         await query.edit_message_text(prompt)
     except SQLAlchemyError:
         logger.exception("Telegram menu callback database lookup failed")
@@ -584,6 +732,17 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
             elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
+                return
+            elif (
+                services.ingestion is not None
+                and _is_save_intent(message.text)
+                and await services.ingestion.has_open_session(user)
+            ):
+                await message.reply_text(
+                    messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
+                )
+                return
+            elif await _try_text_note_upload(update, context, services, user, message.text):
                 return
             elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
@@ -1240,11 +1399,92 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _run_deferred_caption_command(update, context)
 
 
+def _is_photo_lookup_request(caption: str | None) -> bool:
+    if not caption:
+        return False
+    text = " ".join(caption.casefold().split())
+    return any(
+        phrase in text
+        for phrase in (
+            "bizdə var",
+            "bizde var",
+            "bazada var",
+            "bu məhsul var",
+            "bu mehsul var",
+            "şəkli yoxla",
+            "sekli yoxla",
+        )
+    )
+
+
+async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Exact content identity only; do not mislabel hashes as visual similarity."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if not _is_private(update) or message is None or identity is None or not message.photo:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+        return
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    photo = message.photo[-1]
+    if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
+        await message.reply_text("Şəkil yoxlama üçün çox böyükdür. Daha kiçik şəkil göndərin.")
+        return
+    try:
+        telegram_file = await context.bot.get_file(photo.file_id)
+        picture = bytes(await telegram_file.download_as_bytearray())
+        if len(picture) > 4 * 1024 * 1024:
+            await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
+            return
+        digest = sha256(picture).hexdigest()
+        async with services.session_factory() as session:
+            holder = await ProductImageRelationRepository(
+                session
+            ).active_confirmation_holder_by_content(digest)
+            if holder is not None:
+                await message.reply_text(
+                    f"📦 MƏHSUL TAPILDI\n\nKod: {holder[1]}\n"
+                    "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
+                    "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
+                )
+                return
+            asset_id = await session.scalar(
+                select(ImageAsset.id).where(ImageAsset.content_sha256 == digest)
+            )
+        if asset_id is not None:
+            await message.reply_text(
+                "Bu eyni şəkil bazada mövcuddur, amma heç bir məhsul kodu ilə "
+                "təsdiqlənmiş əlaqəsi yoxdur. Şəkli tanıyıb məhsul kimi göstərmirəm."
+            )
+        else:
+            await message.reply_text(
+                "Bu şəklin eyni faylı təsdiqlənmiş məhsul nümunələrində tapılmadı. "
+                "Bu nəticə oxşar görünən məhsulun bizdə olmadığını sübut etmir. "
+                "Məhsul kodunu da yazaraq yenidən axtara bilərsiniz."
+            )
+    except (TelegramError, SQLAlchemyError) as error:
+        logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
+        await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None or not message.photo:
         return
     if await _route_caption_command(update, context):
+        return
+    if _is_photo_lookup_request(message.caption):
+        _discard_menu_selection(context)
+        await _handle_exact_photo_lookup(update, context)
         return
     photo = message.photo[-1]
     await _handle_upload(
@@ -1505,7 +1745,8 @@ async def _handle_upload(
             files=result.summary.file_count,
             instructions=result.summary.instruction_count,
         )
-        + (messages.FILE_DUPLICATE if result.duplicate else "")
+        + (messages.FILE_DUPLICATE if result.duplicate else ""),
+        reply_markup=_upload_keyboard(),
     )
 
 
