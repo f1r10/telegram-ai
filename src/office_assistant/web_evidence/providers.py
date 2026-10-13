@@ -95,10 +95,13 @@ class SearXNGWebSearchProvider:
         try:
             response = await self._client.get(f"{self.base_url}/search", params=params)
             response.raise_for_status()
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as error:
+        except (httpx.RequestError, httpx.HTTPStatusError) as error:
             raise WebProviderUnavailable("SearXNG is unavailable") from error
         try:
-            payload = cast(dict[str, object], response.json())
+            decoded: object = response.json()
+            if not isinstance(decoded, dict):
+                raise ValueError("SearXNG response is not an object")
+            payload = cast(dict[str, object], decoded)
             raw_results = payload.get("results")
             if not isinstance(raw_results, list):
                 raise ValueError("results is not a list")
@@ -214,7 +217,7 @@ class TavilyWebSearchProvider:
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=body,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as error:
+        except httpx.RequestError as error:
             raise WebProviderUnavailable("Tavily is unavailable") from error
         if response.status_code in {401, 403}:
             detail = response.text.casefold()
@@ -227,7 +230,10 @@ class TavilyWebSearchProvider:
             raise WebProviderUnavailable("Tavily is unavailable")
         try:
             response.raise_for_status()
-            payload = cast(dict[str, object], response.json())
+            decoded: object = response.json()
+            if not isinstance(decoded, dict):
+                raise ValueError("Tavily response is not an object")
+            payload = cast(dict[str, object], decoded)
             raw_results = payload.get("results")
             if not isinstance(raw_results, list):
                 raise ValueError("results is not a list")
