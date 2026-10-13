@@ -31,3 +31,10 @@ def test_v2_price_lookup_remains_higher_priority() -> None:
     assert plan is not None
     assert plan.intent == "PRODUCT_PRICE"
     assert plan.business_tool_calls[0].tool_name == "resolve_product_price"
+
+
+def test_v2_possessive_suffix_does_not_corrupt_product_code() -> None:
+    plan = deterministic_plan("KA45-in qiyməti nədir?")
+    assert plan is not None
+    assert plan.intent == "PRODUCT_PRICE"
+    assert json.loads(plan.business_tool_calls[0].arguments_json) == {"product": "KA45"}
