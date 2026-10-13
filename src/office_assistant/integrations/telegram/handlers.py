@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from hashlib import sha256
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,7 @@ from time import monotonic
 from typing import Any, cast
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import (
@@ -62,6 +64,7 @@ from office_assistant.business.reference_confirmation import (
 )
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import (
+    ImageAsset,
     Reminder,
     ReminderStatus,
     User,
@@ -94,6 +97,7 @@ from office_assistant.internal_evidence.models import ImageReading, InternalAnsw
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.vision import ImageVisionExtractor
+from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.service import WebEvidenceService
@@ -1316,11 +1320,92 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _run_deferred_caption_command(update, context)
 
 
+def _is_photo_lookup_request(caption: str | None) -> bool:
+    if not caption:
+        return False
+    text = " ".join(caption.casefold().split())
+    return any(
+        phrase in text
+        for phrase in (
+            "bizdə var",
+            "bizde var",
+            "bazada var",
+            "bu məhsul var",
+            "bu mehsul var",
+            "şəkli yoxla",
+            "sekli yoxla",
+        )
+    )
+
+
+async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Exact content identity only; do not mislabel hashes as visual similarity."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if not _is_private(update) or message is None or identity is None or not message.photo:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None:
+        await message.reply_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await message.reply_text(_status_message(user))
+        return
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    photo = message.photo[-1]
+    if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
+        await message.reply_text("Şəkil yoxlama üçün çox böyükdür. Daha kiçik şəkil göndərin.")
+        return
+    try:
+        telegram_file = await context.bot.get_file(photo.file_id)
+        picture = bytes(await telegram_file.download_as_bytearray())
+        if len(picture) > 4 * 1024 * 1024:
+            await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
+            return
+        digest = sha256(picture).hexdigest()
+        async with services.session_factory() as session:
+            holder = await ProductImageRelationRepository(
+                session
+            ).active_confirmation_holder_by_content(digest)
+            if holder is not None:
+                await message.reply_text(
+                    f"📦 MƏHSUL TAPILDI\\n\\nKod: {holder[1]}\\n"
+                    "Uyğunluq: eyni şəkil faylı təsdiqlənib.\\n\\n"
+                    "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
+                )
+                return
+            asset_id = await session.scalar(
+                select(ImageAsset.id).where(ImageAsset.content_sha256 == digest)
+            )
+        if asset_id is not None:
+            await message.reply_text(
+                "Bu eyni şəkil bazada mövcuddur, amma heç bir məhsul kodu ilə "
+                "təsdiqlənmiş əlaqəsi yoxdur. Şəkli tanıyıb məhsul kimi göstərmirəm."
+            )
+        else:
+            await message.reply_text(
+                "Bu şəklin eyni faylı təsdiqlənmiş məhsul nümunələrində tapılmadı. "
+                "Bu nəticə oxşar görünən məhsulun bizdə olmadığını sübut etmir. "
+                "Məhsul kodunu da yazaraq yenidən axtara bilərsiniz."
+            )
+    except (TelegramError, SQLAlchemyError) as error:
+        logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
+        await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None or not message.photo:
         return
     if await _route_caption_command(update, context):
+        return
+    if _is_photo_lookup_request(message.caption):
+        _discard_menu_selection(context)
+        await _handle_exact_photo_lookup(update, context)
         return
     photo = message.photo[-1]
     await _handle_upload(
