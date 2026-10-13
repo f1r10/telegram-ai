@@ -114,12 +114,10 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     args = message.reply_text.await_args
     assert args.args == (messages.MENU_TITLE,)
     keyboard = args.kwargs["reply_markup"]
-    assert [row[0].callback_data for row in keyboard.inline_keyboard] == [
-        "om:baza",
-        "om:internet",
-        "om:tamaxtar",
-        "om:upload",
-        "om:help",
+    assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
+        ["om:ask", "om:product"],
+        ["om:upload", "om:sales"],
+        ["om:internet", "om:help"],
     ]
 
 
@@ -204,14 +202,18 @@ def test_clicking_menu_during_open_upload_session_does_not_change_routing() -> N
     ingestion = SimpleNamespace(has_open_session=AsyncMock(return_value=True))
     services.ingestion = cast(IngestionSessionService, ingestion)
     query = _select(context, "internet")
-    query.edit_message_text.assert_awaited_once_with(messages.MENU_ACTIVE_SESSION)
+    query.edit_message_text.assert_awaited_once()
+    assert query.edit_message_text.await_args.args == (messages.MENU_ACTIVE_SESSION,)
+    assert query.edit_message_text.await_args.kwargs["reply_markup"] is not None
     assert MENU_SELECTION_KEY not in context.user_data
 
 
 def test_upload_guide_never_creates_or_saves_an_ingestion_session() -> None:
     context, services = _context(_user())
     query = _select(context, "upload")
-    query.edit_message_text.assert_awaited_once_with(messages.MENU_UPLOAD_GUIDE)
+    query.edit_message_text.assert_awaited_once()
+    assert query.edit_message_text.await_args.args == (messages.MENU_UPLOAD_GUIDE,)
+    assert query.edit_message_text.await_args.kwargs["reply_markup"] is not None
     assert MENU_SELECTION_KEY not in context.user_data
     assert services.ingestion is None
 
@@ -266,7 +268,8 @@ def test_navigation_away_from_internet_releases_armed_scope(
     _select(context, "internet")
     assert MENU_SELECTION_KEY in context.user_data
     new_selection = _select(context, later_action)
-    new_selection.edit_message_text.assert_awaited_once_with(expected)
+    new_selection.edit_message_text.assert_awaited_once()
+    assert new_selection.edit_message_text.await_args.args == (expected,)
     assert MENU_SELECTION_KEY not in context.user_data
     web.answer_internet.assert_not_awaited()
 
@@ -350,3 +353,70 @@ def test_four_independent_menu_users_dispatch_concurrently_without_scope_leaks()
         assert internal.await_count == (1 if mode == "baza" else 0)
         assert external.await_count == (1 if mode == "internet" else 0)
         assert combined.await_count == (1 if mode == "tamaxtar" else 0)
+
+
+def test_v2_product_and_sales_buttons_keep_questions_internal() -> None:
+    user = _user()
+    context, services = _context(user)
+    internal = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=InternalAnswer(
+                answer="Bazadaki məlumat.", route=RoutingCategory.INTERNAL_DOCUMENT
+            )
+        )
+    )
+    external = SimpleNamespace(answer_internet=AsyncMock(), answer_combined=AsyncMock())
+    services.internal_evidence = cast(object, internal)  # type: ignore[assignment]
+    services.web_evidence = cast(object, external)  # type: ignore[assignment]
+    for choice, prompt, question in (
+        ("product", messages.MENU_PRODUCT_PROMPT, "QA-KA45 bizdə var?"),
+        ("sales", messages.MENU_SALES_PROMPT, "Bu il A şirkətinə nə qədər satmışıq?"),
+    ):
+        query = _select(context, choice)
+        query.edit_message_text.assert_awaited_once_with(prompt)
+        message = _message(question)
+        asyncio.run(
+            handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
+        )
+        internal.answer.assert_awaited_with(
+            user, question, force_internal=True, image_readings=[]
+        )
+        assert MENU_SELECTION_KEY not in context.user_data
+    assert internal.answer.await_count == 2
+    external.answer_internet.assert_not_awaited()
+    external.answer_combined.assert_not_awaited()
+
+
+def test_v2_save_natural_language_only_proposes_confirmation() -> None:
+    from office_assistant.integrations.telegram.handlers import (
+        _is_save_intent,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert _is_save_intent("Bunu bazaya yaz")
+    assert _is_save_intent("bunu yadda saxla!")
+    assert not _is_save_intent("Bu sənədə baxıb bazaya yazılan məbləği de")
+    assert not _is_save_intent("Bu məlumatı bazaya yazmalıyam?")
+    context, services = _context(_user())
+    ingestion = SimpleNamespace(
+        has_open_session=AsyncMock(return_value=True),
+        add_instruction=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    services.ingestion = cast(IngestionSessionService, ingestion)
+    message = _message("Bunu bazaya yaz")
+    asyncio.run(
+        handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
+    )
+    message.reply_text.assert_awaited_once()
+    assert message.reply_text.await_args.args == (messages.MENU_SAVE_CONFIRM,)
+    assert message.reply_text.await_args.kwargs["reply_markup"] is not None
+    ingestion.commit.assert_not_awaited()
+    ingestion.add_instruction.assert_not_awaited()
+
+
+def test_v2_chat_button_does_not_arm_internet_search() -> None:
+    context, _services = _context(_user())
+    _select(context, "internet")
+    query = _select(context, "ask")
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_CHAT_PROMPT)
+    assert MENU_SELECTION_KEY not in context.user_data
