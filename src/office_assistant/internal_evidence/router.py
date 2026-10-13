@@ -179,7 +179,7 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
 
 
 def _product_code(question: str) -> str | None:
-    match = re.search(r"\b([A-Za-z]{1,8}[ -]?\d{1,8}[A-Za-z0-9]*)\b", question)
+    match = re.search(r"\b([A-Za-z]{1,8}(?:[- ][A-Za-z]{1,8})?[- ]?\d{1,8}[A-Za-z0-9-]*)\b", question)
     if match is None:
         return None
     candidate = match.group(1)
