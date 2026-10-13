@@ -4,6 +4,17 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Web search provider contract corrections (2026-10-13)
+
+- Recognize Tavily's documented HTTP 432 (plan credits exhausted) and 433
+  (pay-as-you-go limit) as quota errors rather than malformed responses.
+- Parse Tavily published dates in RFC 2822 format (such as
+  `Tue, 11 Mar 2025 17:00:00 GMT`) alongside existing ISO timestamps,
+  so freshness filtering can use actual publication dates.
+- Added synthetic quota/date parsing tests; live web search query quality
+  still requires private user-approved acceptance cases.
+
+
 ### CI: isolated PostgreSQL and Qdrant integrations (2026-10-13)
 
 - Added a dedicated GitHub Actions job provisioning disposable PostgreSQL 17 and
