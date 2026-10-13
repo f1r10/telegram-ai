@@ -248,6 +248,9 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
       with OpenAI bounded planner evaluation against the owner's private scenarios.
 - [ ] Fix remaining real SearXNG/Tavily search-quality failures based on reproducible
       screenshots, safe logs, and query examples (no credentials).
+- [x] Add disposable PostgreSQL/Qdrant integration CI job to GitHub Actions.
+- [ ] Validate current integration job with a green CI run, and run production-like
+      Docker smoke without reusing private production data.
 - [ ] Run real PostgreSQL/Qdrant integration and Docker smoke on current branch.
 - [ ] Run 3–4-user concurrency, restart and resource/capacity test.
 - [ ] Complete real Telegram photo reference save/search/revoke acceptance,
