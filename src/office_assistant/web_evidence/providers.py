@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import cast
 from urllib.parse import urlsplit
 
@@ -45,9 +46,14 @@ def _date(value: object) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except ValueError:
-        return None
+        # Tavily often supplies RFC 2822 timestamps such as
+        # "Tue, 11 Mar 2025 17:00:00 GMT" rather than ISO 8601.
+        try:
+            parsed = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _usable_url(value: object) -> str | None:
@@ -224,8 +230,8 @@ class TavilyWebSearchProvider:
             if "limit" in detail or "quota" in detail or "plan" in detail:
                 raise WebProviderQuotaError("Tavily quota is unavailable")
             raise WebProviderAuthError("Tavily authentication failed")
-        if response.status_code == 429:
-            raise WebProviderQuotaError("Tavily rate limit reached")
+        if response.status_code in {429, 432, 433}:
+            raise WebProviderQuotaError("Tavily quota or rate limit reached")
         if response.status_code >= 500:
             raise WebProviderUnavailable("Tavily is unavailable")
         try:
