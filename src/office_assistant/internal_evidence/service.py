@@ -718,9 +718,11 @@ def _validated_synthesis(
             )
         )
         has_conflict_language = re.search(r"\b(?:fərq|konflikt|ziddiyyət)\w*", answer.casefold())
-        if conflict_numbers and not has_conflict_language:
+        if not has_conflict_language:
             conflict_markers = " ".join(f"[{number}]" for number in conflict_numbers)
-            answer += f"\nMənbələr arasında fərq və ya konflikt var. {conflict_markers}"
+            answer += "\nMənbələr arasında fərq və ya konflikt var."
+            if conflict_markers:
+                answer += " " + conflict_markers
     return answer, tuple(references)
 
 
