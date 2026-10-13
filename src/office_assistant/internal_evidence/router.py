@@ -79,8 +79,7 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
     # A catalog match proves the product exists in the approved catalog, not in stock.
     # Resolve the exact code first; documents are supporting evidence only.
     if product and any(
-        phrase in text
-        for phrase in ("varmi", "var?", "bizde var", "bizde yox", "stok", "elde var")
+        phrase in text for phrase in ("varmi", "var?", "bizde var", "bizde yox", "stok", "elde var")
     ):
         return EvidencePlan(
             category=RoutingCategory.INTERNAL_HYBRID,
