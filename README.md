@@ -51,6 +51,16 @@ It is a benchmark-only CLI, not deployed bot behavior. Representative OCR compar
 visual embedding benchmarks and Phase 12C search are still pending.
 
 ## Prerequisites
+## Telegram menu for sales-office users
+
+An ACTIVE Telegram user can open `/menu` (also shown after `/start`) and tap
+an internal, internet or combined search option, then type **one ordinary-language
+question**. The menu also explains safe image/document storage and shows help.
+The mode is per-user, expires after 10 minutes and is cleared after one question.
+External mode does not retrieve internal company records; never type confidential
+company information into an external search request. See
+[Sales Office UX](docs/SALES-OFFICE-UX.md) for details and unfinished acceptance tests.
+
 
 - Python 3.12
 - `uv`
