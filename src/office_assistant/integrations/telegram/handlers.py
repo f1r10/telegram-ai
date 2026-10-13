@@ -407,17 +407,53 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
-    """A short, touch-first menu; no authoritative operation is performed by a tap."""
+    """V2 touch-first dashboard, usable on mobile without memorizing commands."""
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(messages.MENU_INTERNAL_BUTTON, callback_data="om:baza")],
-            [InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet")],
-            [InlineKeyboardButton(messages.MENU_COMBINED_BUTTON, callback_data="om:tamaxtar")],
-            [InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload")],
-            [InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help")],
+            [
+                InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
+                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
+            ],
+            [
+                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
+                InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
+            ],
+            [
+                InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
+                InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
+            ],
         ]
     )
+
+
+def _upload_keyboard() -> InlineKeyboardMarkup:
+    """A write requires a distinct explicit tap; upload alone never commits."""
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.MENU_SAVE_BUTTON, callback_data="om:save"),
+                InlineKeyboardButton(messages.MENU_CANCEL_BUTTON, callback_data="om:cancel"),
+            ],
+            [InlineKeyboardButton("🏠 Əsas menyu", callback_data="om:home")],
+        ]
+    )
+
+
+def _is_save_intent(text: str) -> bool:
+    """Only unambiguous exact requests trigger the *confirmation prompt*, never a write."""
+
+    normalized = " ".join(text.casefold().rstrip("!?. ").split())
+    return normalized in {
+        "bazaya yaz",
+        "bunu bazaya yaz",
+        "yadda saxla",
+        "bunu yadda saxla",
+        "bunları yadda saxla",
+        "bu sənədi saxla",
+        "faylları saxla",
+    }
 
 
 def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -470,7 +506,11 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     await query.answer()
     action = query.data
-    if action not in {"om:baza", "om:internet", "om:tamaxtar", "om:upload", "om:help"}:
+    if action not in {
+        "om:ask", "om:product", "om:sales", "om:home",
+        "om:baza", "om:internet", "om:tamaxtar",
+        "om:upload", "om:help", "om:save", "om:cancel",
+    }:
         return
     # A later tap replaces the earlier scope, including help, upload and access denial.
     # Otherwise a prior internet selection may disclose an unrelated later plain message.
@@ -484,26 +524,45 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if user.status != UserStatus.ACTIVE:
             await query.edit_message_text(_status_message(user))
             return
+        if action == "om:home":
+            await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
+            return
         if action == "om:help":
-            await query.edit_message_text(messages.HELP_TEXT)
+            await query.edit_message_text(messages.HELP_TEXT, reply_markup=_menu_keyboard())
+            return
+        if action == "om:save":
+            await handle_save(update, context)
+            return
+        if action == "om:cancel":
+            await handle_cancel(update, context)
             return
         if action == "om:upload":
-            await query.edit_message_text(messages.MENU_UPLOAD_GUIDE)
+            await query.edit_message_text(
+                messages.MENU_UPLOAD_GUIDE, reply_markup=_upload_keyboard()
+            )
+            return
+        if action == "om:ask":
+            await query.edit_message_text(messages.MENU_CHAT_PROMPT)
             return
         if services.ingestion is not None and await services.ingestion.has_open_session(user):
-            await query.edit_message_text(messages.MENU_ACTIVE_SESSION)
+            await query.edit_message_text(
+                messages.MENU_ACTIVE_SESSION, reply_markup=_upload_keyboard()
+            )
             return
         data = getattr(context, "user_data", None)
         if data is None:
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
             return
-        mode = action.partition(":")[2]
+        choice = action.partition(":")[2]
+        mode = "baza" if choice in {"product", "sales"} else choice
         data[MENU_SELECTION_KEY] = (mode, monotonic() + MENU_SELECTION_TTL_SECONDS)
         prompt = {
             "baza": messages.MENU_ASK_INTERNAL,
+            "product": messages.MENU_PRODUCT_PROMPT,
+            "sales": messages.MENU_SALES_PROMPT,
             "internet": messages.MENU_ASK_INTERNET,
             "tamaxtar": messages.MENU_ASK_COMBINED,
-        }[mode]
+        }[choice]
         await query.edit_message_text(prompt)
     except SQLAlchemyError:
         logger.exception("Telegram menu callback database lookup failed")
@@ -584,6 +643,15 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
             elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
+                return
+            elif (
+                services.ingestion is not None
+                and _is_save_intent(message.text)
+                and await services.ingestion.has_open_session(user)
+            ):
+                await message.reply_text(
+                    messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
+                )
                 return
             elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
@@ -1505,7 +1573,8 @@ async def _handle_upload(
             files=result.summary.file_count,
             instructions=result.summary.instruction_count,
         )
-        + (messages.FILE_DUPLICATE if result.duplicate else "")
+        + (messages.FILE_DUPLICATE if result.duplicate else ""),
+        reply_markup=_upload_keyboard(),
     )
 
 
