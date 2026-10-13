@@ -249,8 +249,10 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 - [ ] Fix remaining real SearXNG/Tavily search-quality failures based on reproducible
       screenshots, safe logs, and query examples (no credentials).
 - [x] Add disposable PostgreSQL/Qdrant integration CI job to GitHub Actions.
-- [ ] Validate current integration job with a green CI run, and run production-like
-      Docker smoke without reusing private production data.
+- [x] The first ephemeral PostgreSQL/Qdrant integration run passed 52 tests;
+      1 live SearXNG test was explicitly skipped (requires local outbound search).
+- [ ] Run a separate real SearXNG provider smoke test and production-like Docker
+      smoke without using private production data.
 - [ ] Run real PostgreSQL/Qdrant integration and Docker smoke on current branch.
 - [ ] Run 3–4-user concurrency, restart and resource/capacity test.
 - [ ] Complete real Telegram photo reference save/search/revoke acceptance,
