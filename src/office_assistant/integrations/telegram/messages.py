@@ -12,38 +12,66 @@ AUTH_REJECTED_BY_ADMIN = "Giriş müraciətiniz administrator tərəfindən rəd
 PRIVATE_ONLY = "Bu bot yalnız şəxsi söhbətdə istifadə edilə bilər."
 UNKNOWN_USER = "Əvvəlcə /start əmrini göndərin və giriş prosesini tamamlayın."
 NO_PERMISSION = "Bu əməliyyat üçün icazəniz yoxdur."
-WELCOME = "Xoş gəlmisiniz. Hesabınız aktivdir."
+WELCOME = "Xoş gəlmisiniz! Ofis köməkçiniz hazırdır. Aşağıdan seçim edin və ya birbaşa yazın."
 MENU_TITLE = (
-    "Nə etmək istəyirsiniz? Aşağıdakı seçimlərdən birinə toxunun. "
-    "Daxili məlumatları adi mesajla da soruşa bilərsiniz."
+    "🏢 OFİS KÖMƏKÇİNİZ\n\n"
+    "Salam! Məhsul, sənəd və satış barədə adi dildə soruşa bilərsiniz. "
+    "PDF, Word, Excel və ya şəkli birbaşa söhbətə göndərin.\n\n"
+    "Nədən başlayaq?"
 )
-MENU_INTERNAL_BUTTON = "Bizim bazada axtar"
-MENU_INTERNET_BUTTON = "İnternetdə axtar"
+MENU_CHAT_BUTTON = "💬 Sual ver"
+MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
+MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
+MENU_SALES_BUTTON = "📊 Satış hesabatı"
+MENU_INTERNET_BUTTON = "🌐 İnternet"
+MENU_HELP_BUTTON = "❔ Kömək"
+# Retained for legacy callback compatibility and explicit slash commands.
+MENU_INTERNAL_BUTTON = "Daxili bazada axtar"
 MENU_COMBINED_BUTTON = "Bizdə və internetdə axtar"
-MENU_UPLOAD_BUTTON = "Fayl və şəkil saxla"
-MENU_HELP_BUTTON = "Ətraflı kömək"
-MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Sualınızı adi mesajla göndərin."
+MENU_CHAT_PROMPT = (
+    "💬 SUALINIZ\n\nSualınızı sadəcə yazın. Sənəd göndərmisinizsə, "
+    "onun haqqında da soruşa bilərsiniz."
+)
+MENU_PRODUCT_PROMPT = (
+    "📦 MƏHSUL AXTARIŞI\n\nMəhsulun kodunu və ya adını yazın. "
+    "Məsələn: «KA45 bizdə var? Qiyməti nədir?»"
+)
+MENU_SALES_PROMPT = (
+    "📊 SATIŞ HESABATI\n\nŞirkət və müddəti yazın. "
+    "Məsələn: «2026-cı ildə A şirkətinə nə qədər satış etmişik?»\n"
+    "Qeyd: hesabat yalnız bazada mövcud təsdiqlənmiş qeydlərə əsaslana bilər; "
+    "ödəmələr və təkliflər satış kimi göstərilməyəcək."
+)
+MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Məhsul kodunu və ya sualı yazın."
 MENU_ASK_INTERNET = (
-    "İnternetdə nə axtarım? Sualınızı adi mesajla göndərin. "
-    "Bu rejim daxili şirkət bazasını axtarmır. Məxfi şirkət məlumatı göndərməyin."
+    "🌐 İNTERNET AXTARIŞI\n\nAçıq internetdə nə axtarım? Sualınızı yazın. "
+    "Bu rejim daxili bazadan istifadə etmir. Məxfi şirkət məlumatı göndərməyin."
 )
 MENU_ASK_COMBINED = (
-    "Bizdə və internetdə nəyi müqayisə edim? Sualınızı adi mesajla göndərin. "
-    "Daxili və xarici məlumatlar cavabda ayrılacaq."
+    "Daxili və xarici məlumatları nə üzrə müqayisə edim? "
+    "İnternetə məxfi şirkət məlumatı göndərməyin."
 )
 MENU_UPLOAD_GUIDE = (
-    "PDF, Word, Excel, mətn faylı və ya JPG/PNG şəkil göndərin. "
-    "Yaddaşa yazmaq üçün /saxla, imtina etmək üçün /cancel göndərin. "
-    "Məhsul şəklini təsdiqləmək üçün şəklə «Bu KA45-dir, yadda saxla» "
-    "kimi qeyd əlavə edin. KA45-i öz məhsul kodunuzla əvəz edin."
+    "📄 SƏNƏD ƏLAVƏ ET\n\nPDF, Word, Excel, TXT və ya JPG/PNG göndərin. "
+    "Fayllar əvvəlcə müvəqqəti saxlanılır. Hazır olduqda aşağıdakı "
+    "«Yadda saxla» düyməsi ilə təsdiqləyin.\n\n"
+    "Məhsul şəklini kodla əlaqələndirmək üçün şəklə «Bu KA45-dir, yadda saxla» "
+    "kimi qeyd əlavə edə bilərsiniz."
+)
+MENU_SAVE_BUTTON = "✅ Yadda saxla"
+MENU_CANCEL_BUTTON = "Ləğv et"
+MENU_SAVE_CONFIRM = (
+    "📋 YADDA SAXLAMA TƏSDİQİ\n\n"
+    "Göndərdiyiniz faylları şirkətin bilik bazasına əlavə edim? "
+    "Təsdiqdən sonra sənədlər emal növbəsinə keçəcək."
 )
 MENU_ACTIVE_SESSION = (
-    "Hazırda yadda saxlama sessiyanız açıqdır. Əvvəlcə /saxla ilə tamamlayın "
-    "və ya /cancel ilə imtina edin. Sonra menyudan axtarış seçin."
+    "Əvvəl göndərdiyiniz fayllar üçün açıq sessiya var. "
+    "Onları yadda saxlamaq və ya ləğv etmək üçün aşağıdakı düyməni seçin."
 )
-MENU_SESSION_EXPIRED = "Əvvəlki menyu seçiminin vaxtı keçib. /menu ilə yenidən seçin."
+MENU_SESSION_EXPIRED = "Əvvəlki seçim vaxtı bitib. /menu ilə yenidən başlaya bilərsiniz."
 MENU_TEMPORARY_UNAVAILABLE = (
-    "Menyu seçimi saxlanılmadı. /baza, /internet və ya /tamaxtar əmri ilə soruşa bilərsiniz."
+    "Seçim müvəqqəti açılmadı. Sualı birbaşa yazın və ya /menu ilə yenidən sınayın."
 )
 PENDING_STATUS = "Hesabınız administrator təsdiqini gözləyir."
 WHOAMI_UNKNOWN = "Sizin üçün qeydiyyatdan keçmiş aktiv hesab tapılmadı."
