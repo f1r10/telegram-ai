@@ -98,6 +98,43 @@ def test_searxng_rejects_malformed_payload(payload: dict[str, object]) -> None:
     asyncio.run(client.aclose())
 
 
+@pytest.mark.parametrize("payload", [[], None, "not-an-object", 42])
+def test_searxng_non_object_json_is_a_controlled_provider_error(payload: object) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    )
+    provider = SearXNGWebSearchProvider("http://search", client=client)
+    with pytest.raises(WebProviderMalformed):
+        asyncio.run(provider.search(WebSearchRequest(query="KA45")))
+    asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("payload", [[], None, "not-an-object", 42])
+def test_tavily_non_object_json_is_a_controlled_provider_error(payload: object) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    )
+    provider = TavilyWebSearchProvider("test-placeholder", client=client)
+    with pytest.raises(WebProviderMalformed):
+        asyncio.run(provider.search(WebSearchRequest(query="KA45")))
+    asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("provider_name", ["searxng", "tavily"])
+def test_web_provider_decoding_failure_is_controlled_unavailable(provider_name: str) -> None:
+    def broken(request: httpx.Request) -> httpx.Response:
+        raise httpx.DecodingError("Corrupt compressed response", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(broken))
+    if provider_name == "searxng":
+        provider = SearXNGWebSearchProvider("http://search", client=client)
+    else:
+        provider = TavilyWebSearchProvider("test-placeholder", client=client)
+    with pytest.raises(WebProviderUnavailable):
+        asyncio.run(provider.search(WebSearchRequest(query="KA45")))
+    asyncio.run(client.aclose())
+
+
 def test_searxng_timeout_is_provider_unavailable() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("timeout")
