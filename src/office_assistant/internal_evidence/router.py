@@ -186,7 +186,7 @@ def _product_code(question: str) -> str | None:
     if match is None:
         return None
     candidate = match.group(1)
-    possessive = re.fullmatch(r"(.+\d)(in|ın|un|ün)", candidate)
+    possessive = re.fullmatch(r"(.+\d)-?(in|ın|un|ün)", candidate)
     return possessive.group(1) if possessive and candidate[-2:].islower() else candidate
 
 
