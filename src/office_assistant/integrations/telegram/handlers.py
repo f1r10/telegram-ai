@@ -497,11 +497,18 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
     data = getattr(context, "user_data", None)
     if data is None:
         return False
-    selected = data.pop(MENU_SELECTION_KEY, None)
-    if not isinstance(selected, tuple) or len(selected) != 2:
+    selected: object = data.pop(MENU_SELECTION_KEY, None)
+    if not isinstance(selected, tuple):
         return False
-    mode, expires_at = selected
-    if mode not in {"baza", "internet", "tamaxtar"} or not isinstance(expires_at, (int, float)):
+    selection = cast(tuple[object, ...], selected)
+    if len(selection) != 2:
+        return False
+    mode, expires_at = selection
+    if (
+        not isinstance(mode, str)
+        or mode not in {"baza", "internet", "tamaxtar"}
+        or not isinstance(expires_at, (int, float))
+    ):
         return False
     if monotonic() > expires_at:
         if update.effective_message is not None:
