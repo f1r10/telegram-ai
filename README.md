@@ -50,6 +50,22 @@ benchmark protocol for installation, license, security and run instructions.
 It is a benchmark-only CLI, not deployed bot behavior. Representative OCR comparisons,
 visual embedding benchmarks and Phase 12C search are still pending.
 
+## Automated quality gates
+
+GitHub Actions runs offline unit tests, Ruff lint/format and strict Pyright, plus
+an independent PostgreSQL/Qdrant integration job. The integration job creates a
+disposable `office_assistant_test` database with synthetic credentials, runs
+Alembic migrations and the `integration` test marker; it does not connect to
+your company's database or Telegram bot. See `.github/workflows/quality.yml`.
+
+The initial GitHub integration run passed 52 tests; one live SearXNG test was
+skipped because it requires `SEARXNG_INTEGRATION_URL` and a real outbound search.
+Do not hide that skip or treat GitHub CI as a live web-quality certification.
+
+Live Telegram/UAT, real web provider quality, actual product photos and multi-user
+load tests are separate required production gates. CI success alone does not
+establish production readiness.
+
 ## Prerequisites
 ## Telegram menu for sales-office users
 
