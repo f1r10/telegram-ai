@@ -464,7 +464,7 @@ def _is_save_intent(text: str) -> bool:
 def _note_payload(text: str) -> str | None:
     """Extract only explicitly labelled text notes; do not infer a write from chat."""
 
-    match = re.match(r"^\\s*(?:bazaya yaz|yadda saxla)\\s*[:：-]\\s*(.+)$", text, re.I | re.S)
+    match = re.match(r"^\s*(?:bazaya yaz|yadda saxla)\s*[:：-]\s*(.+)$", text, re.I | re.S)
     if match is None:
         return None
     payload = match.group(1).strip()
@@ -528,8 +528,8 @@ async def _try_text_note_upload(
         await message.reply_text(messages.STORAGE_ERROR)
         return True
     await message.reply_text(
-        "📝 MƏLUMAT TƏKLİFİ\\n\\n"
-        "Qeyd müvəqqəti sessiyaya əlavə olundu.\\n"
+        "📝 MƏLUMAT TƏKLİFİ\n\n"
+        "Qeyd müvəqqəti sessiyaya əlavə olundu.\n"
         "Qeydlər yalnız təsdiqdən sonra emal edilir. "
         "Qiymət, stok və satış kimi rəsmi qeydlər ayrıca yoxlanacaq.",
         reply_markup=_upload_keyboard(),
