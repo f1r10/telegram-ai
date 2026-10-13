@@ -58,6 +58,10 @@ disposable `office_assistant_test` database with synthetic credentials, runs
 Alembic migrations and the `integration` test marker; it does not connect to
 your company's database or Telegram bot. See `.github/workflows/quality.yml`.
 
+The initial GitHub integration run passed 52 tests; one live SearXNG test was
+skipped because it requires `SEARXNG_INTEGRATION_URL` and a real outbound search.
+Do not hide that skip or treat GitHub CI as a live web-quality certification.
+
 Live Telegram/UAT, real web provider quality, actual product photos and multi-user
 load tests are separate required production gates. CI success alone does not
 establish production readiness.
