@@ -87,7 +87,8 @@ def parse_sale_draft(text: str, *, today: date | None = None) -> SaleDraft | Non
         raise SaleValidationError("Məbləğ düzgün deyil.") from error
     if not amount.is_finite() or amount <= 0 or amount > Decimal("9999999999999999.99"):
         raise SaleValidationError("Məbləğ müsbət və sistem limitləri daxilində olmalıdır.")
-    if amount.as_tuple().exponent < -2:
+    exponent = amount.as_tuple().exponent
+    if not isinstance(exponent, int) or exponent < -2:
         raise SaleValidationError("Məbləği ən çox iki onluq rəqəmlə yazın.")
     currency = raw_currency.upper()
     if not re.fullmatch(r"[A-Z]{3}", currency):
