@@ -66,7 +66,7 @@ def test_real_postgres_sales_totals_and_audit() -> None:
                 ("USD", 1, Decimal("10.00")),
             ]
             assert await ledger.totals(actor, SalesRequest("QA Sales Customer", 2025)) == ()
-            actor.status = UserStatus.DISABLED
+            actor.telegram_user_id = -1
             with pytest.raises(AuthorizationDenied):
                 await ledger.totals(actor, SalesRequest("QA Sales Customer", 2026))
             async with factory() as session:
