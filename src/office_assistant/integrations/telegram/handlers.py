@@ -57,8 +57,8 @@ from office_assistant.application.reference_images import (
 )
 from office_assistant.application.reminders import ReminderProposal, ReminderService
 from office_assistant.application.sales_ledger import (
-    SaleDraft,
     SaleAlreadyExists,
+    SaleDraft,
     SaleValidationError,
     SalesLedgerService,
     SalesRequest,
@@ -699,7 +699,9 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
     ):
         if data is not None:
             data.pop(SALES_DRAFT_KEY, None)
-        await query.edit_message_text("Bu təsdiq artıq etibarlı deyil. Əməliyyatı yenidən başladın.")
+        await query.edit_message_text(
+            "Bu təsdiq artıq etibarlı deyil. Əməliyyatı yenidən başladın."
+        )
         return
     data.pop(SALES_DRAFT_KEY, None)
     if parts[1] == "no":
