@@ -718,7 +718,7 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(messages.NO_PERMISSION)
         return
     try:
-        entry = await services.sales.record(user, cast(SaleDraft, selected_items[2]))
+        entry = await services.sales.record(user, selected_items[2])
     except SaleAlreadyExists as error:
         await query.edit_message_text(str(error))
         return
