@@ -43,9 +43,7 @@ def test_real_postgres_confirmed_sales_annual_totals_and_access() -> None:
 
         async def cleanup() -> None:
             async with factory.begin() as session:
-                actor_ids = select(User.id).where(
-                    User.telegram_user_id.in_([ADMIN_TG, STAFF_TG])
-                )
+                actor_ids = select(User.id).where(User.telegram_user_id.in_([ADMIN_TG, STAFF_TG]))
                 await session.execute(
                     delete(SalesEntry).where(SalesEntry.created_by_user_id.in_(actor_ids))
                 )
@@ -92,9 +90,12 @@ def test_real_postgres_confirmed_sales_annual_totals_and_access() -> None:
             with pytest.raises(SaleAlreadyExists):
                 await ledger.record(actor, first)
             with pytest.raises(AuthorizationDenied):
-                await ledger.record(employee, SaleDraft(
-                    "A Şirkəti", date(2026, 10, 2), "UNAUTHORIZED", Decimal("999"), "AZN"
-                ))
+                await ledger.record(
+                    employee,
+                    SaleDraft(
+                        "A Şirkəti", date(2026, 10, 2), "UNAUTHORIZED", Decimal("999"), "AZN"
+                    ),
+                )
             assert await ledger.totals(employee, SalesRequest("A Şirkəti", 2026)) == (
                 # Currency ordering is deterministic.
                 # Decimal values must never be coerced to float.
@@ -116,13 +117,17 @@ def test_real_postgres_confirmed_sales_annual_totals_and_access() -> None:
             assert after_void[0].invoice_count == 1
             async with factory() as session:
                 events = (
-                    await session.execute(
-                        select(AuditEvent).where(
-                            AuditEvent.actor_user_id == admin_id,
-                            AuditEvent.action == "SALES_ENTRY_POSTED",
+                    (
+                        await session.execute(
+                            select(AuditEvent).where(
+                                AuditEvent.actor_user_id == admin_id,
+                                AuditEvent.action == "SALES_ENTRY_POSTED",
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 assert len(events) == 4
             async with factory.begin() as session:
                 await session.execute(
