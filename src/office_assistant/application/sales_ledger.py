@@ -22,7 +22,7 @@ from office_assistant.infrastructure.database.models import (
 BAKU = ZoneInfo("Asia/Baku")
 _SALE_PREFIX = re.compile(r"^\s*satış əlavə et\s*[:：]\s*(.*)$", re.I | re.S)
 _REPORT_YEAR = re.compile(r"\b(20\d{2})\s*(?:-ci|-cı|-cu|-cü)?\s*il(?:də|de)?\b", re.I)
-_SALES_WORDS = ("satış", "satmış", "satdig", "satdıq", "satdıq", "satdıq", "dövriyyə")
+_SALES_WORDS = ("satış", "satmış", "satdig", "satdıq", "satilan", "dövriyyə")
 
 
 @dataclass(frozen=True, slots=True)
