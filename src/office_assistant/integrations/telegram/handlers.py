@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import secrets
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -55,6 +56,15 @@ from office_assistant.application.reference_images import (
     ReferenceRevokeStatus,
 )
 from office_assistant.application.reminders import ReminderProposal, ReminderService
+from office_assistant.application.sales_ledger import (
+    SaleAlreadyExists,
+    SaleDraft,
+    SalesLedgerService,
+    SalesRequest,
+    SaleValidationError,
+    parse_sale_draft,
+    parse_sales_request,
+)
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.auth.policy import is_admin
 from office_assistant.business.normalization import normalize_product_code
@@ -106,6 +116,8 @@ from office_assistant.web_evidence.service import WebEvidenceService
 SERVICES_KEY = "phase2_services"
 MENU_SELECTION_KEY = "office_menu_selection"
 MENU_SELECTION_TTL_SECONDS = 600
+SALES_DRAFT_KEY = "office_sales_draft"
+SALES_CONFIRM_TTL_SECONDS = 600
 logger = logging.getLogger(__name__)
 
 
@@ -129,6 +141,7 @@ class TelegramServices:
     image_reader: ImageVisionExtractor | None = None
     reminders: ReminderService | None = None
     reference_images: ReferenceImageService | None = None
+    sales: SalesLedgerService | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
@@ -537,6 +550,193 @@ async def _try_text_note_upload(
     return True
 
 
+def _sales_confirmation_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Təsdiqlə", callback_data=f"sl:ok:{token}"),
+                InlineKeyboardButton("Ləğv et", callback_data=f"sl:no:{token}"),
+            ]
+        ]
+    )
+
+
+def _format_sales_draft(draft: SaleDraft) -> str:
+    return (
+        "📋 SATIŞ FAKTURASI — TƏSDİQ\n\n"
+        f"Müştəri: {draft.customer_name}\n"
+        f"Faktura: {draft.invoice_number}\n"
+        f"Tarix: {draft.sold_on.isoformat()}\n"
+        f"Məbləğ: {draft.amount:.2f} {draft.currency}\n\n"
+        "Yalnız həqiqətən tamamlanmış satışı təsdiqləyin. "
+        "Təklif və alınan ödəniş satış deyil."
+    )
+
+
+async def _try_sales_turn(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Handle explicit sale creation and unambiguous yearly reports before general RAG."""
+
+    if services.sales is None or update.effective_message is None:
+        return False
+    try:
+        draft = parse_sale_draft(text)
+    except SaleValidationError as error:
+        await update.effective_message.reply_text(str(error))
+        return True
+    if draft is not None:
+        _discard_menu_selection(context)
+        if user.role != UserRole.ADMIN:
+            await update.effective_message.reply_text(
+                "Satış fakturasını yalnız administrator təsdiqləyə bilər. "
+                "Fakturanı administratora təqdim edin."
+            )
+            return True
+        data = getattr(context, "user_data", None)
+        if data is None:
+            await update.effective_message.reply_text(messages.TEMPORARY_ERROR)
+            return True
+        token = secrets.token_urlsafe(12)
+        data[SALES_DRAFT_KEY] = (token, monotonic() + SALES_CONFIRM_TTL_SECONDS, draft)
+        await update.effective_message.reply_text(
+            _format_sales_draft(draft),
+            reply_markup=_sales_confirmation_keyboard(token),
+        )
+        return True
+    request = parse_sales_request(text)
+    if request is None:
+        return False
+    _discard_menu_selection(context)
+    await _render_sales_report(update.effective_message, services, user, request)
+    return True
+
+
+async def _render_sales_report(
+    message: Message, services: TelegramServices, actor: User, request: SalesRequest
+) -> None:
+    if services.sales is None:
+        await message.reply_text("Satış hesabatı xidməti konfiqurasiya edilməyib.")
+        return
+    try:
+        totals = await services.sales.totals(actor, request)
+    except (AuthorizationDenied, SaleValidationError):
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Sales report database failure")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    if not totals:
+        await message.reply_text(
+            f"📊 SATIŞ HESABATI\n\nMüştəri: {request.customer_name}\n"
+            f"İl: {request.year}\n\n"
+            "Bu müştəri üçün həmin ildə təsdiqlənmiş satış fakturası tapılmadı. "
+            "Bu, real satışın sıfır olduğunu sübut etmir: fakturalar hələ "
+            "sistemə daxil edilməmiş ola bilər."
+        )
+        return
+    rows = "\n".join(
+        f"• {item.amount:,.2f} {item.currency} — {item.invoice_count} faktura" for item in totals
+    )
+    await message.reply_text(
+        f"📊 SATIŞ HESABATI\n\nMüştəri: {request.customer_name}\n"
+        f"İl: {request.year}\n\n{rows}\n\n"
+        "Yalnız sistemə daxil edilmiş, təsdiqlənmiş fakturalar hesablanıb. "
+        "Valyutalar birləşdirilmir, təkliflər və ödənişlər daxil deyil."
+    )
+
+
+async def _handle_sales_report(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, *, from_menu: bool
+) -> None:
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None or not _is_private(update):
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    request = parse_sales_request(text)
+    if request is None:
+        await message.reply_text(
+            "Şirkət və ili yazın. Məsələn: A Şirkəti | 2026\n"
+            "və ya: Bu il A şirkətinə nə qədər satmışıq?"
+        )
+        return
+    await _render_sales_report(message, services, user, request)
+
+
+async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """One authenticated, expiring and non-replayable sale approval."""
+
+    query = update.callback_query
+    identity = _identity(update)
+    if not _is_private(update) or query is None or identity is None:
+        return
+    await query.answer()
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    selected: object = data.get(SALES_DRAFT_KEY)
+    selected_items: tuple[object, ...] = (
+        cast(tuple[object, ...], selected) if isinstance(selected, tuple) else ()
+    )
+    parts = (query.data or "").split(":")
+    if (
+        len(selected_items) != 3
+        or len(parts) != 3
+        or parts[0] != "sl"
+        or parts[1] not in {"ok", "no"}
+        or selected_items[0] != parts[2]
+        or not isinstance(selected_items[1], (int, float))
+        or monotonic() > selected_items[1]
+        or not isinstance(selected_items[2], SaleDraft)
+    ):
+        data.pop(SALES_DRAFT_KEY, None)
+        await query.edit_message_text(
+            "Bu təsdiq artıq etibarlı deyil. Əməliyyatı yenidən başladın."
+        )
+        return
+    data.pop(SALES_DRAFT_KEY, None)
+    if parts[1] == "no":
+        await query.edit_message_text("Satış qeydi ləğv olundu. Bazaya heç nə yazılmadı.")
+        return
+    services = _services(context)
+    if services.sales is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    try:
+        entry = await services.sales.record(user, selected_items[2])
+    except SaleAlreadyExists as error:
+        await query.edit_message_text(str(error))
+        return
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Sales ledger write failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        f"✅ SATIŞ QEYD EDİLDİ\n\nFaktura: {entry.invoice_number}\n"
+        f"Müştəri: {entry.customer_name}\n"
+        f"Məbləğ: {entry.amount:.2f} {entry.currency}\n"
+        "Qeyd audit jurnalına daxil edildi."
+    )
+
+
 def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
     """A scope choice is temporary; other actions must not leave it armed."""
 
@@ -643,7 +843,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
             return
         choice = action.partition(":")[2]
-        mode = "baza" if choice in {"product", "sales"} else choice
+        mode = "baza" if choice == "product" else choice
         data[MENU_SELECTION_KEY] = (mode, monotonic() + MENU_SELECTION_TTL_SECONDS)
         prompt = {
             "baza": messages.MENU_ASK_INTERNAL,
@@ -673,7 +873,7 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
     mode, expires_at = selection
     if (
         not isinstance(mode, str)
-        or mode not in {"baza", "internet", "tamaxtar"}
+        or mode not in {"baza", "internet", "tamaxtar", "sales"}
         or not isinstance(expires_at, (int, float))
     ):
         return False
@@ -683,6 +883,8 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return True
     if mode == "baza":
         await handle_baza(update, context, question_override=text)
+    elif mode == "sales":
+        await _handle_sales_report(update, context, text, from_menu=True)
     else:
         await _handle_web_command(
             update, context, combined=(mode == "tamaxtar"), question_override=text
@@ -741,6 +943,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
                 )
+                return
+            elif await _try_sales_turn(update, context, services, user, message.text):
                 return
             elif await _try_text_note_upload(update, context, services, user, message.text):
                 return
@@ -884,7 +1088,11 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    trailing_text = _command_text(message).partition(" ")[2].strip()
+    # A callback operates on the BOT'S original menu message, not on /saxla input.
+    # Never turn arbitrary bot-authored menu guidance into an ingestion instruction.
+    trailing_text = (
+        _command_text(message).partition(" ")[2].strip() if update.callback_query is None else ""
+    )
     try:
         if trailing_text:
             await services.ingestion.add_instruction(

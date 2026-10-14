@@ -1,6 +1,7 @@
 """Small, authenticated, one-turn Telegram menu for non-technical office staff."""
 
 import asyncio
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -14,6 +15,7 @@ from telegram.ext import ContextTypes
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import messages
@@ -355,32 +357,45 @@ def test_four_independent_menu_users_dispatch_concurrently_without_scope_leaks()
         assert combined.await_count == (1 if mode == "tamaxtar" else 0)
 
 
-def test_v2_product_and_sales_buttons_keep_questions_internal() -> None:
+def test_v2_product_and_sales_buttons_route_to_separate_verified_sources() -> None:
     user = _user()
     context, services = _context(user)
     internal = SimpleNamespace(
         answer=AsyncMock(
             return_value=InternalAnswer(
-                answer="Bazadaki məlumat.", route=RoutingCategory.INTERNAL_DOCUMENT
+                answer="Kataloq məlumatı.", route=RoutingCategory.INTERNAL_DOCUMENT
             )
         )
     )
     external = SimpleNamespace(answer_internet=AsyncMock(), answer_combined=AsyncMock())
+    ledger = SimpleNamespace(
+        totals=AsyncMock(return_value=(SalesTotal("AZN", 2, Decimal("150.00")),))
+    )
     services.internal_evidence = cast(object, internal)  # type: ignore[assignment]
     services.web_evidence = cast(object, external)  # type: ignore[assignment]
-    for choice, prompt, question in (
-        ("product", messages.MENU_PRODUCT_PROMPT, "QA-KA45 bizdə var?"),
-        ("sales", messages.MENU_SALES_PROMPT, "Bu il A şirkətinə nə qədər satmışıq?"),
-    ):
-        query = _select(context, choice)
-        query.edit_message_text.assert_awaited_once_with(prompt)
-        message = _message(question)
-        asyncio.run(
-            handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context))
+    services.sales = cast(SalesLedgerService, ledger)
+
+    query = _select(context, "product")
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_PRODUCT_PROMPT)
+    product_question = "QA-KA45 bizdə var?"
+    asyncio.run(
+        handle_password_text(
+            _update(_message(product_question)), cast(ContextTypes.DEFAULT_TYPE, context)
         )
-        internal.answer.assert_awaited_with(user, question, force_internal=True, image_readings=[])
-        assert MENU_SELECTION_KEY not in context.user_data
-    assert internal.answer.await_count == 2
+    )
+    internal.answer.assert_awaited_once_with(
+        user, product_question, force_internal=True, image_readings=[]
+    )
+
+    query = _select(context, "sales")
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_SALES_PROMPT)
+    sales_question = "Bu il A şirkətinə nə qədər satmışıq?"
+    message = _message(sales_question)
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    ledger.totals.assert_awaited_once_with(user, SalesRequest("A şirkəti", 2026))
+    assert "150.00 AZN" in message.reply_text.await_args.args[0]
+    assert MENU_SELECTION_KEY not in context.user_data
+    internal.answer.assert_awaited_once()
     external.answer_internet.assert_not_awaited()
     external.answer_combined.assert_not_awaited()
 

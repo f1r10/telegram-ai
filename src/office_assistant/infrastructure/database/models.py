@@ -1446,3 +1446,34 @@ class PendingProductImageConfirmation(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SalesEntry(Base):
+    """One explicitly confirmed completed sale, not a quotation or a customer payment.
+
+    The customer+invoice identity prevents double counting when a Telegram confirmation
+    is retried. Mutations are audit logged by the application service.
+    """
+
+    __tablename__ = "sales_entries"
+    __table_args__ = (
+        UniqueConstraint("customer_key", "invoice_number", name="uq_sales_customer_invoice"),
+        CheckConstraint("amount > 0", name="ck_sales_amount_positive"),
+        CheckConstraint("status IN ('POSTED', 'VOIDED')", name="ck_sales_status"),
+        Index("ix_sales_customer_date", "customer_key", "sold_on"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    sold_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="POSTED")
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
