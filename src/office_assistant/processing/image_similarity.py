@@ -54,8 +54,8 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
             image = ImageOps.exif_transpose(raw).convert("L")
             small = image.resize((9, 8), Image.Resampling.LANCZOS)
             a_small = image.resize((8, 8), Image.Resampling.LANCZOS)
-            pixels = list(small.getdata())
-            apixels = list(a_small.getdata())
+            pixels = list(small.get_flattened_data())
+            apixels = list(a_small.get_flattened_data())
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         return None
     if max(apixels) - min(apixels) < 12:
