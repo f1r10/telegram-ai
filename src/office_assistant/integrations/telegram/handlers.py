@@ -682,7 +682,10 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await query.answer()
     data = getattr(context, "user_data", None)
-    selected = data.get(SALES_DRAFT_KEY) if data is not None else None
+    if data is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    selected: object = data.get(SALES_DRAFT_KEY)
     parts = (query.data or "").split(":")
     if (
         not isinstance(selected, tuple)
@@ -695,8 +698,7 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
         or monotonic() > selected[1]
         or not isinstance(selected[2], SaleDraft)
     ):
-        if data is not None:
-            data.pop(SALES_DRAFT_KEY, None)
+        data.pop(SALES_DRAFT_KEY, None)
         await query.edit_message_text(
             "Bu təsdiq artıq etibarlı deyil. Əməliyyatı yenidən başladın."
         )
