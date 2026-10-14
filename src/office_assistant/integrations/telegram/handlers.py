@@ -591,6 +591,7 @@ async def _try_sales_turn(
         await update.effective_message.reply_text(str(error))
         return True
     if draft is not None:
+        _discard_menu_selection(context)
         if user.role != UserRole.ADMIN:
             await update.effective_message.reply_text(
                 "Satış fakturasını yalnız administrator təsdiqləyə bilər. "
@@ -611,6 +612,7 @@ async def _try_sales_turn(
     request = parse_sales_request(text)
     if request is None:
         return False
+    _discard_menu_selection(context)
     await _render_sales_report(update.effective_message, services, user, request)
     return True
 
