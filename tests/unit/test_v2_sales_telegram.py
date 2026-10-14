@@ -115,7 +115,9 @@ def test_non_admin_cannot_initiate_ledger_write() -> None:
         _try_sales_turn(
             _update(message),
             cast(ContextTypes.DEFAULT_TYPE, context),
-            services, user, message.text,
+            services,
+            user,
+            message.text,
         )
     )
     assert accepted
