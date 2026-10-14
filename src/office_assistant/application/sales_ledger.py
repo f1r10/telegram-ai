@@ -142,9 +142,7 @@ class SalesLedgerService:
         self.session_factory = session_factory
 
     @staticmethod
-    async def _require_actor(
-        session: AsyncSession, actor: User, *, admin: bool = False
-    ) -> None:
+    async def _require_actor(session: AsyncSession, actor: User, *, admin: bool = False) -> None:
         db_user = await session.scalar(
             select(User).where(
                 User.id == actor.id,
@@ -189,9 +187,7 @@ class SalesLedgerService:
         except IntegrityError as error:
             raise SaleAlreadyExists("Bu şirkət üçün faktura artıq qeydiyyatdadır.") from error
 
-    async def totals(
-        self, actor: User, request: SalesRequest
-    ) -> tuple[SalesTotal, ...]:
+    async def totals(self, actor: User, request: SalesRequest) -> tuple[SalesTotal, ...]:
         if not 2000 <= request.year <= 2099:
             raise SaleValidationError("Hesabat ili düzgün deyil.")
         start = date(request.year, 1, 1)
