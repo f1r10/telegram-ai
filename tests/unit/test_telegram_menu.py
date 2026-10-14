@@ -1,6 +1,7 @@
 """Small, authenticated, one-turn Telegram menu for non-technical office staff."""
 
 import asyncio
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -14,6 +15,7 @@ from telegram.ext import ContextTypes
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import messages
@@ -356,10 +358,6 @@ def test_four_independent_menu_users_dispatch_concurrently_without_scope_leaks()
 
 
 def test_v2_product_and_sales_buttons_route_to_separate_verified_sources() -> None:
-    from decimal import Decimal
-
-    from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
-
     user = _user()
     context, services = _context(user)
     internal = SimpleNamespace(
@@ -381,7 +379,9 @@ def test_v2_product_and_sales_buttons_route_to_separate_verified_sources() -> No
     query.edit_message_text.assert_awaited_once_with(messages.MENU_PRODUCT_PROMPT)
     product_question = "QA-KA45 bizdə var?"
     asyncio.run(
-        handle_password_text(_update(_message(product_question)), cast(ContextTypes.DEFAULT_TYPE, context))
+        handle_password_text(
+            _update(_message(product_question)), cast(ContextTypes.DEFAULT_TYPE, context)
+        )
     )
     internal.answer.assert_awaited_once_with(
         user, product_question, force_internal=True, image_readings=[]
