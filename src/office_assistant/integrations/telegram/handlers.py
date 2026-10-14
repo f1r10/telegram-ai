@@ -550,7 +550,6 @@ async def _try_text_note_upload(
     return True
 
 
-
 def _sales_confirmation_keyboard(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
