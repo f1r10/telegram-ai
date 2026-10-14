@@ -6,8 +6,8 @@ from decimal import Decimal
 import pytest
 
 from office_assistant.application.sales_ledger import (
-    SaleValidationError,
     SalesRequest,
+    SaleValidationError,
     customer_key,
     parse_sale_draft,
     parse_sales_request,
