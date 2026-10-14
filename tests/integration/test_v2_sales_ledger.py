@@ -13,6 +13,7 @@ from office_assistant.application.sales_ledger import (
     SaleDraft,
     SalesLedgerService,
     SalesRequest,
+    SalesTotal,
 )
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -97,20 +98,11 @@ def test_real_postgres_confirmed_sales_annual_totals_and_access() -> None:
             assert await ledger.totals(employee, SalesRequest("A Şirkəti", 2026)) == (
                 # Currency ordering is deterministic.
                 # Decimal values must never be coerced to float.
-                __import__(
-                    "office_assistant.application.sales_ledger",
-                    fromlist=["SalesTotal"],
-                ).SalesTotal("AZN", 2, Decimal("36.00")),
-                __import__(
-                    "office_assistant.application.sales_ledger",
-                    fromlist=["SalesTotal"],
-                ).SalesTotal("USD", 1, Decimal("8.25")),
+                SalesTotal("AZN", 2, Decimal("36.00")),
+                SalesTotal("USD", 1, Decimal("8.25")),
             )
             assert await ledger.totals(employee, SalesRequest("A Şirkəti", 2025)) == (
-                __import__(
-                    "office_assistant.application.sales_ledger",
-                    fromlist=["SalesTotal"],
-                ).SalesTotal("AZN", 1, Decimal("50.00")),
+                SalesTotal("AZN", 1, Decimal("50.00")),
             )
             assert await ledger.totals(employee, SalesRequest("B Şirkəti", 2026)) == ()
             async with factory.begin() as session:
