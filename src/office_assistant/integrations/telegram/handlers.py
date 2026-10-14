@@ -76,6 +76,9 @@ from office_assistant.business.reference_confirmation import (
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import (
     ImageAsset,
+    Product,
+    ProductImageRelation,
+    ProductImageRelationConfirmation,
     Reminder,
     ReminderStatus,
     User,
@@ -107,6 +110,7 @@ from office_assistant.internal_evidence.delivery import (
 from office_assistant.internal_evidence.models import ImageReading, InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
@@ -1640,7 +1644,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    if services.session_factory is None:
+    if services.session_factory is None or services.storage is None:
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
     photo = message.photo[-1]
@@ -1668,16 +1672,51 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             asset_id = await session.scalar(
                 select(ImageAsset.id).where(ImageAsset.content_sha256 == digest)
             )
-        if asset_id is not None:
+            # Only human-confirmed, active catalog references can become candidates.
+            # A document sighting or unconfirmed image is never trusted as identity.
+            rows = (
+                await session.execute(
+                    select(Product.display_code, ImageAsset.storage_key)
+                    .select_from(ProductImageRelation)
+                    .join(Product, Product.id == ProductImageRelation.product_id)
+                    .join(ImageAsset, ImageAsset.id == ProductImageRelation.image_asset_id)
+                    .where(
+                        ProductImageRelation.confirmation_type
+                        == ProductImageRelationConfirmation.USER_EXPLICIT,
+                        ProductImageRelation.superseded_at.is_(None),
+                        Product.is_active.is_(True),
+                    )
+                    .order_by(ProductImageRelation.created_at.desc())
+                    .limit(501)
+                )
+            ).all()
+        incomplete = len(rows) > 500
+        references = [
+            VisualCandidate(product_code=code, storage_key=storage_key)
+            for code, storage_key in rows[:500]
+        ]
+        possible = await asyncio.to_thread(shortlist, picture, references, services.storage.root)
+        if possible:
+            lines = "\n".join(f"• {item.product_code}" for item in possible)
+            warning = "\nYoxlama ilk 500 təsdiqli nümunə ilə məhdudlaşıb." if incomplete else ""
             await message.reply_text(
-                "Bu eyni şəkil bazada mövcuddur, amma heç bir məhsul kodu ilə "
-                "təsdiqlənmiş əlaqəsi yoxdur. Şəkli tanıyıb məhsul kimi göstərmirəm."
+                "📦 VİZUAL OXŞAR NÜMUNƏLƏR\n\n"
+                f"{lines}\n\n"
+                "Bunlar yalnız ölçüsü/keyfiyyəti dəyişmiş şəkillər üzrə "
+                "ehtimal olunan uyğunluqlardır. Məhsulun eyniliyi və stok "
+                "təsdiqlənməyib; kodu yoxlayın." + warning
+            )
+        elif asset_id is not None:
+            await message.reply_text(
+                "Bu eyni şəkil bazada mövcuddur, amma məhsul kodu ilə "
+                "təsdiqlənmiş əlaqəsi yoxdur. Kimliyi təxmin etmirəm."
             )
         else:
+            warning = " Arxivin yalnız ilk 500 nümunəsi yoxlanılıb." if incomplete else ""
             await message.reply_text(
-                "Bu şəklin eyni faylı təsdiqlənmiş məhsul nümunələrində tapılmadı. "
-                "Bu nəticə oxşar görünən məhsulun bizdə olmadığını sübut etmir. "
-                "Məhsul kodunu da yazaraq yenidən axtara bilərsiniz."
+                "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
+                "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
+                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər." + warning
             )
     except (TelegramError, SQLAlchemyError) as error:
         logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)

@@ -16,6 +16,7 @@ def test_photo_lookup_in_azerbaijani() -> None:
 
 def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
     import asyncio
+    from pathlib import Path
     from types import SimpleNamespace
     from typing import cast
     from unittest.mock import AsyncMock
@@ -31,6 +32,7 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
     from office_assistant.application.authentication import AuthenticationService
     from office_assistant.application.user_management import UserManagementService
     from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+    from office_assistant.infrastructure.storage.local import LocalFileStorage
     from office_assistant.integrations.telegram import handlers
     from office_assistant.integrations.telegram.handlers import TelegramServices
     from office_assistant.integrations.telegram.state import (
@@ -66,6 +68,7 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
         password_state=PasswordEntryState(),
         limiter=PasswordAttemptLimiter(),
         session_factory=cast(async_sessionmaker[AsyncSession], lambda: Session()),
+        storage=cast(LocalFileStorage, SimpleNamespace(root=Path("/tmp"))),
     )
     telegram_file = SimpleNamespace(
         download_as_bytearray=AsyncMock(return_value=bytearray(b"same bytes"))
