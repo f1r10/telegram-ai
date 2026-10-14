@@ -9,6 +9,7 @@ from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.reference_images import ReferenceImageService
 from office_assistant.application.reminders import ReminderService
+from office_assistant.application.sales_ledger import SalesLedgerService
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.business_tools.service import BusinessQueryService
@@ -222,6 +223,7 @@ def main() -> None:
             image_reader=image_reader,
             reminders=ReminderService(session_factory, clock=SystemClock()),
             reference_images=ReferenceImageService(session_factory, storage),
+            sales=SalesLedgerService(session_factory),
         )
         application = create_telegram_application(
             settings.telegram_bot_token.get_secret_value(), services
