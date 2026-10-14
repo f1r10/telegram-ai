@@ -952,6 +952,27 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
             elif await _try_text_note_upload(update, context, services, user, message.text):
                 return
+            elif (
+                services.ingestion is not None
+                and message.text.strip().endswith("?")
+                and await services.ingestion.has_open_session(user)
+            ):
+                # A pending upload cannot hijack ordinary questions as save instructions.
+                # Uncommitted material is never exposed as an authoritative document.
+                if await _try_menu_question(update, context, message.text):
+                    return
+                if services.internal_evidence is None or services.rate_guard is None:
+                    await message.reply_text(messages.AI_NOT_CONFIGURED)
+                    return
+                if not services.rate_guard.allow(user.id):
+                    await message.reply_text(messages.AI_RATE_LIMITED)
+                    return
+                await _send_typing(context, message.chat_id)
+                result = await services.internal_evidence.answer(user, message.text)
+                await _reply_long(
+                    message, _format_internal(result), services.telegram_message_limit
+                )
+                return
             elif services.ingestion is not None and await services.ingestion.has_open_session(user):
                 added = await services.ingestion.add_instruction(
                     user,
