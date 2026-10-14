@@ -686,17 +686,19 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
     selected: object = data.get(SALES_DRAFT_KEY)
+    selected_items: tuple[object, ...] = (
+        cast(tuple[object, ...], selected) if isinstance(selected, tuple) else ()
+    )
     parts = (query.data or "").split(":")
     if (
-        not isinstance(selected, tuple)
-        or len(selected) != 3
+        len(selected_items) != 3
         or len(parts) != 3
         or parts[0] != "sl"
         or parts[1] not in {"ok", "no"}
-        or selected[0] != parts[2]
-        or not isinstance(selected[1], (int, float))
-        or monotonic() > selected[1]
-        or not isinstance(selected[2], SaleDraft)
+        or selected_items[0] != parts[2]
+        or not isinstance(selected_items[1], (int, float))
+        or monotonic() > selected_items[1]
+        or not isinstance(selected_items[2], SaleDraft)
     ):
         data.pop(SALES_DRAFT_KEY, None)
         await query.edit_message_text(
@@ -716,7 +718,7 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(messages.NO_PERMISSION)
         return
     try:
-        entry = await services.sales.record(user, selected[2])
+        entry = await services.sales.record(user, cast(SaleDraft, selected_items[2]))
     except SaleAlreadyExists as error:
         await query.edit_message_text(str(error))
         return
