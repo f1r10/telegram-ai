@@ -111,7 +111,9 @@ def parse_sales_request(text: str, *, today: date | None = None) -> SalesRequest
     lowered = raw.casefold()
     if not any(word in lowered for word in _SALES_WORDS):
         return None
-    if not any(word in lowered for word in ("nə qədər", "nəqədər", "ne qeder", "hesabat", "dövriyyə")):
+    if not any(
+        word in lowered for word in ("nə qədər", "nəqədər", "ne qeder", "hesabat", "dövriyyə")
+    ):
         return None
     year_match = _REPORT_YEAR.search(raw)
     if year_match is not None:
