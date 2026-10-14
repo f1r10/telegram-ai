@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -54,8 +55,9 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
             image = ImageOps.exif_transpose(raw).convert("L")
             small = image.resize((9, 8), Image.Resampling.LANCZOS)
             a_small = image.resize((8, 8), Image.Resampling.LANCZOS)
-            pixels = list(small.get_flattened_data())
-            apixels = list(a_small.get_flattened_data())
+            # L-mode pixels are 8-bit scalars; Pillow's general stubs also admit tuples.
+            pixels = cast(list[int], list(small.get_flattened_data()))
+            apixels = cast(list[int], list(a_small.get_flattened_data()))
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         return None
     if max(apixels) - min(apixels) < 12:
