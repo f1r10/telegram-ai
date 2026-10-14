@@ -31,8 +31,8 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
 
     from office_assistant.application.authentication import AuthenticationService
     from office_assistant.application.user_management import UserManagementService
-    from office_assistant.infrastructure.storage.local import LocalFileStorage
     from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+    from office_assistant.infrastructure.storage.local import LocalFileStorage
     from office_assistant.integrations.telegram import handlers
     from office_assistant.integrations.telegram.handlers import TelegramServices
     from office_assistant.integrations.telegram.state import (
