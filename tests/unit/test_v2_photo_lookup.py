@@ -68,7 +68,7 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
         password_state=PasswordEntryState(),
         limiter=PasswordAttemptLimiter(),
         session_factory=cast(async_sessionmaker[AsyncSession], lambda: Session()),
-        storage=cast(LocalFileStorage, SimpleNamespace(root=Path('/tmp'))),
+        storage=cast(LocalFileStorage, SimpleNamespace(root=Path("/tmp"))),
     )
     telegram_file = SimpleNamespace(
         download_as_bytearray=AsyncMock(return_value=bytearray(b"same bytes"))
