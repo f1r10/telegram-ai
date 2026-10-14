@@ -89,7 +89,9 @@ def test_post_sale_requires_second_click_and_is_not_replayable() -> None:
     query = SimpleNamespace(
         data=f"sl:ok:{token}", answer=AsyncMock(), edit_message_text=AsyncMock()
     )
-    asyncio.run(handle_sales_callback(_update(message, query), cast(ContextTypes.DEFAULT_TYPE, context)))
+    asyncio.run(
+        handle_sales_callback(_update(message, query), cast(ContextTypes.DEFAULT_TYPE, context))
+    )
     assert SALES_DRAFT_KEY not in context.user_data
     services.sales.record.assert_awaited_once()  # type: ignore[union-attr]
     assert "SATIŞ QEYD EDİLDİ" in query.edit_message_text.await_args.args[0]
