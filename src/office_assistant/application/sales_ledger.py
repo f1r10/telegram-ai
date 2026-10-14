@@ -15,13 +15,14 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     SalesEntry,
     User,
+    UserRole,
     UserStatus,
 )
 
 BAKU = ZoneInfo("Asia/Baku")
 _SALE_PREFIX = re.compile(r"^\s*satış əlavə et\s*[:：]\s*(.*)$", re.I | re.S)
 _REPORT_YEAR = re.compile(r"\b(20\d{2})\s*(?:-ci|-cı|-cu|-cü)?\s*il(?:də|de)?\b", re.I)
-_SALES_WORDS = ("satış", "satmış", "satdig", "satdıq", "satilan", "dövriyyə")
+_SALES_WORDS = ("satış", "satmış", "satdig", "satdıq", "satdıq", "satdıq", "dövriyyə")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +111,7 @@ def parse_sales_request(text: str, *, today: date | None = None) -> SalesRequest
     lowered = raw.casefold()
     if not any(word in lowered for word in _SALES_WORDS):
         return None
-    if not any(word in lowered for word in ("nə qədər", "ne qeder", "hesabat", "dövriyyə")):
+    if not any(word in lowered for word in ("nə qədər", "nəqədər", "ne qeder", "hesabat", "dövriyyə")):
         return None
     year_match = _REPORT_YEAR.search(raw)
     if year_match is not None:
@@ -124,7 +125,7 @@ def parse_sales_request(text: str, *, today: date | None = None) -> SalesRequest
     candidate = re.sub(r"(?i)\bbu il\b", "", raw)
     candidate = _REPORT_YEAR.sub("", candidate)
     candidate = re.sub(r"(?i)^\s*(?:biz\s+)?", "", candidate)
-    candidate = re.split(r"(?i)\s+nə qədər\b|\s+ne qeder\b", candidate)[0]
+    candidate = re.split(r"(?i)\s+nə\s*qədər\b|\s+ne qeder\b", candidate)[0]
     candidate = re.sub(r"(?i)\b(?:şirkətinə|şirketine)\b", "şirkəti", candidate)
     candidate = re.sub(r"(?i)\b(?:müştərisinə|musterisine)\b", "müştərisi", candidate)
     candidate = re.sub(r"(?i)^\s*(?:satış hesabatı|dövriyyə)\s*[:：]?\s*", "", candidate)
@@ -139,7 +140,9 @@ class SalesLedgerService:
         self.session_factory = session_factory
 
     @staticmethod
-    async def _require_actor(session: AsyncSession, actor: User) -> None:
+    async def _require_actor(
+        session: AsyncSession, actor: User, *, admin: bool = False
+    ) -> None:
         db_user = await session.scalar(
             select(User).where(
                 User.id == actor.id,
@@ -149,11 +152,13 @@ class SalesLedgerService:
         )
         if db_user is None:
             raise AuthorizationDenied("Inactive or missing sales ledger actor")
+        if admin and db_user.role != UserRole.ADMIN:
+            raise AuthorizationDenied("Only the company administrator can post sales")
 
     async def record(self, actor: User, draft: SaleDraft) -> SalesEntry:
         try:
             async with self.session_factory.begin() as session:
-                await self._require_actor(session, actor)
+                await self._require_actor(session, actor, admin=True)
                 entry = SalesEntry(
                     customer_name=draft.customer_name,
                     customer_key=customer_key(draft.customer_name),
