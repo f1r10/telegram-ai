@@ -1695,23 +1695,16 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             VisualCandidate(product_code=code, storage_key=storage_key)
             for code, storage_key in rows[:500]
         ]
-        possible = await asyncio.to_thread(
-            shortlist, picture, references, services.storage.root
-        )
+        possible = await asyncio.to_thread(shortlist, picture, references, services.storage.root)
         if possible:
             lines = "\n".join(f"• {item.product_code}" for item in possible)
-            warning = (
-                "\nYoxlama ilk 500 təsdiqli nümunə ilə məhdudlaşıb."
-                if incomplete
-                else ""
-            )
+            warning = "\nYoxlama ilk 500 təsdiqli nümunə ilə məhdudlaşıb." if incomplete else ""
             await message.reply_text(
                 "📦 VİZUAL OXŞAR NÜMUNƏLƏR\n\n"
                 f"{lines}\n\n"
                 "Bunlar yalnız ölçüsü/keyfiyyəti dəyişmiş şəkillər üzrə "
                 "ehtimal olunan uyğunluqlardır. Məhsulun eyniliyi və stok "
-                "təsdiqlənməyib; kodu yoxlayın."
-                + warning
+                "təsdiqlənməyib; kodu yoxlayın." + warning
             )
         elif asset_id is not None:
             await message.reply_text(
@@ -1723,8 +1716,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             await message.reply_text(
                 "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
                 "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
-                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər."
-                + warning
+                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər." + warning
             )
     except (TelegramError, SQLAlchemyError) as error:
         logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
