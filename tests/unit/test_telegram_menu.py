@@ -431,3 +431,27 @@ def test_v2_chat_button_does_not_arm_internet_search() -> None:
     query = _select(context, "ask")
     query.edit_message_text.assert_awaited_once_with(messages.MENU_CHAT_PROMPT)
     assert MENU_SELECTION_KEY not in context.user_data
+
+
+def test_pending_upload_never_swallows_an_ordinary_question() -> None:
+    user = _user()
+    context, services = _context(user)
+    ingest = SimpleNamespace(
+        has_open_session=AsyncMock(return_value=True),
+        add_instruction=AsyncMock(),
+    )
+    services.ingestion = cast(IngestionSessionService, ingest)
+    answer = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=InternalAnswer(
+                answer="Kataloqda yoxlanıldı.", route=RoutingCategory.INTERNAL_DOCUMENT
+            )
+        )
+    )
+    services.internal_evidence = cast(object, answer)  # type: ignore[assignment]
+    text = "QA-KA45 məhsulunun qiyməti neçədir?"
+    message = _message(text)
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    answer.answer.assert_awaited_once_with(user, text)
+    ingest.add_instruction.assert_not_awaited()
+    message.reply_text.assert_awaited_once_with("Kataloqda yoxlanıldı.")
