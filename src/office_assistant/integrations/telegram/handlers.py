@@ -59,9 +59,9 @@ from office_assistant.application.reminders import ReminderProposal, ReminderSer
 from office_assistant.application.sales_ledger import (
     SaleAlreadyExists,
     SaleDraft,
-    SaleValidationError,
     SalesLedgerService,
     SalesRequest,
+    SaleValidationError,
     parse_sale_draft,
     parse_sales_request,
 )
