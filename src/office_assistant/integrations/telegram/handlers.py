@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import secrets
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -55,6 +56,15 @@ from office_assistant.application.reference_images import (
     ReferenceRevokeStatus,
 )
 from office_assistant.application.reminders import ReminderProposal, ReminderService
+from office_assistant.application.sales_ledger import (
+    SaleDraft,
+    SaleAlreadyExists,
+    SaleValidationError,
+    SalesLedgerService,
+    SalesRequest,
+    parse_sale_draft,
+    parse_sales_request,
+)
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.auth.policy import is_admin
 from office_assistant.business.normalization import normalize_product_code
@@ -106,6 +116,8 @@ from office_assistant.web_evidence.service import WebEvidenceService
 SERVICES_KEY = "phase2_services"
 MENU_SELECTION_KEY = "office_menu_selection"
 MENU_SELECTION_TTL_SECONDS = 600
+SALES_DRAFT_KEY = "office_sales_draft"
+SALES_CONFIRM_TTL_SECONDS = 600
 logger = logging.getLogger(__name__)
 
 
@@ -129,6 +141,7 @@ class TelegramServices:
     image_reader: ImageVisionExtractor | None = None
     reminders: ReminderService | None = None
     reference_images: ReferenceImageService | None = None
+    sales: SalesLedgerService | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
@@ -643,7 +656,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
             return
         choice = action.partition(":")[2]
-        mode = "baza" if choice in {"product", "sales"} else choice
+        mode = "baza" if choice == "product" else choice
         data[MENU_SELECTION_KEY] = (mode, monotonic() + MENU_SELECTION_TTL_SECONDS)
         prompt = {
             "baza": messages.MENU_ASK_INTERNAL,
@@ -673,7 +686,7 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
     mode, expires_at = selection
     if (
         not isinstance(mode, str)
-        or mode not in {"baza", "internet", "tamaxtar"}
+        or mode not in {"baza", "internet", "tamaxtar", "sales"}
         or not isinstance(expires_at, (int, float))
     ):
         return False
@@ -683,6 +696,8 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return True
     if mode == "baza":
         await handle_baza(update, context, question_override=text)
+    elif mode == "sales":
+        await _handle_sales_report(update, context, text, from_menu=True)
     else:
         await _handle_web_command(
             update, context, combined=(mode == "tamaxtar"), question_override=text
@@ -741,6 +756,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
                 )
+                return
+            elif await _try_sales_turn(update, context, services, user, message.text):
                 return
             elif await _try_text_note_upload(update, context, services, user, message.text):
                 return
@@ -884,7 +901,13 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
-    trailing_text = _command_text(message).partition(" ")[2].strip()
+    # A callback operates on the BOT'S original menu message, not on /saxla input.
+    # Never turn arbitrary bot-authored menu guidance into an ingestion instruction.
+    trailing_text = (
+        _command_text(message).partition(" ")[2].strip()
+        if update.callback_query is None
+        else ""
+    )
     try:
         if trailing_text:
             await services.ingestion.add_instruction(
