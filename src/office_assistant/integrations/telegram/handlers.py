@@ -550,6 +550,187 @@ async def _try_text_note_upload(
     return True
 
 
+
+def _sales_confirmation_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Təsdiqlə", callback_data=f"sl:ok:{token}"),
+                InlineKeyboardButton("Ləğv et", callback_data=f"sl:no:{token}"),
+            ]
+        ]
+    )
+
+
+def _format_sales_draft(draft: SaleDraft) -> str:
+    return (
+        "📋 SATIŞ FAKTURASI — TƏSDİQ\n\n"
+        f"Müştəri: {draft.customer_name}\n"
+        f"Faktura: {draft.invoice_number}\n"
+        f"Tarix: {draft.sold_on.isoformat()}\n"
+        f"Məbləğ: {draft.amount:.2f} {draft.currency}\n\n"
+        "Yalnız həqiqətən tamamlanmış satışı təsdiqləyin. "
+        "Təklif və alınan ödəniş satış deyil."
+    )
+
+
+async def _try_sales_turn(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Handle explicit sale creation and unambiguous yearly reports before general RAG."""
+
+    if services.sales is None or update.effective_message is None:
+        return False
+    try:
+        draft = parse_sale_draft(text)
+    except SaleValidationError as error:
+        await update.effective_message.reply_text(str(error))
+        return True
+    if draft is not None:
+        if user.role != UserRole.ADMIN:
+            await update.effective_message.reply_text(
+                "Satış fakturasını yalnız administrator təsdiqləyə bilər. "
+                "Fakturanı administratora təqdim edin."
+            )
+            return True
+        data = getattr(context, "user_data", None)
+        if data is None:
+            await update.effective_message.reply_text(messages.TEMPORARY_ERROR)
+            return True
+        token = secrets.token_urlsafe(12)
+        data[SALES_DRAFT_KEY] = (token, monotonic() + SALES_CONFIRM_TTL_SECONDS, draft)
+        await update.effective_message.reply_text(
+            _format_sales_draft(draft),
+            reply_markup=_sales_confirmation_keyboard(token),
+        )
+        return True
+    request = parse_sales_request(text)
+    if request is None:
+        return False
+    await _render_sales_report(update.effective_message, services, user, request)
+    return True
+
+
+async def _render_sales_report(
+    message: Message, services: TelegramServices, actor: User, request: SalesRequest
+) -> None:
+    if services.sales is None:
+        await message.reply_text("Satış hesabatı xidməti konfiqurasiya edilməyib.")
+        return
+    try:
+        totals = await services.sales.totals(actor, request)
+    except (AuthorizationDenied, SaleValidationError):
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Sales report database failure")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    if not totals:
+        await message.reply_text(
+            f"📊 SATIŞ HESABATI\n\nMüştəri: {request.customer_name}\n"
+            f"İl: {request.year}\n\n"
+            "Bu müştəri üçün həmin ildə təsdiqlənmiş satış fakturası tapılmadı. "
+            "Bu, real satışın sıfır olduğunu sübut etmir: fakturalar hələ "
+            "sistemə daxil edilməmiş ola bilər."
+        )
+        return
+    rows = "\n".join(
+        f"• {item.amount:,.2f} {item.currency} — {item.invoice_count} faktura"
+        for item in totals
+    )
+    await message.reply_text(
+        f"📊 SATIŞ HESABATI\n\nMüştəri: {request.customer_name}\n"
+        f"İl: {request.year}\n\n{rows}\n\n"
+        "Yalnız sistemə daxil edilmiş, təsdiqlənmiş fakturalar hesablanıb. "
+        "Valyutalar birləşdirilmir, təkliflər və ödənişlər daxil deyil."
+    )
+
+
+async def _handle_sales_report(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, *, from_menu: bool
+) -> None:
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None or not _is_private(update):
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    request = parse_sales_request(text)
+    if request is None:
+        await message.reply_text(
+            "Şirkət və ili yazın. Məsələn: A Şirkəti | 2026\n"
+            "və ya: Bu il A şirkətinə nə qədər satmışıq?"
+        )
+        return
+    await _render_sales_report(message, services, user, request)
+
+
+async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """One authenticated, expiring and non-replayable sale approval."""
+
+    query = update.callback_query
+    identity = _identity(update)
+    if not _is_private(update) or query is None or identity is None:
+        return
+    await query.answer()
+    data = getattr(context, "user_data", None)
+    selected = data.get(SALES_DRAFT_KEY) if data is not None else None
+    parts = (query.data or "").split(":")
+    if (
+        not isinstance(selected, tuple)
+        or len(selected) != 3
+        or len(parts) != 3
+        or parts[0] != "sl"
+        or parts[1] not in {"ok", "no"}
+        or selected[0] != parts[2]
+        or not isinstance(selected[1], (int, float))
+        or monotonic() > selected[1]
+        or not isinstance(selected[2], SaleDraft)
+    ):
+        if data is not None:
+            data.pop(SALES_DRAFT_KEY, None)
+        await query.edit_message_text("Bu təsdiq artıq etibarlı deyil. Əməliyyatı yenidən başladın.")
+        return
+    data.pop(SALES_DRAFT_KEY, None)
+    if parts[1] == "no":
+        await query.edit_message_text("Satış qeydi ləğv olundu. Bazaya heç nə yazılmadı.")
+        return
+    services = _services(context)
+    if services.sales is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    try:
+        entry = await services.sales.record(user, selected[2])
+    except SaleAlreadyExists as error:
+        await query.edit_message_text(str(error))
+        return
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Sales ledger write failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        f"✅ SATIŞ QEYD EDİLDİ\n\nFaktura: {entry.invoice_number}\n"
+        f"Müştəri: {entry.customer_name}\n"
+        f"Məbləğ: {entry.amount:.2f} {entry.currency}\n"
+        "Qeyd audit jurnalına daxil edildi."
+    )
+
+
 def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
     """A scope choice is temporary; other actions must not leave it armed."""
 
