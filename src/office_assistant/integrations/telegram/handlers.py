@@ -642,8 +642,7 @@ async def _render_sales_report(
         )
         return
     rows = "\n".join(
-        f"• {item.amount:,.2f} {item.currency} — {item.invoice_count} faktura"
-        for item in totals
+        f"• {item.amount:,.2f} {item.currency} — {item.invoice_count} faktura" for item in totals
     )
     await message.reply_text(
         f"📊 SATIŞ HESABATI\n\nMüştəri: {request.customer_name}\n"
@@ -1089,9 +1088,7 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # A callback operates on the BOT'S original menu message, not on /saxla input.
     # Never turn arbitrary bot-authored menu guidance into an ingestion instruction.
     trailing_text = (
-        _command_text(message).partition(" ")[2].strip()
-        if update.callback_query is None
-        else ""
+        _command_text(message).partition(" ")[2].strip() if update.callback_query is None else ""
     )
     try:
         if trailing_text:
