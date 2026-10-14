@@ -61,9 +61,7 @@ def test_malformed_completed_sales_never_create_a_draft(line: str) -> None:
         ("A Şirkəti | 2026", SalesRequest("A Şirkəti", 2026)),
     ],
 )
-def test_azerbaijani_annual_sales_phrases(
-    utterance: str, expected: SalesRequest
-) -> None:
+def test_azerbaijani_annual_sales_phrases(utterance: str, expected: SalesRequest) -> None:
     assert parse_sales_request(utterance, today=TODAY) == expected
 
 
