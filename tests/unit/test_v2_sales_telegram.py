@@ -66,9 +66,7 @@ def _update(message: SimpleNamespace, query: SimpleNamespace | None = None) -> U
 
 
 def _message(text: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        text=text, chat_id=123, message_id=11, reply_text=AsyncMock()
-    )
+    return SimpleNamespace(text=text, chat_id=123, message_id=11, reply_text=AsyncMock())
 
 
 def test_post_sale_requires_second_click_and_is_not_replayable() -> None:
@@ -79,7 +77,9 @@ def test_post_sale_requires_second_click_and_is_not_replayable() -> None:
         _try_sales_turn(
             _update(message),
             cast(ContextTypes.DEFAULT_TYPE, context),
-            services, user, message.text,
+            services,
+            user,
+            message.text,
         )
     )
     assert accepted
@@ -113,7 +113,8 @@ def test_non_admin_cannot_initiate_ledger_write() -> None:
     message = _message("Satış əlavə et: A Şirkəti | 2026-10-01 | INV-1 | 123.45 | AZN")
     accepted = asyncio.run(
         _try_sales_turn(
-            _update(message), cast(ContextTypes.DEFAULT_TYPE, context),
+            _update(message),
+            cast(ContextTypes.DEFAULT_TYPE, context),
             services, user, message.text,
         )
     )
