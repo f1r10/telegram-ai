@@ -9,7 +9,9 @@ def test_photo_lookup_in_azerbaijani() -> None:
     assert _is_photo_lookup_request("Bu məhsul bizdə varmı?")
     assert _is_photo_lookup_request("Şəkli yoxla")
     assert _is_photo_lookup_request("Bazadan bax, bu bizde var?")
-    assert not _is_photo_lookup_request(None)
+    assert _is_photo_lookup_request(None)
+    assert _is_photo_lookup_request("  ")
+    assert _is_photo_lookup_request("Bu nədir?")
     assert not _is_photo_lookup_request("Bu KA45-dir, yadda saxla")
     assert not _is_photo_lookup_request("Bu məhsulun yeni nümunəsidir")
 
@@ -99,3 +101,8 @@ def test_v2_exact_photo_match_does_not_upload(monkeypatch: object) -> None:
     assert "stok" in reply
     assert "MƏHSUL TAPILDI" in reply
     assert repo.active_confirmation_holder_by_content.await_count == 1
+    # A photo without any caption is a read-only lookup, not an implied upload.
+    message.caption = None
+    asyncio.run(handlers.handle_photo(update, cast(ContextTypes.DEFAULT_TYPE, context)))
+    upload.assert_not_awaited()
+    assert repo.active_confirmation_holder_by_content.await_count == 2
