@@ -41,9 +41,7 @@ def test_sales_import_only_explicit_request() -> None:
 def test_confirmation_posts_once_and_replay_is_rejected() -> None:
     actor = _actor()
     users = SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=actor))
-    batch = (
-        SaleDraft("A Şirkəti", date(2026, 10, 1), "QA-2026-1", Decimal("50"), "AZN"),
-    )
+    batch = (SaleDraft("A Şirkəti", date(2026, 10, 1), "QA-2026-1", Decimal("50"), "AZN"),)
     sales = SimpleNamespace(record_many=AsyncMock(return_value=[object()]))
     services = TelegramServices(
         authentication=cast(AuthenticationService, object()),
@@ -69,15 +67,11 @@ def test_confirmation_posts_once_and_replay_is_rejected() -> None:
             callback_query=query,
         ),
     )
-    asyncio.run(
-        handle_sales_import_callback(update, cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_sales_import_callback(update, cast(ContextTypes.DEFAULT_TYPE, context)))
     sales.record_many.assert_awaited_once_with(actor, batch)
     assert SALES_IMPORT_KEY not in context.user_data
     assert "İDXAL TAMAMLANDI" in query.edit_message_text.await_args.args[0]
-    asyncio.run(
-        handle_sales_import_callback(update, cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_sales_import_callback(update, cast(ContextTypes.DEFAULT_TYPE, context)))
     sales.record_many.assert_awaited_once()
     assert "etibarlı deyil" in query.edit_message_text.await_args.args[0]
 
@@ -103,9 +97,11 @@ def test_cancel_never_posts_sales() -> None:
     context = SimpleNamespace(
         bot_data={"phase2_services": services},
         user_data={
-            SALES_IMPORT_KEY: ("t", monotonic() + 60, (SaleDraft(
-                "A Şirkəti", date(2026, 10, 1), "QA-1", Decimal("1"), "AZN"
-            ),))
+            SALES_IMPORT_KEY: (
+                "t",
+                monotonic() + 60,
+                (SaleDraft("A Şirkəti", date(2026, 10, 1), "QA-1", Decimal("1"), "AZN"),),
+            )
         },
     )
     update = cast(
