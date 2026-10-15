@@ -1702,17 +1702,19 @@ async def handle_sales_import_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
     saved: object = data.pop(SALES_IMPORT_KEY, None)
+    saved_items: tuple[object, ...] = (
+        cast(tuple[object, ...], saved) if isinstance(saved, tuple) else ()
+    )
     choice = (query.data or "").split(":")
     if (
-        not isinstance(saved, tuple)
-        or len(saved) != 3
+        len(saved_items) != 3
         or len(choice) != 3
         or choice[0] != "si"
         or choice[1] not in {"ok", "no"}
-        or saved[0] != choice[2]
-        or not isinstance(saved[1], (int, float))
-        or monotonic() > saved[1]
-        or not isinstance(saved[2], tuple)
+        or saved_items[0] != choice[2]
+        or not isinstance(saved_items[1], (int, float))
+        or monotonic() > saved_items[1]
+        or not isinstance(saved_items[2], tuple)
     ):
         await query.edit_message_text("Bu idxal təsdiqi artıq etibarlı deyil.")
         return
@@ -1727,7 +1729,7 @@ async def handle_sales_import_callback(update: Update, context: ContextTypes.DEF
     if services.sales is None:
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
-    drafts = cast(tuple[SaleDraft, ...], saved[2])
+    drafts = cast(tuple[SaleDraft, ...], saved_items[2])
     try:
         written = await services.sales.record_many(actor, drafts)
     except (SaleAlreadyExists, SaleValidationError) as error:
