@@ -28,8 +28,11 @@ HEADINGS: list[object] = ["Müştəri", "Tarix", "Faktura", "Məbləğ", "Valyut
 
 def test_two_invoices_are_proposed_without_database_writes() -> None:
     raw = workbook_bytes(
-        [HEADINGS, ["A Şirkəti", date(2026, 10, 1), "INV-A1", 50, "azn"],
-         ["A Şirkəti", "2026-10-02", "INV-A2", 75.25, "AZN"]]
+        [
+            HEADINGS,
+            ["A Şirkəti", date(2026, 10, 1), "INV-A1", 50, "azn"],
+            ["A Şirkəti", "2026-10-02", "INV-A2", 75.25, "AZN"],
+        ]
     )
     drafts = parse_sales_xlsx(raw, today=date(2026, 10, 15))
     assert len(drafts) == 2
@@ -54,19 +57,20 @@ def test_invalid_sale_rejects_entire_workbook(row: list[object]) -> None:
 
 
 def test_duplicate_invoices_fail_before_confirmation() -> None:
-    raw = workbook_bytes([
-        HEADINGS,
-        ["A Şirkəti", "2026-10-01", "INV-1", 10, "AZN"],
-        ["a şirkəti", "2026-10-02", "INV-1", 25, "AZN"],
-    ])
+    raw = workbook_bytes(
+        [
+            HEADINGS,
+            ["A Şirkəti", "2026-10-01", "INV-1", 10, "AZN"],
+            ["a şirkəti", "2026-10-02", "INV-1", 25, "AZN"],
+        ]
+    )
     with pytest.raises(SaleValidationError, match="təkrar"):
         parse_sales_xlsx(raw, today=date(2026, 10, 15))
 
 
 def test_only_verified_header_fields_are_accepted() -> None:
     raw = workbook_bytes(
-        [["Name", "Date", "Document", "Value", "Currency"],
-         ["A", "2026-10-01", "INV-1", 55, "AZN"]]
+        [["Name", "Date", "Document", "Value", "Currency"], ["A", "2026-10-01", "INV-1", 55, "AZN"]]
     )
     with pytest.raises(SaleValidationError, match="Başlıq"):
         parse_sales_xlsx(raw, today=date(2026, 10, 15))
