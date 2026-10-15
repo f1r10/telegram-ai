@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
-from typing import cast
+from zipfile import BadZipFile, ZipFile
+from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
@@ -51,8 +52,12 @@ def parse_sales_xlsx(
     if not content or len(content) > MAX_XLSX_BYTES:
         raise SaleValidationError("Excel faylı boşdur və ya 2 MiB həddini aşır.")
     try:
+        with ZipFile(BytesIO(content)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 200 or sum(item.file_size for item in entries) > 20 * 1024 * 1024:
+                raise SaleValidationError("Excel arxivində təhlükəsiz ölçü həddi aşılıb.")
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=False, keep_links=False)
-    except (OSError, ValueError, KeyError) as error:
+    except (BadZipFile, OSError, ValueError, KeyError) as error:
         raise SaleValidationError("XLSX faylı oxuna bilmir.") from error
     try:
         visible = [sheet for sheet in workbook.worksheets if sheet.sheet_state == "visible"]
@@ -88,6 +93,11 @@ def parse_sales_xlsx(
                 currency_raw = cells[found["currency"]]
             except IndexError as error:
                 raise SaleValidationError(f"{row_number}-ci sətr natamamdır.") from error
+            if any(
+                isinstance(value, str) and value.strip().startswith("=")
+                for value in (customer_raw, date_raw, invoice_raw, amount_raw, currency_raw)
+            ):
+                raise SaleValidationError(f"{row_number}-ci sətr: formula qəbul edilmir.")
             if (
                 not isinstance(customer_raw, str)
                 or not isinstance(invoice_raw, str)
@@ -104,7 +114,7 @@ def parse_sales_xlsx(
             if len(currency) != 3 or not currency.isascii() or not currency.isalpha():
                 raise SaleValidationError(f"{row_number}-ci sətr: valyuta üçhərfli kod olmalıdır.")
             sold_on = _date(date_raw, row_number)
-            if sold_on > (today or date.today()):
+            if sold_on > (today or datetime.now(ZoneInfo("Asia/Baku")).date()):
                 raise SaleValidationError(f"{row_number}-ci sətr: gələcək satış qəbul edilmir.")
             if not isinstance(amount_raw, (str, int, float, Decimal)):
                 raise SaleValidationError(f"{row_number}-ci sətr: məbləğ düzgün deyil.")
