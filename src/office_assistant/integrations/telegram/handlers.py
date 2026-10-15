@@ -1633,10 +1633,24 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 def _is_photo_lookup_request(caption: str | None) -> bool:
-    if not caption:
-        return False
+    """Product-photo questions (including an uncaptained photo) are read-only.
+
+    Persisting a picture must remain an explicit action. A silent photo upload is not
+    informed consent to insert potentially confidential data into company knowledge.
+    """
+
+    if not caption or not caption.strip():
+        return True
     text = " ".join(caption.casefold().split())
-    return any(
+    # A user labeling an image as a company reference must keep the separate
+    # upload/confirmation path; the recognition path must never swallow it.
+    if (
+        parse_reference_confirmation(caption) is not None
+        or _is_save_intent(caption)
+        or _note_payload(caption) is not None
+    ):
+        return False
+    return "?" in text or any(
         phrase in text
         for phrase in (
             "bizdə var",
@@ -1646,6 +1660,10 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
             "bu mehsul var",
             "şəkli yoxla",
             "sekli yoxla",
+            "şəkildə nədir",
+            "sekilde nedir",
+            "məhsulu axtar",
+            "mehsulu axtar",
         )
     )
 
