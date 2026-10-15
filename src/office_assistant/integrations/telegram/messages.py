@@ -37,10 +37,16 @@ MENU_PRODUCT_PROMPT = (
     "Məsələn: «KA45 bizdə var? Qiyməti nədir?»"
 )
 MENU_SALES_PROMPT = (
-    "📊 SATIŞ HESABATI\n\nŞirkət və müddəti yazın. "
-    "Məsələn: «2026-cı ildə A şirkətinə nə qədər satış etmişik?»\n"
-    "Qeyd: hesabat yalnız bazada mövcud təsdiqlənmiş qeydlərə əsaslana bilər; "
-    "ödəmələr və təkliflər satış kimi göstərilməyəcək."
+    "📊 SATIŞ HESABATI\n\n"
+    "Şirkət və müddəti adi dildə yazın:\n"
+    "«Bu il A şirkətinə nə qədər satmışıq?»\n"
+    "və ya «A Şirkəti | 2026»\n\n"
+    "📥 EXCEL İDXALI (ADMIN)\n"
+    "Müştəri, Tarix, Faktura, Məbləğ, Valyuta sütunları olan "
+    ".xlsx faylına «Satışları idxal et» qeydi əlavə edib göndərin. "
+    "İdxaldan əvvəl fakturaları təsdiqləmək lazımdır.\n\n"
+    "Qeyd: yalnız təsdiqlənmiş satış fakturaları hesablanır; "
+    "təkliflər və ödənişlər satış kimi göstərilmir."
 )
 MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Məhsul kodunu və ya sualı yazın."
 MENU_ASK_INTERNET = (
