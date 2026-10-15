@@ -1621,14 +1621,10 @@ def _is_sales_import_request(caption: str | None) -> bool:
     if not caption:
         return False
     text = " ".join(caption.casefold().split())
-    return "satış" in text and (
-        "idxal et" in text or "bazaya yaz" in text or "əlavə et" in text
-    )
+    return "satış" in text and ("idxal et" in text or "bazaya yaz" in text or "əlavə et" in text)
 
 
-async def _handle_sales_xlsx_upload(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def _handle_sales_xlsx_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Preview a bounded, explicit invoice spreadsheet; never post at upload time."""
 
     message = update.effective_message
@@ -1683,17 +1679,17 @@ async def _handle_sales_xlsx_upload(
         "Yalnız tamamlanmış satış fakturaları olduqda təsdiqləyin. "
         "Bütün fakturalar birlikdə yazılır; biri təkrarlanırsa heç biri yazılmır.",
         reply_markup=InlineKeyboardMarkup(
-            [[
-                InlineKeyboardButton("✅ Fakturaları təsdiqlə", callback_data=f"si:ok:{token}"),
-                InlineKeyboardButton("Ləğv et", callback_data=f"si:no:{token}"),
-            ]]
+            [
+                [
+                    InlineKeyboardButton("✅ Fakturaları təsdiqlə", callback_data=f"si:ok:{token}"),
+                    InlineKeyboardButton("Ləğv et", callback_data=f"si:no:{token}"),
+                ]
+            ]
         ),
     )
 
 
-async def handle_sales_import_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_sales_import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin-only, bounded, one-use Excel batch approval."""
 
     identity = _identity(update)
