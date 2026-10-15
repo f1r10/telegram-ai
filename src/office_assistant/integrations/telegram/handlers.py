@@ -6,6 +6,7 @@ import re
 import secrets
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
@@ -1669,16 +1670,16 @@ async def _handle_sales_xlsx_upload(
         totals[draft.currency] = totals.get(draft.currency, Decimal(0)) + draft.amount
     token = secrets.token_urlsafe(12)
     data[SALES_IMPORT_KEY] = (token, monotonic() + SALES_IMPORT_TTL_SECONDS, drafts)
-    total_lines = "\\n".join(
+    total_lines = "\n".join(
         f"• {amount:,.2f} {currency}" for currency, amount in sorted(totals.items())
     )
-    examples = "\\n".join(
+    examples = "\n".join(
         f"• {draft.invoice_number} — {draft.customer_name}" for draft in drafts[:3]
     )
     await message.reply_text(
-        f"📊 EXCEL SATIŞ İDXALI — TƏSDİQ\\n\\n"
-        f"Faktura sayı: {len(drafts)}\\n{total_lines}\\n\\n"
-        f"İlk fakturalar:\\n{examples}\\n\\n"
+        f"📊 EXCEL SATIŞ İDXALI — TƏSDİQ\n\n"
+        f"Faktura sayı: {len(drafts)}\n{total_lines}\n\n"
+        f"İlk fakturalar:\n{examples}\n\n"
         "Yalnız tamamlanmış satış fakturaları olduqda təsdiqləyin. "
         "Bütün fakturalar birlikdə yazılır; biri təkrarlanırsa heç biri yazılmır.",
         reply_markup=InlineKeyboardMarkup(
@@ -1744,7 +1745,7 @@ async def handle_sales_import_callback(
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
     await query.edit_message_text(
-        f"✅ İDXAL TAMAMLANDI\\n\\n{len(written)} təsdiqlənmiş faktura "
+        f"✅ İDXAL TAMAMLANDI\n\n{len(written)} təsdiqlənmiş faktura "
         "satış jurnalına əlavə edildi. Hesabatı «Satış hesabatı» bölməsindən soruşun."
     )
 
