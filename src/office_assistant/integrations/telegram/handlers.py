@@ -1645,7 +1645,10 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
     # A user labeling an image as a company reference must keep the separate
     # upload/confirmation path; the recognition path must never swallow it.
     if (
-        parse_reference_confirmation(caption) is not None
+        isinstance(
+            parse_reference_confirmation(caption),
+            (ProductPictureConfirmation, AmbiguousPictureConfirmation),
+        )
         or _is_save_intent(caption)
         or _note_payload(caption) is not None
     ):
@@ -1755,7 +1758,9 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             await message.reply_text(
                 "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
                 "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
-                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər." + warning
+                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər. "
+                "Bu şəkli məhsulla əlaqələndirmək üçün kodunu qeyd edib "
+                "«Bu KA45-dir, yadda saxla» kimi yenidən göndərin." + warning
             )
     except (TelegramError, SQLAlchemyError) as error:
         logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
