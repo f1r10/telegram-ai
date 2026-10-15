@@ -40,9 +40,7 @@ def _date(value: object, row: int) -> date:
     raise SaleValidationError(f"{row}-ci sətr: tarix tanınmadı.")
 
 
-def parse_sales_xlsx(
-    content: bytes, *, today: date | None = None
-) -> tuple[SaleDraft, ...]:
+def parse_sales_xlsx(content: bytes, *, today: date | None = None) -> tuple[SaleDraft, ...]:
     """Return a preview only. Never persist a workbook without explicit human approval.
 
     Exactly one completed invoice per row. Mixed currencies are allowed but never
