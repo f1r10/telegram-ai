@@ -157,36 +157,54 @@ class SalesLedgerService:
             raise AuthorizationDenied("Only the company administrator can post sales")
 
     async def record(self, actor: User, draft: SaleDraft) -> SalesEntry:
+        return (await self.record_many(actor, (draft,)))[0]
+
+    async def record_many(
+        self, actor: User, drafts: tuple[SaleDraft, ...]
+    ) -> tuple[SalesEntry, ...]:
+        """All-or-nothing approved invoice import; duplicates roll back the entire batch."""
+
+        if not drafts or len(drafts) > 100:
+            raise SaleValidationError("Bir dəfəyə 1–100 faktura qəbul edilir.")
+        pairs = [(customer_key(d.customer_name), d.invoice_number) for d in drafts]
+        if len(pairs) != len(set(pairs)):
+            raise SaleValidationError("Excel daxilində təkrar müştəri/faktura var.")
         try:
             async with self.session_factory.begin() as session:
                 await self._require_actor(session, actor, admin=True)
-                entry = SalesEntry(
-                    customer_name=draft.customer_name,
-                    customer_key=customer_key(draft.customer_name),
-                    sold_on=draft.sold_on,
-                    invoice_number=draft.invoice_number,
-                    amount=draft.amount,
-                    currency=draft.currency,
-                    status="POSTED",
-                    created_by_user_id=actor.id,
-                )
-                session.add(entry)
-                await session.flush()
-                session.add(
-                    AuditEvent(
-                        actor_user_id=actor.id,
-                        action="SALES_ENTRY_POSTED",
-                        entity_type="sales_entry",
-                        entity_id=str(entry.id),
-                        event_metadata={
-                            "invoice_number": draft.invoice_number,
-                            "customer_key": customer_key(draft.customer_name),
-                        },
+                entries = [
+                    SalesEntry(
+                        customer_name=d.customer_name,
+                        customer_key=customer_key(d.customer_name),
+                        sold_on=d.sold_on,
+                        invoice_number=d.invoice_number,
+                        amount=d.amount,
+                        currency=d.currency,
+                        status="POSTED",
+                        created_by_user_id=actor.id,
                     )
-                )
-                return entry
+                    for d in drafts
+                ]
+                session.add_all(entries)
+                await session.flush()
+                for entry in entries:
+                    session.add(
+                        AuditEvent(
+                            actor_user_id=actor.id,
+                            action="SALES_ENTRY_POSTED",
+                            entity_type="sales_entry",
+                            entity_id=str(entry.id),
+                            event_metadata={
+                                "invoice_number": entry.invoice_number,
+                                "customer_key": entry.customer_key,
+                            },
+                        )
+                    )
+                return tuple(entries)
         except IntegrityError as error:
-            raise SaleAlreadyExists("Bu şirkət üçün faktura artıq qeydiyyatdadır.") from error
+            raise SaleAlreadyExists(
+                "Bu şirkət üçün faktura artıq qeydiyyatdadır. Heç bir sətir əlavə edilmədi."
+            ) from error
 
     async def totals(self, actor: User, request: SalesRequest) -> tuple[SalesTotal, ...]:
         if not 2000 <= request.year <= 2099:

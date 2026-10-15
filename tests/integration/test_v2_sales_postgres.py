@@ -129,6 +129,30 @@ def test_real_postgres_confirmed_sales_annual_totals_and_access() -> None:
                     .all()
                 )
                 assert len(events) == 4
+            # A reviewed Excel batch must post atomically. An existing invoice
+            # anywhere in the batch must roll back all newly proposed records.
+            batch = (
+                SaleDraft("B Şirkəti", date(2026, 10, 1), "IMP-01", Decimal("20"), "AZN"),
+                SaleDraft("B Şirkəti", date(2026, 10, 2), "IMP-02", Decimal("30"), "AZN"),
+            )
+            written = await ledger.record_many(actor, batch)
+            assert len(written) == 2
+            expected = (SalesTotal("AZN", 2, Decimal("50.00")),)
+            assert await ledger.totals(employee, SalesRequest("B Şirkəti", 2026)) == expected
+            with pytest.raises(SaleAlreadyExists):
+                await ledger.record_many(
+                    actor,
+                    (
+                        SaleDraft("B Şirkəti", date(2026, 10, 3), "IMP-03", Decimal("99"), "AZN"),
+                        batch[0],
+                    ),
+                )
+            assert await ledger.totals(employee, SalesRequest("B Şirkəti", 2026)) == expected
+            with pytest.raises(AuthorizationDenied):
+                await ledger.record_many(
+                    employee,
+                    (SaleDraft("B Şirkəti", date(2026, 10, 4), "IMP-04", Decimal("5"), "AZN"),),
+                )
             async with factory.begin() as session:
                 await session.execute(
                     update(User).where(User.id == staff_id).values(status=UserStatus.DISABLED)
