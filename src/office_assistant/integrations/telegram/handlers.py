@@ -56,6 +56,7 @@ from office_assistant.application.reference_images import (
     ReferenceRevokeStatus,
 )
 from office_assistant.application.reminders import ReminderProposal, ReminderService
+from office_assistant.application.sales_import import MAX_XLSX_BYTES, parse_sales_xlsx
 from office_assistant.application.sales_ledger import (
     SaleAlreadyExists,
     SaleDraft,
@@ -121,6 +122,8 @@ SERVICES_KEY = "phase2_services"
 MENU_SELECTION_KEY = "office_menu_selection"
 MENU_SELECTION_TTL_SECONDS = 600
 SALES_DRAFT_KEY = "office_sales_draft"
+SALES_IMPORT_KEY = "office_sales_import"
+SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
 logger = logging.getLogger(__name__)
 
@@ -1611,6 +1614,141 @@ async def handle_tamaxtar(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _handle_web_command(update, context, combined=True)
 
 
+def _is_sales_import_request(caption: str | None) -> bool:
+    """No invoice spreadsheet is treated as revenue without an explicit import request."""
+
+    if not caption:
+        return False
+    text = " ".join(caption.casefold().split())
+    return "satış" in text and (
+        "idxal et" in text or "bazaya yaz" in text or "əlavə et" in text
+    )
+
+
+async def _handle_sales_xlsx_upload(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Preview a bounded, explicit invoice spreadsheet; never post at upload time."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or message.document is None or identity is None or not _is_private(update):
+        return
+    services = _services(context)
+    actor = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if actor is None or actor.status != UserStatus.ACTIVE or actor.role != UserRole.ADMIN:
+        await message.reply_text("Satış fakturalarını yalnız administrator idxal edə bilər.")
+        return
+    if services.sales is None:
+        await message.reply_text("Satış bazası aktiv deyil.")
+        return
+    document = message.document
+    if not (document.file_name or "").casefold().endswith(".xlsx"):
+        await message.reply_text("Satış idxalı üçün .xlsx Excel faylı göndərin.")
+        return
+    if document.file_size is not None and document.file_size > MAX_XLSX_BYTES:
+        await message.reply_text("Satış Excel faylı 2 MiB limitini aşır.")
+        return
+    try:
+        file = await context.bot.get_file(document.file_id)
+        content = bytes(await file.download_as_bytearray())
+        drafts = await asyncio.to_thread(parse_sales_xlsx, content)
+    except SaleValidationError as error:
+        await message.reply_text(f"Excel idxal edilmədi: {error}")
+        return
+    except (TelegramError, OSError) as error:
+        logger.warning("Sales workbook preview failed | error_type=%s", type(error).__name__)
+        await message.reply_text("Excel faylı oxunmadı; yenidən yoxlayın.")
+        return
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    totals: dict[str, Decimal] = {}
+    for draft in drafts:
+        totals[draft.currency] = totals.get(draft.currency, Decimal(0)) + draft.amount
+    token = secrets.token_urlsafe(12)
+    data[SALES_IMPORT_KEY] = (token, monotonic() + SALES_IMPORT_TTL_SECONDS, drafts)
+    total_lines = "\\n".join(
+        f"• {amount:,.2f} {currency}" for currency, amount in sorted(totals.items())
+    )
+    examples = "\\n".join(
+        f"• {draft.invoice_number} — {draft.customer_name}" for draft in drafts[:3]
+    )
+    await message.reply_text(
+        f"📊 EXCEL SATIŞ İDXALI — TƏSDİQ\\n\\n"
+        f"Faktura sayı: {len(drafts)}\\n{total_lines}\\n\\n"
+        f"İlk fakturalar:\\n{examples}\\n\\n"
+        "Yalnız tamamlanmış satış fakturaları olduqda təsdiqləyin. "
+        "Bütün fakturalar birlikdə yazılır; biri təkrarlanırsa heç biri yazılmır.",
+        reply_markup=InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("✅ Fakturaları təsdiqlə", callback_data=f"si:ok:{token}"),
+                InlineKeyboardButton("Ləğv et", callback_data=f"si:no:{token}"),
+            ]]
+        ),
+    )
+
+
+async def handle_sales_import_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Admin-only, bounded, one-use Excel batch approval."""
+
+    identity = _identity(update)
+    query = update.callback_query
+    if identity is None or query is None or not _is_private(update):
+        return
+    await query.answer()
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    saved: object = data.pop(SALES_IMPORT_KEY, None)
+    choice = (query.data or "").split(":")
+    if (
+        not isinstance(saved, tuple)
+        or len(saved) != 3
+        or len(choice) != 3
+        or choice[0] != "si"
+        or choice[1] not in {"ok", "no"}
+        or saved[0] != choice[2]
+        or not isinstance(saved[1], (int, float))
+        or monotonic() > saved[1]
+        or not isinstance(saved[2], tuple)
+    ):
+        await query.edit_message_text("Bu idxal təsdiqi artıq etibarlı deyil.")
+        return
+    if choice[1] == "no":
+        await query.edit_message_text("Excel idxalı ləğv edildi. Satış bazası dəyişmədi.")
+        return
+    services = _services(context)
+    actor = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if actor is None or actor.status != UserStatus.ACTIVE or actor.role != UserRole.ADMIN:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    if services.sales is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    drafts = cast(tuple[SaleDraft, ...], saved[2])
+    try:
+        written = await services.sales.record_many(actor, drafts)
+    except (SaleAlreadyExists, SaleValidationError) as error:
+        await query.edit_message_text(f"İdxal rədd edildi: {error}")
+        return
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Sales Excel import transaction failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        f"✅ İDXAL TAMAMLANDI\\n\\n{len(written)} təsdiqlənmiş faktura "
+        "satış jurnalına əlavə edildi. Hesabatı «Satış hesabatı» bölməsindən soruşun."
+    )
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None:
@@ -1619,6 +1757,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if document is None:
         return
     if await _route_caption_command(update, context):
+        return
+    if _is_sales_import_request(message.caption):
+        await _handle_sales_xlsx_upload(update, context)
         return
     await _handle_upload(
         update,
