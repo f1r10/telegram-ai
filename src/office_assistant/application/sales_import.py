@@ -56,7 +56,9 @@ def parse_sales_xlsx(
             entries = archive.infolist()
             if len(entries) > 200 or sum(item.file_size for item in entries) > 20 * 1024 * 1024:
                 raise SaleValidationError("Excel arxivində təhlükəsiz ölçü həddi aşılıb.")
-        workbook = load_workbook(BytesIO(content), read_only=True, data_only=False, keep_links=False)
+        workbook = load_workbook(
+            BytesIO(content), read_only=True, data_only=False, keep_links=False
+        )
     except (BadZipFile, OSError, ValueError, KeyError) as error:
         raise SaleValidationError("XLSX faylı oxuna bilmir.") from error
     try:
