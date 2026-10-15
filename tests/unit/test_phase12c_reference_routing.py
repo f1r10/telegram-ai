@@ -261,7 +261,7 @@ def test_an_ambiguous_caption_answers_and_queues_nothing(tmp_path: Path) -> None
         "Bu şəkli yadda saxla",
         "Bu məhsul KA45, yadda saxla",
         "Bu KA45-dir",
-         "KA45 şəklini saxlama",
+        "KA45 şəklini saxlama",
     ],
 )
 def test_an_ordinary_caption_never_reaches_the_reference_service(
