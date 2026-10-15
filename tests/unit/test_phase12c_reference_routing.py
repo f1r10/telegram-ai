@@ -261,9 +261,7 @@ def test_an_ambiguous_caption_answers_and_queues_nothing(tmp_path: Path) -> None
         "Bu şəkli yadda saxla",
         "Bu məhsul KA45, yadda saxla",
         "Bu KA45-dir",
-        "KA45 nədir, yadda saxla?",
-        "KA45 şəklini saxlama",
-        None,
+         "KA45 şəklini saxlama",
     ],
 )
 def test_an_ordinary_caption_never_reaches_the_reference_service(
@@ -277,6 +275,23 @@ def test_an_ordinary_caption_never_reaches_the_reference_service(
     assert queue.await_count == 0
     assert ingestion.add_file.await_count == 1
     assert message.replies == [messages.FILE_ADDED.format(files=1, instructions=0)]
+
+
+@pytest.mark.parametrize("caption", [None, "KA45 nədir, yadda saxla?"])
+def test_uncaptained_or_question_photo_is_read_only(
+    tmp_path: Path, caption: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from office_assistant.integrations.telegram import handlers
+
+    lookup = AsyncMock()
+    monkeypatch.setattr(handlers, "_handle_exact_photo_lookup", lookup)
+    ingestion = _ingestion()
+    reference_images, queue = _reference()
+    services = _services(tmp_path, ingestion=ingestion, reference_images=reference_images)
+    _run(services, _photo_update(caption))
+    lookup.assert_awaited_once()
+    ingestion.add_file.assert_not_awaited()
+    queue.assert_not_awaited()
 
 
 def test_a_command_caption_keeps_its_documented_routing(tmp_path: Path) -> None:
