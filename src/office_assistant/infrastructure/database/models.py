@@ -335,7 +335,6 @@ class DocumentParseRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-
 class OcrReplayJob(Base):
     """Operator-approved OCR replay for an existing scanned PDF; never a new upload."""
 
