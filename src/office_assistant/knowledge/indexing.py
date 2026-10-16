@@ -122,9 +122,10 @@ class KnowledgeIndexService:
         for parse_run, file_object in parse_runs:
             statuses.append(await self._process_parse_run(claim, job, parse_run, file_object))
         success = {KnowledgeIndexRecordStatus.SUCCEEDED}
+        # A job that indexed no documents cannot truthfully be SUCCEEDED.
         final = (
             KnowledgeIndexJobStatus.SUCCEEDED
-            if not statuses or all(status in success for status in statuses)
+            if statuses and all(status in success for status in statuses)
             else KnowledgeIndexJobStatus.PARTIAL
             if any(status in success for status in statuses)
             else KnowledgeIndexJobStatus.FAILED
@@ -133,6 +134,11 @@ class KnowledgeIndexService:
             row = await session.get(KnowledgeIndexJob, claim.job_id, with_for_update=True)
             if row is not None:
                 row.status = final
+                row.last_error = (
+                    "No searchable parsed files were available for indexing"
+                    if not statuses
+                    else None
+                )
                 row.finished_at = datetime.now(UTC)
                 row.locked_at = None
                 row.lease_expires_at = None
@@ -171,7 +177,12 @@ class KnowledgeIndexService:
             artifact_key = parse_run.normalized_storage_key
             record_id = record.id
         if not artifact_key:
-            return await self._finish_record(record_id, KnowledgeIndexRecordStatus.SUCCEEDED, 0)
+            return await self._finish_record(
+                record_id,
+                KnowledgeIndexRecordStatus.FAILED,
+                0,
+                "Normalized document artifact is missing; no searchable text indexed",
+            )
         try:
             chunks = chunk_normalized_artifact(
                 self.storage.path_for_key(artifact_key),
@@ -179,6 +190,13 @@ class KnowledgeIndexService:
                 parse_run_id=parse_run.id,
                 config=self.chunking,
             )
+            if not chunks:
+                return await self._finish_record(
+                    record_id,
+                    KnowledgeIndexRecordStatus.FAILED,
+                    0,
+                    "Document contains no indexable text; OCR or manual review is required",
+                )
             await self.store.ensure_collection(self.embedder.dimension)
             dense = await asyncio.to_thread(
                 self.embedder.embed_documents, [chunk.text for chunk in chunks]
