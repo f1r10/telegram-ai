@@ -127,7 +127,10 @@ def test_mixed_pdf_ocr_does_not_rerun_readable_pages(
             calls.append(page_number)
             return OcrPageResult(text="KA45 scanned product")
 
-    monkeypatch.setattr(engine, "session", lambda _: FakeSession())
+    def fake_session(_path: Path) -> FakeSession:
+        return FakeSession()
+
+    monkeypatch.setattr(engine, "session", fake_session)
     parsed = (
         ParserRegistry(pdf_ocr=engine)
         .for_filename(path.name)
