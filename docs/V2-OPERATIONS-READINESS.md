@@ -157,10 +157,11 @@ phrase finds the document, and that the result points to its correct PDF page.
 A genuinely blank image cannot produce searchable chunks and remains deferred.
 Run mixed native+scanned, multi-page and poor-quality document acceptance cases.
 
-**Important:** the historical index-repair command above only requeues pre-existing
-normalized *text*. It does not run OCR on previously deferred image-only PDFs.
-Those older scans must be safely reprocessed through the ingestion pipeline
-after backup and deduplication checks, not simply reindexed. This PR does not
-automatically reprocess existing documents or mutate old production records.
+**Important:** `repair_legacy_index` only requeues pre-existing normalized
+*text*; it does not OCR previously deferred image-only PDFs. For those files
+use the historical `replay_scanned_pdfs` dry-run and reviewed `--apply`
+workflow above. If OCR or Qdrant later fails, use the phase-specific
+`retry_scanned_pdfs` commands. None of these operations has been executed
+against the user's live WSL data as part of these GitHub changes.
 
 The readiness probe does not constitute production certification: manual bot interaction, cross-user access control, resource and soak tests, restore drills and customer document accuracy tests remain necessary.
