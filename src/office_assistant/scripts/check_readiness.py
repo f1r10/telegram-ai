@@ -6,13 +6,16 @@ Run inside the running app container, not from a Docker host namespace.
 
 import asyncio
 import json
+import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from typing import cast
 
 import httpx
 from sqlalchemy import func, select
 
-from office_assistant.core.settings import load_settings
+from office_assistant.core.settings import Settings, load_settings
+from office_assistant.processing.pdf_ocr import PdfOcrConfig
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
     DocumentParseRun,
@@ -54,6 +57,56 @@ def search_health(payload: object) -> Check:
             "searxng_search", "WARN", "HTTP endpoint is healthy, but live search returned no hits"
         )
     return Check("searxng_search", "OK", f"Live search returned {len(results)} result(s)")
+
+
+def ocr_runtime_health(settings: Settings) -> Check:
+    """Check the actual local OCR prerequisites without reading employee documents."""
+
+    if not settings.pdf_ocr_enabled:
+        return Check("pdf_ocr", "WARN", "Worker PDF OCR is disabled")
+    try:
+        PdfOcrConfig(
+            languages=settings.pdf_ocr_languages,
+            max_pages=settings.pdf_ocr_max_pages,
+            page_timeout_seconds=settings.pdf_ocr_page_timeout_seconds,
+            document_timeout_seconds=settings.pdf_ocr_document_timeout_seconds,
+        )
+    except ValueError:
+        return Check("pdf_ocr", "WARN", "Worker PDF OCR settings are invalid")
+
+    for binary in ("pdftoppm", "tesseract"):
+        if shutil.which(binary) is None:
+            return Check("pdf_ocr", "WARN", f"Required local OCR executable missing: {binary}")
+
+    try:
+        renderer = subprocess.run(
+            ["pdftoppm", "-v"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        languages = subprocess.run(
+            ["tesseract", "--list-langs"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+            text=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return Check("pdf_ocr", "WARN", "Local OCR runtime failed its bounded health probe")
+    if renderer.returncode or languages.returncode:
+        return Check("pdf_ocr", "WARN", "Local OCR runtime executable is not operational")
+
+    installed = set(languages.stdout.splitlines())
+    expected = set(settings.pdf_ocr_languages.split("+"))
+    missing = sorted(expected - installed)
+    if missing:
+        return Check("pdf_ocr", "WARN", "Missing OCR language data: " + ", ".join(missing))
+    return Check("pdf_ocr", "OK", "Local PDF renderer and configured OCR languages available")
 
 
 async def _database() -> list[Check]:
@@ -120,7 +173,7 @@ async def _database() -> list[Check]:
 
 async def check() -> tuple[str, list[Check]]:
     settings = load_settings()
-    checks: list[Check] = []
+    checks: list[Check] = [await asyncio.to_thread(ocr_runtime_health, settings)]
     try:
         checks.extend(await asyncio.wait_for(_database(), timeout=15.0))
     except Exception as error:
