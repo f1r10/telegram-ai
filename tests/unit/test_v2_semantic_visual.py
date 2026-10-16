@@ -56,7 +56,7 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
         SemanticReference(
             "KA45", "side.jpg", sha256((root / "side.jpg").read_bytes()).hexdigest()
         ),
-        SemanticReference("KA46", "other.png", hashlib.sha256(blue).hexdigest()),
+        SemanticReference("KA46", "other.png", sha256(blue).hexdigest()),
     ]
     encoder = ColorEncoder()
     search = SemanticVisualSearch(
@@ -85,7 +85,7 @@ def test_unknown_and_uncertain_images_abstain(tmp_path: Path) -> None:
     root.mkdir()
     original = photo(250)
     (root / "red.png").write_bytes(original)
-    refs = [SemanticReference("KA45", "red.png", hashlib.sha256(original).hexdigest())]
+    refs = [SemanticReference("KA45", "red.png", sha256(original).hexdigest())]
     search = SemanticVisualSearch(
         storage_root=root, model_cache_root=tmp_path / "models",
         encoder=ColorEncoder(), min_score=0.9,
