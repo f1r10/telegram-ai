@@ -127,7 +127,11 @@ def _read_cached(path: Path, digest: str, version: str) -> tuple[float, ...] | N
         raw = cast(list[object], vector)
         if len(raw) != CLIP_DIMENSION:
             return None
-        numbers = [float(item) for item in raw if type(item) in {int, float}]
+        numbers = [
+            float(item)
+            for item in raw
+            if isinstance(item, (int, float)) and not isinstance(item, bool)
+        ]
         if len(numbers) != CLIP_DIMENSION:
             return None
         return unit_vector(numbers)
