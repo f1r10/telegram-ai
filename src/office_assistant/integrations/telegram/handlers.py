@@ -1931,8 +1931,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                     f"{lines}\n\n"
                     "Fərqli bucaqdan çəkilmiş şəkillərin semantik oxşarlığı əsasında "
                     "göstərilib. Bu, məhsulun eyniliyinin təsdiqi deyil. "
-                    "Məhsul kodunu yoxlayın; anbarda stok olduğu da təsdiqlənmir."
-                    + limited
+                    "Məhsul kodunu yoxlayın; anbarda stok olduğu da təsdiqlənmir." + limited
                 )
                 return
             if semantic.unavailable:
@@ -1942,9 +1941,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 )
                 return
             if asset_id is not None:
-                await message.reply_text(
-                    "Bu şəkil bazadadır, lakin aktiv məhsul təsdiqi yoxdur."
-                )
+                await message.reply_text("Bu şəkil bazadadır, lakin aktiv məhsul təsdiqi yoxdur.")
                 return
             await message.reply_text(
                 "Təsdiqli fotolar arasında etibarlı semantik namizəd tapılmadı. "
