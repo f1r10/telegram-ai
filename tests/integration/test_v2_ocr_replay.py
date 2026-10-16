@@ -40,12 +40,17 @@ from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig, RetrievalFilter
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.processing.models import ContentBlock, ParsedDocument
-from office_assistant.processing.ocr_replay import OcrReplayService
+from office_assistant.processing.ocr_replay import OcrReplayService, ReplayClaim
 from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.scripts.replay_scanned_pdfs import queue_legacy_scans
 from office_assistant.scripts.retry_scanned_pdfs import retry_failed
 
 pytestmark = pytest.mark.integration
+
+
+class _ReplayProbe(OcrReplayService):
+    async def commit_stale(self, claim: ReplayClaim, parsed: ParsedDocument) -> None:
+        await self._commit(claim, parsed)
 
 
 class _FakeDense:
@@ -231,7 +236,7 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             repeated = await queue_legacy_scans(settings, apply=True, limit=20)
             assert repeated.queued == 0
 
-            empty = OcrReplayService(
+            empty = _ReplayProbe(
                 factory, storage, settings, registry=cast(ParserRegistry, _FakeBlankRegistry())
             )
             blank_claim = await empty.claim_next("blank-worker")
@@ -249,7 +254,7 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             claims = [claim for claim in [first, second] if claim is not None]
             assert len(claims) == 1
             # Old worker's attempt cannot commit after operator retry advanced the lease.
-            await empty._commit(
+            await empty.commit_stale(
                 blank_claim,
                 _FakeOcrParser().parse(
                     storage.blob_root / "1-old-scan.pdf",
