@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
+    AuditEvent,
     DocumentParseRun,
     DocumentProcessingStatus,
     FileObject,
@@ -38,6 +39,7 @@ from office_assistant.processing.models import ContentBlock, ParsedDocument
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.scripts.replay_scanned_pdfs import queue_legacy_scans
+from office_assistant.scripts.retry_scanned_pdfs import retry_failed
 
 pytestmark = pytest.mark.integration
 
@@ -58,6 +60,16 @@ class _FakeOcrParser:
 class _FakeRegistry:
     def for_filename(self, _filename: str) -> _FakeOcrParser:
         return _FakeOcrParser()
+
+
+class _FakeBlankParser:
+    def parse(self, _path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
+        return ParsedDocument(source_file_id, "pypdf", "fixture", media_type, {}, [])
+
+
+class _FakeBlankRegistry:
+    def for_filename(self, _filename: str) -> _FakeBlankParser:
+        return _FakeBlankParser()
 
 
 def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> None:
@@ -196,12 +208,28 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             repeated = await queue_legacy_scans(settings, apply=True, limit=20)
             assert repeated.queued == 0
 
+            empty = OcrReplayService(
+                factory, storage, settings, registry=cast(ParserRegistry, _FakeBlankRegistry())
+            )
+            blank_claim = await empty.claim_next("blank-worker")
+            assert blank_claim is not None
+            await empty.process(blank_claim)
+            assert (await retry_failed(settings, kind="ocr", limit=20)).eligible == 1
+            assert (await retry_failed(settings, kind="index", limit=20)).eligible == 0
+            assert (await retry_failed(settings, kind="ocr", apply=True, limit=20)).queued == 1
+            assert (await retry_failed(settings, kind="ocr", apply=True, limit=20)).queued == 0
+
             replay = OcrReplayService(
                 factory, storage, settings, registry=cast(ParserRegistry, _FakeRegistry())
             )
             first, second = await asyncio.gather(replay.claim_next("w1"), replay.claim_next("w2"))
             claims = [claim for claim in [first, second] if claim is not None]
             assert len(claims) == 1
+            # Old worker's attempt cannot commit after operator retry advanced the lease.
+            await empty._commit(blank_claim, _FakeOcrParser().parse(
+                storage.blob_root / "1-old-scan.pdf",
+                source_file_id=ids["file1"], media_type="application/pdf"
+            ))
             await replay.process(claims[0])
             async with factory() as db:
                 row = (await db.execute(select(OcrReplayJob))).scalar_one()
@@ -243,9 +271,95 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                 )
                 assert len(items) == 2
                 assert sorted(item.telegram_message_id for item in items) == [1001, 1002]
+            # The OCR parse is immutable. A failed target record is retried
+            # without rerunning OCR or modifying a good sibling index record.
+            async with factory.begin() as db:
+                replay_row = (await db.execute(select(OcrReplayJob))).scalar_one()
+                ids["replay"] = replay_row.id
+                assert replay_row.result_parse_run_id is not None
+                ids["recovered"] = replay_row.result_parse_run_id
+                index_row = await db.get(KnowledgeIndexJob, ids["index"])
+                assert index_row is not None
+                index_row.status = KnowledgeIndexJobStatus.FAILED
+                db.add(
+                    KnowledgeIndexRecord(
+                        knowledge_index_job_id=ids["index"],
+                        parse_run_id=ids["recovered"],
+                        status=KnowledgeIndexRecordStatus.FAILED,
+                        collection_name=index_row.collection_name,
+                        embedding_model=index_row.embedding_model,
+                        chunking_version=index_row.chunking_version,
+                        chunk_count=0,
+                    )
+                )
+            assert (await retry_failed(settings, kind="index", limit=20)).eligible == 1
+            r1, r2 = await asyncio.gather(
+                retry_failed(settings, kind="index", apply=True, limit=20),
+                retry_failed(settings, kind="index", apply=True, limit=20),
+            )
+            assert r1.queued + r2.queued == 1
+            assert (await retry_failed(settings, kind="index", apply=True, limit=20)).queued == 0
+            assert (await retry_failed(settings, kind="ocr", apply=True, limit=20)).queued == 0
+            async with factory() as db:
+                index_row = await db.get(KnowledgeIndexJob, ids["index"])
+                assert index_row is not None
+                assert index_row.status == KnowledgeIndexJobStatus.PENDING
+                assert index_row.attempt_count == 0
+                good = await db.scalar(
+                    select(KnowledgeIndexRecord).where(
+                        KnowledgeIndexRecord.parse_run_id == ids["run2"]
+                    )
+                )
+                assert good is not None
+                assert good.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                assert good.chunk_count == 1
+                target = await db.scalar(
+                    select(KnowledgeIndexRecord).where(
+                        KnowledgeIndexRecord.parse_run_id == ids["recovered"]
+                    )
+                )
+                assert target is not None
+                assert target.status == KnowledgeIndexRecordStatus.FAILED
+                parses = list(
+                    (await db.scalars(
+                        select(DocumentParseRun).where(
+                            DocumentParseRun.ingestion_job_id == ids["job"]
+                        )
+                    )).all()
+                )
+                assert len(parses) == 3
+                events = list(
+                    (await db.scalars(
+                        select(AuditEvent).where(
+                            AuditEvent.entity_type == "ocr_replay_job",
+                            AuditEvent.entity_id == str(ids["replay"]),
+                        )
+                    )).all()
+                )
+                assert [event.event_metadata["phase"] for event in events if event.event_metadata] == [
+                    "ocr", "index"
+                ]
+            # Replaced original bytes cannot be silently used to retry a failed projection.
+            raw = storage.blob_root / "1-old-scan.pdf"
+            original_bytes = raw.read_bytes()
+            raw.write_bytes(b"%PDF-modified-content")
+            async with factory.begin() as db:
+                index_row = await db.get(KnowledgeIndexJob, ids["index"])
+                assert index_row is not None
+                index_row.status = KnowledgeIndexJobStatus.FAILED
+            assert (await retry_failed(settings, kind="index", apply=True, limit=20)).queued == 0
+            raw.write_bytes(original_bytes)
+
         finally:
             if ids.get("job"):
                 async with factory.begin() as db:
+                    if "replay" in ids:
+                        await db.execute(
+                            delete(AuditEvent).where(
+                                AuditEvent.entity_type == "ocr_replay_job",
+                                AuditEvent.entity_id == str(ids["replay"]),
+                            )
+                        )
                     await db.execute(
                         delete(OcrReplayJob).where(OcrReplayJob.file_object_id == ids["file1"])
                     )
