@@ -6,7 +6,6 @@ import pytest
 
 from office_assistant.core.settings import Settings
 from office_assistant.scripts import check_readiness
-
 from office_assistant.scripts.check_readiness import Check, ocr_runtime_health, overall, search_health
 
 
@@ -32,9 +31,7 @@ def test_pdf_ocr_is_only_ready_with_renderer_and_requested_languages(
     def fake_which(_binary: str) -> str:
         return "/usr/bin/available"
 
-    def fake_run(
-        args: list[str], **_kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
+    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if args[0] == "tesseract":
             return subprocess.CompletedProcess(args, 0, "List of available languages:\naze\neng\nrus\n")
         return subprocess.CompletedProcess(args, 0, "")
