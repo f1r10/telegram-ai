@@ -139,7 +139,11 @@ class OcrReplayService:
             await self._process(claim)
         except Exception as error:
             await self._retry_or_fail(claim, type(error).__name__)
-            logger.warning("OCR replay attempt failed | job_id=%s kind=%s", claim.job_id, type(error).__name__)
+            logger.warning(
+                "OCR replay attempt failed | job_id=%s kind=%s",
+                claim.job_id,
+                type(error).__name__,
+            )
 
     @staticmethod
     def _owns(job: OcrReplayJob | None, claim: ReplayClaim) -> bool:
