@@ -33,8 +33,8 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
-from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 from office_assistant.processing.models import ParsedDocument
+from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 
 logger = logging.getLogger(__name__)
 
