@@ -22,9 +22,7 @@ class UserSerialUpdateProcessor(BaseUpdateProcessor):
 
     def __init__(self, max_concurrent_updates: int = 8) -> None:
         super().__init__(max_concurrent_updates)
-        self._user_locks: WeakValueDictionary[tuple[str, int], asyncio.Lock] = (
-            WeakValueDictionary()
-        )
+        self._user_locks: WeakValueDictionary[tuple[str, int], asyncio.Lock] = WeakValueDictionary()
 
     async def initialize(self) -> None:
         return None
