@@ -3,6 +3,7 @@
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 
 import pytest
 from PIL import Image
@@ -32,14 +33,17 @@ class ColorEncoder:
         vectors: list[list[float]] = []
         for path in paths:
             with Image.open(path) as picture:
-                red = picture.convert("RGB").getpixel((0, 0))[0]
+                pixel = picture.convert("RGB").getpixel((0, 0))
+                assert isinstance(pixel, tuple)
+                red = cast(tuple[int, int, int], pixel)[0]
             unit = red / 255
             vectors.append([unit, 1 - unit] + [0.0] * (CLIP_DIMENSION - 2))
         return vectors
 
 
 class OfflineFailure:
-    def embed(self, _paths: list[Path]) -> list[list[float]]:
+    def embed(self, paths: list[Path]) -> list[list[float]]:
+        del paths
         raise ValueError("model unavailable (private local path)")
 
 
