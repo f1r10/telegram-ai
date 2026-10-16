@@ -97,15 +97,10 @@ async def _eligible_ocr(
         return False
     original, file = source
     last_id = await session.scalar(
-        select(func.max(DocumentParseRun.id)).where(
-            DocumentParseRun.file_object_id == file.id
-        )
+        select(func.max(DocumentParseRun.id)).where(DocumentParseRun.file_object_id == file.id)
     )
-    return (
-        last_id == original.id
-        and safe_artifacts(
-            storage, original, file, max_raw_bytes=settings.max_upload_bytes, chunking=chunking
-        )
+    return last_id == original.id and safe_artifacts(
+        storage, original, file, max_raw_bytes=settings.max_upload_bytes, chunking=chunking
     )
 
 
@@ -168,12 +163,7 @@ async def _eligible_index(
         artifact = storage.path_for_key(result.normalized_storage_key)
         if not artifact.is_file() or not (0 < artifact.stat().st_size <= 32 * 1024 * 1024):
             return False
-        return (
-            searchable_chunks(
-                artifact, file_id=file.id, run_id=result.id, config=chunking
-            )
-            > 0
-        )
+        return searchable_chunks(artifact, file_id=file.id, run_id=result.id, config=chunking) > 0
     except (OSError, StorageError, ValueError):
         return False
 
@@ -223,9 +213,7 @@ async def retry_failed(
                     await session.scalars(
                         select(OcrReplayJob.id)
                         .where(
-                            OcrReplayJob.status == (
-                                "FAILED" if kind == "ocr" else "INDEX_QUEUED"
-                            )
+                            OcrReplayJob.status == ("FAILED" if kind == "ocr" else "INDEX_QUEUED")
                         )
                         .order_by(OcrReplayJob.id)
                         .limit(limit)
@@ -234,20 +222,14 @@ async def retry_failed(
             )
         for replay_id in ids:
             async with factory.begin() as session:
-                replay = await session.get(
-                    OcrReplayJob, replay_id, with_for_update=apply
-                )
+                replay = await session.get(OcrReplayJob, replay_id, with_for_update=apply)
                 if replay is None:
                     continue
                 inspected += 1
                 if kind == "ocr":
-                    allowed = await _eligible_ocr(
-                        session, replay, storage, settings, chunking
-                    )
+                    allowed = await _eligible_ocr(session, replay, storage, settings, chunking)
                 else:
-                    allowed = await _eligible_index(
-                        session, replay, storage, settings, chunking
-                    )
+                    allowed = await _eligible_index(session, replay, storage, settings, chunking)
                 if not allowed:
                     skipped += 1
                     continue
@@ -265,15 +247,11 @@ async def retry_failed(
                     replay.lease_expires_at = None
                     replay.worker_id = None
                 else:
-                    original = await session.get(
-                        DocumentParseRun, replay.source_parse_run_id
-                    )
+                    original = await session.get(DocumentParseRun, replay.source_parse_run_id)
                     assert original is not None
                     index = await session.scalar(
                         select(KnowledgeIndexJob)
-                        .where(
-                            KnowledgeIndexJob.ingestion_job_id == original.ingestion_job_id
-                        )
+                        .where(KnowledgeIndexJob.ingestion_job_id == original.ingestion_job_id)
                         .with_for_update()
                     )
                     # Re-check after the indexer lock, not just at the initial read:
