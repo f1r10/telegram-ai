@@ -17,6 +17,7 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
+from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
@@ -51,6 +52,11 @@ async def run() -> None:
         index_embedding_model=settings.embedding_model,
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
+    )
+    replay = (
+        OcrReplayService(factory, LocalFileStorage(settings.file_storage_path), settings)
+        if settings.pdf_ocr_enabled
+        else None
     )
     indexer: KnowledgeIndexService | None = None
     qdrant_store = None
@@ -123,6 +129,10 @@ async def run() -> None:
             index_claim = await indexer.claim_next(identity) if indexer is not None else None
             if index_claim is not None and indexer is not None:
                 await indexer.process(index_claim)
+                continue
+            replay_claim = await replay.claim_next(identity) if replay is not None else None
+            if replay_claim is not None and replay is not None:
+                await replay.process(replay_claim)
                 continue
             extraction_claim = (
                 await extractor.claim_next(identity) if extractor is not None else None
