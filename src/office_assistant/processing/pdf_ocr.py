@@ -100,12 +100,16 @@ class PdfOcrSession:
             render = subprocess.run(
                 [
                     "pdftoppm",
-                    "-f", str(page_number),
-                    "-l", str(page_number),
+                    "-f",
+                    str(page_number),
+                    "-l",
+                    str(page_number),
                     "-singlefile",
-                    "-scale-to", str(self.config.max_dimension_pixels),
+                    "-scale-to",
+                    str(self.config.max_dimension_pixels),
                     "-png",
-                    str(self.path), str(prefix),
+                    str(self.path),
+                    str(prefix),
                 ],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -123,8 +127,13 @@ class PdfOcrSession:
             with TemporaryFile(mode="w+b") as output:
                 result = subprocess.run(
                     [
-                        "tesseract", str(raster), "stdout",
-                        "-l", self.config.languages, "--psm", "3",
+                        "tesseract",
+                        str(raster),
+                        "stdout",
+                        "-l",
+                        self.config.languages,
+                        "--psm",
+                        "3",
                     ],
                     stdin=subprocess.DEVNULL,
                     stdout=output,
