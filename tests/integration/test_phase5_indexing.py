@@ -20,6 +20,7 @@ from office_assistant.infrastructure.database.models import (
     KnowledgeIndexJobStatus,
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
+    OutboxEvent,
     User,
     UserRole,
     UserStatus,
@@ -156,6 +157,17 @@ def test_index_job_is_durable_idempotent_and_searchable() -> None:
                 assert row is not None and row.status == KnowledgeIndexJobStatus.SUCCEEDED
                 assert record.status == KnowledgeIndexRecordStatus.SUCCEEDED
                 assert record.chunk_count == 1
+                indexed_notice = await session.scalar(
+                    select(OutboxEvent).where(
+                        OutboxEvent.aggregate_type == "knowledge_index_job",
+                        OutboxEvent.aggregate_id == str(job_id),
+                        OutboxEvent.event_type == "KNOWLEDGE_INDEX_COMPLETED",
+                    )
+                )
+                assert indexed_notice is not None
+                assert indexed_notice.recipient_telegram_id == 950001
+                assert indexed_notice.payload["files_indexed"] == 1
+                assert indexed_notice.payload["chunks_indexed"] == 1
             found = await store.search_hybrid([1.0, 0.0, 0.0], ([1, 2], [1.0, 0.5]), limit=1)
             assert found[0].source_file_id > 0
             assert raw_path.read_text(encoding="utf-8") == "raw source remains unchanged"
