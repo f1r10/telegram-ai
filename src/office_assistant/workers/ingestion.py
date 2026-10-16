@@ -17,6 +17,7 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
+from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
 
@@ -33,6 +34,18 @@ async def run() -> None:
         LocalFileStorage(settings.file_storage_path),
         lease_seconds=settings.worker_lease_seconds,
         max_attempts=settings.worker_max_attempts,
+        pdf_ocr=(
+            PdfOcrService(
+                PdfOcrConfig(
+                    languages=settings.pdf_ocr_languages,
+                    max_pages=settings.pdf_ocr_max_pages,
+                    page_timeout_seconds=settings.pdf_ocr_page_timeout_seconds,
+                    document_timeout_seconds=settings.pdf_ocr_document_timeout_seconds,
+                )
+            )
+            if settings.pdf_ocr_enabled
+            else None
+        ),
         index_collection_alias=settings.qdrant_collection_alias,
         index_collection_name=settings.qdrant_collection_name,
         index_embedding_model=settings.embedding_model,
