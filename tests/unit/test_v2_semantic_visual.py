@@ -54,7 +54,7 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     refs = [
         SemanticReference("KA45", "front.jpg", sha256(red).hexdigest()),
         SemanticReference(
-            "KA45", "side.jpg", hashlib.sha256((root / "side.jpg").read_bytes()).hexdigest()
+            "KA45", "side.jpg", sha256((root / "side.jpg").read_bytes()).hexdigest()
         ),
         SemanticReference("KA46", "other.png", hashlib.sha256(blue).hexdigest()),
     ]
@@ -69,11 +69,12 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     assert [candidate.product_code for candidate in result.candidates] == ["KA45"]
     assert all(0.85 <= candidate.score <= 1.0 for candidate in result.candidates)
     first_calls = encoder.calls
-    assert first_calls == 5
+    assert first_calls == 4
     # After caching, no local inference or model download is needed.
     result2 = search.search(photo(234), refs)
     assert result2 == result
     assert encoder.calls == first_calls + 1
+    assert not (cache / "visual-embeddings" / "clip-vit-b32-v1" / sha256(photo(234)).hexdigest()[:2] / (sha256(photo(234)).hexdigest() + ".json")).exists()
     # The active-reference query has removed this confirmed photo: stale
     # cached feature files may exist but are never treated as active authority.
     assert search.search(photo(234), []).candidates == ()
