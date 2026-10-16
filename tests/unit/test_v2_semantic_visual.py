@@ -202,7 +202,8 @@ def test_missing_local_model_is_visible_to_reference_preparation(tmp_path: Path)
     body = photo(220)
     (root / "item.png").write_bytes(body)
     search = SemanticVisualSearch(
-        storage_root=root, model_cache_root=tmp_path / "cache",
+        storage_root=root,
+        model_cache_root=tmp_path / "cache",
         encoder=OfflineFailure(),
     )
     result = search.warm_references(
@@ -215,9 +216,7 @@ def test_missing_local_model_is_visible_to_reference_preparation(tmp_path: Path)
 def test_operator_dryrun_never_starts_clip_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def fake_approved(
-        settings: Settings, *, limit: int
-    ) -> list[SemanticReference]:
+    async def fake_approved(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
         return [SemanticReference("KA45", "image.jpg", "0" * 64)]
 
