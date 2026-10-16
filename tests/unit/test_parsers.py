@@ -5,8 +5,8 @@ from docx import Document
 from openpyxl import Workbook
 from pypdf.errors import PdfReadError
 
-from office_assistant.processing.pdf_ocr import OcrPageResult, PdfOcrService
 from office_assistant.processing.parsers import ParserRegistry
+from office_assistant.processing.pdf_ocr import OcrPageResult, PdfOcrService
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 JPEG_BODY = b"\xff\xd8\xff\xe0" + b"\x00" * 32
