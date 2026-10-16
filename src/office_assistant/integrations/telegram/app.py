@@ -35,6 +35,7 @@ from office_assistant.integrations.telegram.handlers import (
     handle_user_callback,
 )
 from office_assistant.integrations.telegram.outbox import run_outbox_consumer
+from office_assistant.integrations.telegram.update_processor import UserSerialUpdateProcessor
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 
 OUTBOX_TASK_KEY = "outbox_task"
@@ -85,6 +86,9 @@ def create_telegram_application(
     application = (
         Application.builder()
         .token(token)
+        .concurrent_updates(UserSerialUpdateProcessor(max_concurrent_updates=8))
+        .connection_pool_size(32)
+        .pool_timeout(10.0)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
         .build()
