@@ -12,10 +12,15 @@ from office_assistant.infrastructure.database.models import (
     DocumentParseRun,
     DocumentProcessingStatus,
     FileObject,
+    IngestionJob,
+    IngestionSession,
     KnowledgeIndexJob,
     KnowledgeIndexJobStatus,
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
+    OutboxEvent,
+    OutboxEventStatus,
+    User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.chunking import chunk_normalized_artifact
@@ -24,6 +29,16 @@ from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 
 logger = logging.getLogger(__name__)
+
+
+def index_job_outcome(statuses: list[str]) -> KnowledgeIndexJobStatus:
+    """Never report success when not a single searchable document was indexed."""
+
+    if statuses and all(status == KnowledgeIndexRecordStatus.SUCCEEDED for status in statuses):
+        return KnowledgeIndexJobStatus.SUCCEEDED
+    if any(status == KnowledgeIndexRecordStatus.SUCCEEDED for status in statuses):
+        return KnowledgeIndexJobStatus.PARTIAL
+    return KnowledgeIndexJobStatus.FAILED
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,22 +136,66 @@ class KnowledgeIndexService:
         statuses: list[str] = []
         for parse_run, file_object in parse_runs:
             statuses.append(await self._process_parse_run(claim, job, parse_run, file_object))
-        success = {KnowledgeIndexRecordStatus.SUCCEEDED}
-        final = (
-            KnowledgeIndexJobStatus.SUCCEEDED
-            if not statuses or all(status in success for status in statuses)
-            else KnowledgeIndexJobStatus.PARTIAL
-            if any(status in success for status in statuses)
-            else KnowledgeIndexJobStatus.FAILED
-        )
+        final = index_job_outcome(statuses)
         async with self.session_factory.begin() as session:
             row = await session.get(KnowledgeIndexJob, claim.job_id, with_for_update=True)
             if row is not None:
                 row.status = final
+                row.last_error = (
+                    "No searchable parsed files were available for indexing"
+                    if not statuses
+                    else None
+                )
                 row.finished_at = datetime.now(UTC)
                 row.locked_at = None
                 row.lease_expires_at = None
                 row.worker_id = None
+                # Notify the employee only after Qdrant indexing has finished,
+                # not when the file parser merely extracted text.
+                ingest = await session.get(IngestionJob, row.ingestion_job_id)
+                source_session = (
+                    await session.get(IngestionSession, ingest.session_id)
+                    if ingest is not None
+                    else None
+                )
+                owner = (
+                    await session.get(User, source_session.user_id)
+                    if source_session is not None
+                    else None
+                )
+                if owner is not None:
+                    records = (
+                        (
+                            await session.execute(
+                                select(KnowledgeIndexRecord).where(
+                                    KnowledgeIndexRecord.knowledge_index_job_id == claim.job_id
+                                )
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    successful = [
+                        record
+                        for record in records
+                        if record.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                    ]
+                    session.add(
+                        OutboxEvent(
+                            event_type="KNOWLEDGE_INDEX_COMPLETED",
+                            aggregate_type="knowledge_index_job",
+                            aggregate_id=str(claim.job_id),
+                            recipient_telegram_id=owner.telegram_user_id,
+                            payload={
+                                "job_id": claim.job_id,
+                                "status": final,
+                                "files_indexed": len(successful),
+                                "chunks_indexed": sum(record.chunk_count for record in successful),
+                                "files_failed": len(records) - len(successful),
+                            },
+                            status=OutboxEventStatus.PENDING,
+                        )
+                    )
 
     async def _process_parse_run(
         self,
@@ -171,7 +230,12 @@ class KnowledgeIndexService:
             artifact_key = parse_run.normalized_storage_key
             record_id = record.id
         if not artifact_key:
-            return await self._finish_record(record_id, KnowledgeIndexRecordStatus.SUCCEEDED, 0)
+            return await self._finish_record(
+                record_id,
+                KnowledgeIndexRecordStatus.FAILED,
+                0,
+                "Normalized document artifact is missing; no searchable text indexed",
+            )
         try:
             chunks = chunk_normalized_artifact(
                 self.storage.path_for_key(artifact_key),
@@ -179,6 +243,13 @@ class KnowledgeIndexService:
                 parse_run_id=parse_run.id,
                 config=self.chunking,
             )
+            if not chunks:
+                return await self._finish_record(
+                    record_id,
+                    KnowledgeIndexRecordStatus.FAILED,
+                    0,
+                    "Document contains no indexable text; OCR or manual review is required",
+                )
             await self.store.ensure_collection(self.embedder.dimension)
             dense = await asyncio.to_thread(
                 self.embedder.embed_documents, [chunk.text for chunk in chunks]

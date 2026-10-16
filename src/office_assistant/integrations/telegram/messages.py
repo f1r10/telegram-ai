@@ -106,6 +106,12 @@ IMAGE_NOT_READ = (
     "Diqqət: göndərdiyiniz şəkli oxuya bilmədim. Cavab yalnız mətn hissəsidir; "
     "şəkili yenidən göndərin və ya keyfiyyətini yoxlayın."
 )
+KNOWLEDGE_INDEX_COMPLETED = (
+    "Axtarış indeksinin hazırlanması tamamlandı.\n"
+    "Axtarıla bilən fayllar: {files}\n"
+    "Axtarıla bilən mətn hissələri: {chunks}\n"
+    "İndekslənmə xətası: {failed}"
+)
 INGESTION_COMPLETED = (
     "Emal tamamlandı.\n"
     "Fayllar: {total}\n"

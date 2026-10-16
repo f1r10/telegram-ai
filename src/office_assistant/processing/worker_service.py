@@ -33,9 +33,23 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
+from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def searchable_parse_status(parsed: ParsedDocument) -> DocumentProcessingStatus:
+    """Index the readable portion of a partial OCR document; never claim empty success.
+
+    requires_ocr and warnings remain independently persisted to report missing pages.
+    """
+
+    return (
+        DocumentProcessingStatus.SUCCEEDED
+        if any(block.text.strip() for block in parsed.blocks)
+        else DocumentProcessingStatus.DEFERRED
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,10 +244,11 @@ class IngestionJobService:
             logger.exception("File parser failed | job_id=%s file_id=%s", claim.job_id, file_id)
             return DocumentProcessingStatus.FAILED
 
-        deferred = parsed.requires_ocr or (parsed.requires_vision and not parsed.blocks)
-        status = (
-            DocumentProcessingStatus.DEFERRED if deferred else DocumentProcessingStatus.SUCCEEDED
-        )
+        # One blank/scanned page must not prevent other searchable pages from being
+        # indexed. Keep the requires_ocr flag and warnings for incomplete pages.
+        # Entirely empty / image-only documents remain deferred rather than falsely
+        # appearing as "indexed" with zero searchable chunks.
+        status = searchable_parse_status(parsed)
         async with self.session_factory.begin() as session:
             run = await session.get(DocumentParseRun, run_id, with_for_update=True)
             if run is None:
@@ -341,7 +356,10 @@ class IngestionJobService:
                         "job_id": claim.job_id,
                         "status": final,
                         "total": len(statuses),
-                        "succeeded": sum(status in success for status in statuses.values()),
+                        "succeeded": sum(
+                            status == DocumentProcessingStatus.SUCCEEDED
+                            for status in statuses.values()
+                        ),
                         "deferred": sum(
                             status == DocumentProcessingStatus.DEFERRED
                             for status in statuses.values()
@@ -359,6 +377,9 @@ class IngestionJobService:
             )
             if (
                 final in {IngestionJobStatus.SUCCEEDED, IngestionJobStatus.PARTIAL}
+                and any(
+                    status == DocumentProcessingStatus.SUCCEEDED for status in statuses.values()
+                )
                 and existing_index_job is None
             ):
                 session.add(
