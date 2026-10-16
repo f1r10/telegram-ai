@@ -150,7 +150,9 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true", help="Queue verified legacy docs for indexing")
+    parser.add_argument(
+        "--apply", action="store_true", help="Queue verified legacy docs for indexing"
+    )
     parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
     logging.disable(logging.WARNING)
