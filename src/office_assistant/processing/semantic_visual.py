@@ -81,6 +81,15 @@ class SemanticSearchResult:
     unavailable: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceWarmResult:
+    inspected: int
+    warmed: int
+    skipped: int
+    incomplete: bool
+    unavailable: bool = False
+
+
 def unit_vector(values: list[float]) -> tuple[float, ...] | None:
     if len(values) != CLIP_DIMENSION or not all(math.isfinite(value) for value in values):
         return None
@@ -214,6 +223,49 @@ class SemanticVisualSearch:
                 pass
         return normal
 
+    def _verified_reference(self, reference: SemanticReference) -> bytes | None:
+        """Re-check every active reference's source bytes against the content identity."""
+
+        if not _SHA.fullmatch(reference.content_sha256):
+            return None
+        try:
+            full = (self.storage_root / reference.storage_key).resolve()
+            full.relative_to(self.storage_root)
+            if not full.is_file() or not 0 < full.stat().st_size <= MAX_IMAGE_BYTES:
+                return None
+            body = full.read_bytes()
+        except (OSError, ValueError):
+            return None
+        return body if sha256(body).hexdigest() == reference.content_sha256 else None
+
+    def warm_references(self, references: list[SemanticReference]) -> ReferenceWarmResult:
+        """Explicit operator-only precomputation; no question photos are retained."""
+
+        selected = references[: self.max_references]
+        incomplete = len(references) > len(selected)
+        if not self._lock.acquire(blocking=False):
+            return ReferenceWarmResult(0, 0, 0, incomplete, unavailable=True)
+        inspected = warmed = skipped = 0
+        try:
+            for reference in selected:
+                inspected += 1
+                body = self._verified_reference(reference)
+                if body is None:
+                    skipped += 1
+                    continue
+                try:
+                    if self._vector(body, reference.content_sha256) is None:
+                        skipped += 1
+                    else:
+                        warmed += 1
+                except (OSError, ValueError, RuntimeError, ImportError):
+                    return ReferenceWarmResult(
+                        inspected, warmed, skipped, incomplete, unavailable=True
+                    )
+            return ReferenceWarmResult(inspected, warmed, skipped, incomplete)
+        finally:
+            self._lock.release()
+
     def search(
         self,
         image_bytes: bytes,
@@ -247,16 +299,10 @@ class SemanticVisualSearch:
                 return SemanticSearchResult((), 0, incomplete)
             scored: dict[str, float] = {}
             for reference in selected:
-                if not _SHA.fullmatch(reference.content_sha256):
+                body = self._verified_reference(reference)
+                if body is None:
                     continue
                 try:
-                    full = (self.storage_root / reference.storage_key).resolve()
-                    full.relative_to(self.storage_root)
-                    if not full.is_file() or not 0 < full.stat().st_size <= MAX_IMAGE_BYTES:
-                        continue
-                    body = full.read_bytes()
-                    if sha256(body).hexdigest() != reference.content_sha256:
-                        continue
                     vector = self._vector(body, reference.content_sha256)
                 except (OSError, ValueError):
                     continue

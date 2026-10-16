@@ -185,6 +185,22 @@ chat bot or ingestion worker):
 sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -c 'from fastembed import ImageEmbedding; ImageEmbedding(model_name="Qdrant/clip-ViT-B-32-vision", cache_dir="/models/cache")'
 ```
 
+After provisioning the local model, prepare the already human-confirmed
+reference photos **before** enabling Telegram semantic lookup. Preview is read-only
+and displays counts only (no filenames, product codes, embeddings or photo data):
+
+```bash
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.prepare_visual_references --limit 80
+```
+
+In a planned staging maintenance session, append `--apply` to calculate and
+persist only approved reference vectors. The command verifies active relations
+and source image SHA-256, limits input resolution and CPU threads, reports
+`MODEL_UNAVAILABLE` when local model assets are missing, and is idempotent by
+content digest and model version. An applied prewarm never uploads a picture,
+writes a product relation or caches the employee's query photos. Reference
+revocations immediately disappear from subsequent active-reference lookups.
+
 Set `VISUAL_SEMANTIC_ENABLED=true` only in a controlled staging rollout.
 `VISUAL_SEMANTIC_MODEL_VERSION=clip-vit-b32-v1` labels the operator-reviewed
 model snapshot and also namespaces the local cache; change it on model or
