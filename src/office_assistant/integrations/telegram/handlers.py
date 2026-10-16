@@ -492,6 +492,24 @@ def _note_payload(text: str) -> str | None:
     return payload if 0 < len(payload) <= 4000 else None
 
 
+def _pending_document_instruction(text: str) -> str | None:
+    """Only an explicitly labelled instruction can modify a staged document.
+
+    Ordinary conversation must not silently become ingestion instructions, even
+    when the user has left a document awaiting confirmation.
+    """
+
+    match = re.fullmatch(
+        r"\s*(?:fayla qeyd|sənədə qeyd|fayl üçün təlimat)\s*[:：]\s*(.*?)\s*",
+        text,
+        re.I | re.S,
+    )
+    if match is None:
+        return None
+    instruction = match.group(1).strip()
+    return instruction if 0 < len(instruction) <= 4000 else None
+
+
 async def _try_text_note_upload(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -524,6 +542,7 @@ async def _try_text_note_upload(
             return True
     if payload is None:
         return False
+    _discard_menu_selection(context)
     if services.storage is None or services.ingestion is None:
         await message.reply_text(messages.STORAGE_ERROR)
         return True
@@ -841,11 +860,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if action == "om:ask":
             await query.edit_message_text(messages.MENU_CHAT_PROMPT)
             return
-        if services.ingestion is not None and await services.ingestion.has_open_session(user):
-            await query.edit_message_text(
-                messages.MENU_ACTIVE_SESSION, reply_markup=_upload_keyboard()
-            )
-            return
+        # A pending document may remain staged while the user asks questions,
+        # checks a product, or runs a sale report. Buttons must not lock the chat.
         data = getattr(context, "user_data", None)
         if data is None:
             await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
@@ -958,29 +974,15 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
             elif (
                 services.ingestion is not None
-                and message.text.strip().endswith("?")
+                and _pending_document_instruction(message.text) is not None
                 and await services.ingestion.has_open_session(user)
             ):
-                # A pending upload cannot hijack ordinary questions as save instructions.
-                # Uncommitted material is never exposed as an authoritative document.
-                if await _try_menu_question(update, context, message.text):
-                    return
-                if services.internal_evidence is None or services.rate_guard is None:
-                    await message.reply_text(messages.AI_NOT_CONFIGURED)
-                    return
-                if not services.rate_guard.allow(user.id):
-                    await message.reply_text(messages.AI_RATE_LIMITED)
-                    return
-                await _send_typing(context, message.chat_id)
-                result = await services.internal_evidence.answer(user, message.text)
-                await _reply_long(
-                    message, _format_internal(result), services.telegram_message_limit
-                )
-                return
-            elif services.ingestion is not None and await services.ingestion.has_open_session(user):
+                _discard_menu_selection(context)
+                instruction = _pending_document_instruction(message.text)
+                assert instruction is not None
                 added = await services.ingestion.add_instruction(
                     user,
-                    text_content=message.text,
+                    text_content=instruction,
                     chat_id=update.effective_chat.id if update.effective_chat else 0,
                     message_id=message.message_id,
                     update_id=update.update_id,
@@ -988,6 +990,7 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.INSTRUCTION_ADDED if added else messages.NO_OPEN_SESSION
                 )
+                return
             elif await _try_file_delivery(
                 message, services, identity.telegram_user_id, message.text
             ):
