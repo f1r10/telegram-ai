@@ -9,8 +9,8 @@ from office_assistant.scripts import check_readiness
 from office_assistant.scripts.check_readiness import (
     Check,
     ocr_runtime_health,
-    replay_progress_health,
     overall,
+    replay_progress_health,
     search_health,
 )
 
