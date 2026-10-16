@@ -53,9 +53,7 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     (root / "other.png").write_bytes(blue)
     refs = [
         SemanticReference("KA45", "front.jpg", sha256(red).hexdigest()),
-        SemanticReference(
-            "KA45", "side.jpg", sha256((root / "side.jpg").read_bytes()).hexdigest()
-        ),
+        SemanticReference("KA45", "side.jpg", sha256((root / "side.jpg").read_bytes()).hexdigest()),
         SemanticReference("KA46", "other.png", sha256(blue).hexdigest()),
     ]
     encoder = ColorEncoder()
@@ -89,8 +87,10 @@ def test_unknown_and_uncertain_images_abstain(tmp_path: Path) -> None:
     (root / "red.png").write_bytes(original)
     refs = [SemanticReference("KA45", "red.png", sha256(original).hexdigest())]
     search = SemanticVisualSearch(
-        storage_root=root, model_cache_root=tmp_path / "models",
-        encoder=ColorEncoder(), min_score=0.9,
+        storage_root=root,
+        model_cache_root=tmp_path / "models",
+        encoder=ColorEncoder(),
+        min_score=0.9,
     )
     result = search.search(photo(0), refs)
     assert result.candidates == ()
@@ -113,8 +113,10 @@ def test_changed_digest_and_symlink_escape_never_score(tmp_path: Path) -> None:
         SemanticReference("TRAVERSAL", "../outside.jpg", "0" * 64),
     ]
     search = SemanticVisualSearch(
-        storage_root=root, model_cache_root=tmp_path / "model",
-        encoder=ColorEncoder(), min_score=0.0,
+        storage_root=root,
+        model_cache_root=tmp_path / "model",
+        encoder=ColorEncoder(),
+        min_score=0.0,
     )
     assert search.search(photo(255), refs).candidates == ()
 
@@ -142,8 +144,10 @@ def test_reference_limits_and_validation(tmp_path: Path) -> None:
     root.mkdir()
     refs = [SemanticReference(f"KA{index}", "bad.png", "a" * 64) for index in range(10)]
     search = SemanticVisualSearch(
-        storage_root=root, model_cache_root=tmp_path / "models",
-        encoder=ColorEncoder(), max_references=2,
+        storage_root=root,
+        model_cache_root=tmp_path / "models",
+        encoder=ColorEncoder(),
+        max_references=2,
     )
     result = search.search(photo(220), refs)
     assert result.incomplete
