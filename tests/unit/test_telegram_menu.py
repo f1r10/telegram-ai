@@ -520,3 +520,41 @@ def test_explicit_document_note_is_the_only_instruction_during_pending_upload() 
         "PDF-də sonuncu səhifəni yoxla"
     )
     msg.reply_text.assert_awaited_once_with(messages.INSTRUCTION_ADDED)
+
+
+def test_stalled_internal_ai_returns_helpful_timeout_not_an_infinite_wait() -> None:
+    context, services = _context(_user())
+    services.answer_deadline_seconds = 0.01
+
+    async def stalled(*_args: object, **_kwargs: object) -> InternalAnswer:
+        await asyncio.Event().wait()
+        raise AssertionError("Unreachable")
+
+    services.internal_evidence = cast(
+        object, SimpleNamespace(answer=AsyncMock(side_effect=stalled))
+    )  # type: ignore[assignment]
+    message = _message("Salam, mənə məlumat ver")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    message.reply_text.assert_awaited_once_with(messages.AI_TIMEOUT)
+
+
+def test_stalled_internet_mode_times_out_without_leaking_to_other_modes() -> None:
+    context, services = _context(_user())
+    services.answer_deadline_seconds = 0.01
+
+    async def stalled(*_args: object, **_kwargs: object) -> WebAnswer:
+        await asyncio.Event().wait()
+        raise AssertionError("Unreachable")
+
+    web = SimpleNamespace(
+        answer_internet=AsyncMock(side_effect=stalled), answer_combined=AsyncMock()
+    )
+    internal = SimpleNamespace(answer=AsyncMock())
+    services.web_evidence = cast(object, web)  # type: ignore[assignment]
+    services.internal_evidence = cast(object, internal)  # type: ignore[assignment]
+    _select(context, "internet")
+    message = _message("Xarici mənbələrdən məlumat tap")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    message.reply_text.assert_awaited_once_with(messages.AI_TIMEOUT)
+    internal.answer.assert_not_awaited()
+    assert MENU_SELECTION_KEY not in context.user_data
