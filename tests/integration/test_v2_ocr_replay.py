@@ -10,7 +10,7 @@ from typing import cast
 import pytest
 from sqlalchemy import delete, select
 
-from office_assistant.core.settings import Settings, load_settings
+from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
     DocumentParseRun,
