@@ -128,14 +128,14 @@ def test_mixed_pdf_ocr_does_not_rerun_readable_pages(
             return OcrPageResult(text="KA45 scanned product")
 
     monkeypatch.setattr(engine, "session", lambda _: FakeSession())
-    parsed = ParserRegistry(pdf_ocr=engine).for_filename(path.name).parse(
-        path, source_file_id=42, media_type="application/pdf"
+    parsed = (
+        ParserRegistry(pdf_ocr=engine)
+        .for_filename(path.name)
+        .parse(path, source_file_id=42, media_type="application/pdf")
     )
     assert calls == [2]
     assert [block.locator["page"] for block in parsed.blocks] == [1, 2, 3]
-    assert [block.block_type for block in parsed.blocks] == [
-        "page_text", "page_ocr", "page_text"
-    ]
+    assert [block.block_type for block in parsed.blocks] == ["page_text", "page_ocr", "page_text"]
     assert not parsed.requires_ocr
 
 
