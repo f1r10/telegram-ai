@@ -31,6 +31,7 @@ from office_assistant.processing.pdf_images import (
     picture_bytes,
     soft_mask_note,
 )
+from office_assistant.processing.pdf_ocr import PdfOcrService
 
 # A picture inside a document is untrusted input like every other byte the bot reads, so extraction
 # is bounded: one payload and one count cap keep a hostile file from turning a parse into a disk
@@ -137,12 +138,21 @@ class PdfParser:
     version = pypdf.__version__
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.PDF_EMBEDDED
 
+    def __init__(self, ocr_service: PdfOcrService | None = None) -> None:
+        self.ocr_service = ocr_service
+
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         blocks: list[ContentBlock] = []
         text_warnings: list[str] = []
+        extraction_warnings: list[str] = []
         reader = PdfReader(str(path), strict=True)
+        ocr = self.ocr_service.session(path) if self.ocr_service is not None else None
         for page_number, page in enumerate(reader.pages, start=1):
-            text = (page.extract_text() or "").strip()
+            try:
+                text = (page.extract_text() or "").strip()
+            except Exception:  # noqa: BLE001 - a bad page must not discard the document
+                extraction_warnings.append(f"Page {page_number}: native text extraction failed")
+                text = ""
             if text:
                 blocks.append(
                     ContentBlock(
@@ -152,20 +162,45 @@ class PdfParser:
                         {"page": page_number},
                     )
                 )
+                continue
+            if ocr is not None:
+                result = ocr.read_page(page_number)
+                if result.text:
+                    blocks.append(
+                        ContentBlock(
+                            len(blocks) + 1,
+                            "page_ocr",
+                            result.text,
+                            {"page": page_number, "extraction": "tesseract"},
+                        )
+                    )
+                    continue
+                text_warnings.append(
+                    f"Page {page_number} contains no searchable text"
+                    f" (OCR: {result.reason or 'unavailable'})"
+                )
             else:
                 text_warnings.append(
                     f"Page {page_number} contains no extractable text; OCR may be required"
                 )
         image_warnings: list[str] = []
         images = self._embedded_images(reader, image_warnings)
+        metadata: dict[str, Any] = {}
+        if ocr is not None:
+            metadata["ocr"] = {
+                "engine": "tesseract",
+                "attempted_pages": ocr.attempted_pages,
+                "recovered_pages": ocr.recovered_pages,
+                "unresolved_pages": len(text_warnings),
+            }
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
             media_type,
-            {},
+            metadata,
             blocks,
-            [*text_warnings, *image_warnings],
+            [*text_warnings, *extraction_warnings, *image_warnings],
             requires_ocr=bool(text_warnings),
             embedded_images=images,
         )
@@ -705,10 +740,10 @@ def detect_image_media_type(header: bytes) -> str | None:
 
 
 class ParserRegistry:
-    def __init__(self) -> None:
+    def __init__(self, *, pdf_ocr: PdfOcrService | None = None) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
-            ".pdf": PdfParser(),
+            ".pdf": PdfParser(ocr_service=pdf_ocr),
             ".docx": DocxParser(),
             ".xlsx": XlsxParser(),
             ".jpg": ImageProbeParser(),

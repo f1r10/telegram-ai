@@ -9,6 +9,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --from=uv /uv /uvx /bin/
 
+# OCR runs entirely on the local worker. Include all default language packs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        poppler-utils tesseract-ocr tesseract-ocr-aze tesseract-ocr-eng tesseract-ocr-rus \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project

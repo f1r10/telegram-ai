@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from pypdf.errors import PdfReadError
 
 from office_assistant.processing.parsers import ParserRegistry
+from office_assistant.processing.pdf_ocr import OcrPageResult, PdfOcrService
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 JPEG_BODY = b"\xff\xd8\xff\xe0" + b"\x00" * 32
@@ -108,6 +109,37 @@ def test_pdf_parser_flags_empty_page_for_ocr(tmp_path: Path) -> None:
 
     assert parsed.requires_ocr
     assert parsed.warnings == ["Page 2 contains no extractable text; OCR may be required"]
+
+
+def test_mixed_pdf_ocr_does_not_rerun_readable_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "mixed.pdf"
+    path.write_bytes(_make_pdf(["native product 11", None, "native product 33"]))
+    engine = PdfOcrService()
+    calls: list[int] = []
+
+    class FakeSession:
+        attempted_pages = 1
+        recovered_pages = 1
+
+        def read_page(self, page_number: int) -> OcrPageResult:
+            calls.append(page_number)
+            return OcrPageResult(text="KA45 scanned product")
+
+    def fake_session(_path: Path) -> FakeSession:
+        return FakeSession()
+
+    monkeypatch.setattr(engine, "session", fake_session)
+    parsed = (
+        ParserRegistry(pdf_ocr=engine)
+        .for_filename(path.name)
+        .parse(path, source_file_id=42, media_type="application/pdf")
+    )
+    assert calls == [2]
+    assert [block.locator["page"] for block in parsed.blocks] == [1, 2, 3]
+    assert [block.block_type for block in parsed.blocks] == ["page_text", "page_ocr", "page_text"]
+    assert not parsed.requires_ocr
 
 
 def test_pdf_parser_rejects_corrupt_pdf(tmp_path: Path) -> None:
