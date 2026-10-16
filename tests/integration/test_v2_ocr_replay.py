@@ -434,6 +434,45 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                         assert target is not None
                         assert target.status == KnowledgeIndexRecordStatus.SUCCEEDED
                         assert target.chunk_count > 0
+
+                    # A legacy false-success zero-chunk record must be retried,
+                    # even when its parent job completed only partially.
+                    async with factory.begin() as db:
+                        index_row = await db.get(KnowledgeIndexJob, ids["index"])
+                        assert index_row is not None
+                        index_row.status = KnowledgeIndexJobStatus.PARTIAL
+                        target = await db.scalar(
+                            select(KnowledgeIndexRecord).where(
+                                KnowledgeIndexRecord.parse_run_id == ids["recovered"]
+                            )
+                        )
+                        assert target is not None
+                        target.status = KnowledgeIndexRecordStatus.SUCCEEDED
+                        target.chunk_count = 0
+
+                    assert (await retry_failed(settings, kind="index", limit=20)).eligible == 1
+                    retried = await retry_failed(settings, kind="index", apply=True, limit=20)
+                    assert retried.queued == 1
+                    async with factory() as db:
+                        target = await db.scalar(
+                            select(KnowledgeIndexRecord).where(
+                                KnowledgeIndexRecord.parse_run_id == ids["recovered"]
+                            )
+                        )
+                        assert target is not None
+                        assert target.status == KnowledgeIndexRecordStatus.FAILED
+
+                    again = await indexer.claim_next("retry-index-worker")
+                    assert again is not None
+                    await indexer.process(again)
+                    matches_again = await store.search_dense(
+                        [1.0, 0.0, 0.0],
+                        limit=5,
+                        filters=RetrievalFilter(file_id=ids["file1"]),
+                    )
+                    assert len(matches_again) == 1
+                    assert matches_again[0].parse_run_id == ids["recovered"]
+                    assert (await retry_failed(settings, kind="index", limit=20)).eligible == 0
                 finally:
                     await store.client.delete_collection(settings.qdrant_collection_name)
                     await store.close()
