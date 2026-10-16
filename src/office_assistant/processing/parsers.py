@@ -25,13 +25,13 @@ from pypdf.generic import ContentStream
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.processing.image_metadata import image_signature
 from office_assistant.processing.models import ContentBlock, EmbeddedImage, ParsedDocument
-from office_assistant.processing.pdf_ocr import PdfOcrService
 from office_assistant.processing.pdf_images import (
     SampleImageError,
     pdf_name,
     picture_bytes,
     soft_mask_note,
 )
+from office_assistant.processing.pdf_ocr import PdfOcrService
 
 # A picture inside a document is untrusted input like every other byte the bot reads, so extraction
 # is bounded: one payload and one count cap keep a hostile file from turning a parse into a disk
