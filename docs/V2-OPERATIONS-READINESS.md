@@ -65,6 +65,14 @@ Failures remain visible in `ocr_replay_jobs.status/last_error` and
 `knowledge_index_jobs`, without logging document text. A blank scan remains
 unsearchable.
 
+The readiness doctor's `historical_pdf_ocr_replay` result now reports:
+`pending_or_running`, `failed`, `awaiting_index`, and `indexed`.
+Only a successful knowledge index **record with more than zero chunks**
+counts as indexed. `INDEX_QUEUED` without confirmed nonzero index records
+keeps readiness at `DEGRADED`; a partially successful index job is also
+reported as degraded. Thus a queued or failed replay cannot masquerade as a
+fully searchable corpus.
+
 After workers finish, rerun the readiness doctor and inspect the index
 completion event. Search for a unique phrase in each representative recovered
 PDF, confirm the original PDF page number and source delivery, and verify that

@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from typing import cast
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -25,6 +25,7 @@ from office_assistant.infrastructure.database.models import (
     KnowledgeIndexJobStatus,
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
+    OcrReplayJob,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.processing.pdf_ocr import PdfOcrConfig
@@ -109,6 +110,19 @@ def ocr_runtime_health(settings: Settings) -> Check:
     return Check("pdf_ocr", "OK", "Local PDF renderer and configured OCR languages available")
 
 
+def replay_progress_health(
+    *, pending: int, failed: int, awaiting_index: int, indexed: int
+) -> Check:
+    """Operator OCR attempts are not complete until nonempty vectors are persisted."""
+
+    detail = (
+        f"pending_or_running={pending} failed={failed} "
+        f"awaiting_index={awaiting_index} indexed={indexed}"
+    )
+    status = "WARN" if pending or failed or awaiting_index else "OK"
+    return Check("historical_pdf_ocr_replay", status, detail)
+
+
 async def _database() -> list[Check]:
     settings = load_settings()
     engine = create_database_engine(settings)
@@ -134,6 +148,38 @@ async def _database() -> list[Check]:
             indexing_failed = await session.scalar(
                 select(func.count(KnowledgeIndexJob.id)).where(
                     KnowledgeIndexJob.status == KnowledgeIndexJobStatus.FAILED
+                )
+            )
+            indexing_partial = await session.scalar(
+                select(func.count(KnowledgeIndexJob.id)).where(
+                    KnowledgeIndexJob.status == KnowledgeIndexJobStatus.PARTIAL
+                )
+            )
+            replay_pending = await session.scalar(
+                select(func.count(OcrReplayJob.id)).where(
+                    OcrReplayJob.status.in_(["PENDING", "RUNNING"])
+                )
+            )
+            replay_failed = await session.scalar(
+                select(func.count(OcrReplayJob.id)).where(OcrReplayJob.status == "FAILED")
+            )
+            indexed_replay = exists(
+                select(KnowledgeIndexRecord.id).where(
+                    KnowledgeIndexRecord.parse_run_id == OcrReplayJob.result_parse_run_id,
+                    KnowledgeIndexRecord.status == KnowledgeIndexRecordStatus.SUCCEEDED,
+                    KnowledgeIndexRecord.chunk_count > 0,
+                )
+            )
+            replay_waiting = await session.scalar(
+                select(func.count(OcrReplayJob.id)).where(
+                    OcrReplayJob.status == "INDEX_QUEUED",
+                    ~indexed_replay,
+                )
+            )
+            replay_indexed = await session.scalar(
+                select(func.count(OcrReplayJob.id)).where(
+                    OcrReplayJob.status == "INDEX_QUEUED",
+                    indexed_replay,
                 )
             )
             index_running = await session.scalar(
@@ -162,8 +208,17 @@ async def _database() -> list[Check]:
         checks.append(
             Check(
                 "search_index_jobs",
-                "WARN" if indexing_failed else "OK",
-                f"failed={int(indexing_failed or 0)} pending_or_running={int(index_running or 0)}",
+                "WARN" if indexing_failed or indexing_partial else "OK",
+                f"failed={int(indexing_failed or 0)} partial={int(indexing_partial or 0)} "
+                f"pending_or_running={int(index_running or 0)}",
+            )
+        )
+        checks.append(
+            replay_progress_health(
+                pending=int(replay_pending or 0),
+                failed=int(replay_failed or 0),
+                awaiting_index=int(replay_waiting or 0),
+                indexed=int(replay_indexed or 0),
             )
         )
         return checks
