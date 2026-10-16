@@ -502,9 +502,7 @@ def test_explicit_document_note_is_the_only_instruction_during_pending_upload() 
     assert _pending_document_instruction("Fayla qeyd: Müqavilənin 2-ci səhifəsini yoxla") == (
         "Müqavilənin 2-ci səhifəsini yoxla"
     )
-    assert _pending_document_instruction("sənədə qeyd: təsdiq gözlənilir") == (
-        "təsdiq gözlənilir"
-    )
+    assert _pending_document_instruction("sənədə qeyd: təsdiq gözlənilir") == ("təsdiq gözlənilir")
     assert _pending_document_instruction("fayl üçün təlimat: cədvəli böl") == "cədvəli böl"
     assert _pending_document_instruction("Şirkətə neçə məhsul satmışıq") is None
     assert _pending_document_instruction("Fayla qeyd: ") is None
