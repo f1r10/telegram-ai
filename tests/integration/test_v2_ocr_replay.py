@@ -151,9 +151,15 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                     ids[f"run{i}"] = run.id
                     payload_json: dict[str, object] = {
                         "blocks": (
-                            [] if i == 1 else [
-                                {"sequence": 1, "text": "already indexed",
-                                 "block_type": "plain_text", "locator": {"line_start": 1}}
+                            []
+                            if i == 1
+                            else [
+                                {
+                                    "sequence": 1,
+                                    "text": "already indexed",
+                                    "block_type": "plain_text",
+                                    "locator": {"line_start": 1},
+                                }
                             ]
                         )
                     }
@@ -193,9 +199,7 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             replay = OcrReplayService(
                 factory, storage, settings, registry=cast(ParserRegistry, _FakeRegistry())
             )
-            first, second = await asyncio.gather(
-                replay.claim_next("w1"), replay.claim_next("w2")
-            )
+            first, second = await asyncio.gather(replay.claim_next("w1"), replay.claim_next("w2"))
             claims = [claim for claim in [first, second] if claim is not None]
             assert len(claims) == 1
             await replay.process(claims[0])
@@ -227,21 +231,23 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                 assert good.status == KnowledgeIndexRecordStatus.SUCCEEDED
                 assert good.chunk_count == 1
                 items = (
-                    await db.execute(
-                        select(IngestionSessionItem).where(
-                            IngestionSessionItem.session_id == ids["session"]
+                    (
+                        await db.execute(
+                            select(IngestionSessionItem).where(
+                                IngestionSessionItem.session_id == ids["session"]
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 assert len(items) == 2
                 assert sorted(item.telegram_message_id for item in items) == [1001, 1002]
         finally:
             if ids.get("job"):
                 async with factory.begin() as db:
                     await db.execute(
-                        delete(OcrReplayJob).where(
-                            OcrReplayJob.file_object_id == ids["file1"]
-                        )
+                        delete(OcrReplayJob).where(OcrReplayJob.file_object_id == ids["file1"])
                     )
                     await db.execute(
                         delete(KnowledgeIndexRecord).where(
@@ -256,9 +262,7 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                             DocumentParseRun.ingestion_job_id == ids["job"]
                         )
                     )
-                    await db.execute(
-                        delete(IngestionJob).where(IngestionJob.id == ids["job"])
-                    )
+                    await db.execute(delete(IngestionJob).where(IngestionJob.id == ids["job"]))
                     await db.execute(
                         delete(IngestionSessionItem).where(
                             IngestionSessionItem.session_id == ids["session"]
