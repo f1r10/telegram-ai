@@ -81,6 +81,49 @@ report full document recovery based only on replay status
 `INDEX_QUEUED`: Qdrant indexing can still fail. No production replay has
 been executed as part of this change.
 
+## Supervised retries after OCR or Qdrant failure
+
+**Never run these against live data without a verified backup and staging
+acceptance.** An operator must choose exactly one phase; both commands default to
+a read-only PostgreSQL inspection, with bounded counts and no document text in
+the CLI output:
+
+```bash
+# OCR failed and no successful OCR-generated parse exists
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.retry_scanned_pdfs --retry-failed-ocr --limit 100
+
+# OCR succeeded but its Qdrant index projection did not
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.retry_scanned_pdfs --retry-failed-index --limit 100
+```
+
+After reviewing `inspected`, `eligible`, `queued`, and `skipped`,
+repeat the selected command with **`--apply`** only in a controlled window.
+Do not use both phase flags together. Neither option resets raw uploaded
+documents, creates synthetic Telegram submissions, nor replays business
+extraction or sales. Both first re-check the source's original SHA-256 digest,
+its session provenance and absence of another searchable version.
+
+An OCR-phase retry is limited to terminal `FAILED` replay rows with no OCR
+parse result, and creates an explicit new worker lease. An index-phase retry
+reuses the already successful parsed text and original `parse_run_id`, without
+calling OCR. Only a terminal `FAILED`, `PARTIAL`, or inconsistent
+`SUCCEEDED` index job for which this exact parse is **not** successfully
+indexed with nonzero chunks may be requeued; other successfully indexed
+files' records are not changed. Concurrent operator attempts are serialized
+using database row locks. Index vector IDs remain deterministic for the
+original parse run; an index retry therefore upserts rather than inventing a
+new source identity.
+
+Every applied retry appends an `OCR_REPLAY_OPERATOR_RETRY` audit event
+with its phase and previous attempt counter. Document content, private file
+paths and raw OCR failures are not included. Terminal `SKIPPED` jobs, missing
+or mutated original PDF bytes, and already indexed files are not eligible.
+A queued retry is **not** a completed repair. Verify a nonzero
+`KnowledgeIndexRecord`, the `historical_pdf_ocr_replay` readiness check,
+original page locator, source delivery and representative Telegram searches.
+If readiness remains `DEGRADED`, diagnose the failed phase before another
+operator intervention.
+
 ## Scanned PDF OCR (new imports)
 
 The ingestion **worker** can now recognize page images locally using Poppler and
