@@ -199,14 +199,26 @@ def test_internal_menu_keeps_search_inside_company_data() -> None:
     web.answer_combined.assert_not_called()
 
 
-def test_clicking_menu_during_open_upload_session_does_not_change_routing() -> None:
-    context, services = _context(_user())
-    ingestion = SimpleNamespace(has_open_session=AsyncMock(return_value=True))
+def test_open_upload_session_does_not_block_internet_menu() -> None:
+    user = _user()
+    context, services = _context(user)
+    ingestion = SimpleNamespace(
+        has_open_session=AsyncMock(return_value=True), add_instruction=AsyncMock()
+    )
     services.ingestion = cast(IngestionSessionService, ingestion)
+    web = SimpleNamespace(
+        answer_internet=AsyncMock(return_value=WebAnswer("Təsdiqli internet cavabı")),
+        answer_combined=AsyncMock(),
+    )
+    services.web_evidence = cast(object, web)  # type: ignore[assignment]
     query = _select(context, "internet")
-    query.edit_message_text.assert_awaited_once()
-    assert query.edit_message_text.await_args.args == (messages.MENU_ACTIVE_SESSION,)
-    assert query.edit_message_text.await_args.kwargs["reply_markup"] is not None
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_ASK_INTERNET)
+    assert MENU_SELECTION_KEY in context.user_data
+    text = "Açıq internetdə bu məhsulun qiymətinə bax"
+    message = _message(text)
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    web.answer_internet.assert_awaited_once_with(user, text)
+    ingestion.add_instruction.assert_not_awaited()
     assert MENU_SELECTION_KEY not in context.user_data
 
 
@@ -455,3 +467,57 @@ def test_pending_upload_never_swallows_an_ordinary_question() -> None:
     answer.answer.assert_awaited_once_with(user, text)
     ingest.add_instruction.assert_not_awaited()
     message.reply_text.assert_awaited_once_with("Kataloqda yoxlanıldı.")
+
+
+def test_pending_document_does_not_swallow_ordinary_statement() -> None:
+    user = _user()
+    context, services = _context(user)
+    ingest = SimpleNamespace(
+        has_open_session=AsyncMock(return_value=True), add_instruction=AsyncMock()
+    )
+    services.ingestion = cast(IngestionSessionService, ingest)
+    answer = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=InternalAnswer(
+                answer="Salam! Sənədlə işləyə bilərəm.",
+                route=RoutingCategory.GENERAL,
+            )
+        )
+    )
+    services.internal_evidence = cast(object, answer)  # type: ignore[assignment]
+    text = "Salam, sənəddə nə yazıldığı barədə danışaq"
+    message = _message(text)
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    answer.answer.assert_awaited_once_with(user, text, image_readings=[])
+    ingest.add_instruction.assert_not_awaited()
+    message.reply_text.assert_awaited_once_with("Salam! Sənədlə işləyə bilərəm.")
+
+
+def test_explicit_document_note_is_the_only_instruction_during_pending_upload() -> None:
+    from office_assistant.integrations.telegram.handlers import (
+        _pending_document_instruction,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert _pending_document_instruction("Fayla qeyd: Müqavilənin 2-ci səhifəsini yoxla") == (
+        "Müqavilənin 2-ci səhifəsini yoxla"
+    )
+    assert _pending_document_instruction("sənədə qeyd: təsdiq gözlənilir") == (
+        "təsdiq gözlənilir"
+    )
+    assert _pending_document_instruction("fayl üçün təlimat: cədvəli böl") == "cədvəli böl"
+    assert _pending_document_instruction("Şirkətə neçə məhsul satmışıq") is None
+    assert _pending_document_instruction("Fayla qeyd: ") is None
+    assert _pending_document_instruction("Fayla qeyd: " + "x" * 4001) is None
+    context, services = _context(_user())
+    ingest = SimpleNamespace(
+        has_open_session=AsyncMock(return_value=True),
+        add_instruction=AsyncMock(return_value=True),
+    )
+    services.ingestion = cast(IngestionSessionService, ingest)
+    msg = _message("Fayla qeyd: PDF-də sonuncu səhifəni yoxla")
+    asyncio.run(handle_password_text(_update(msg), cast(ContextTypes.DEFAULT_TYPE, context)))
+    ingest.add_instruction.assert_awaited_once()
+    assert ingest.add_instruction.await_args.kwargs["text_content"] == (
+        "PDF-də sonuncu səhifəni yoxla"
+    )
+    msg.reply_text.assert_awaited_once_with(messages.INSTRUCTION_ADDED)
