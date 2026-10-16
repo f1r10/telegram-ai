@@ -43,10 +43,11 @@ class LocalClipEncoder:
         self._model: object | None = None
 
     def embed(self, paths: list[Path]) -> list[list[float]]:
+        # Imported lazily: current image lookup has no model load or cost
+        # unless the feature flag was explicitly enabled.
+        from fastembed import ImageEmbedding
+
         if self._model is None:
-            # Imported lazily: current image lookup has no model load or cost
-            # unless the feature flag was explicitly enabled.
-            from fastembed import ImageEmbedding
 
             self._model = ImageEmbedding(
                 model_name=CLIP_MODEL,
@@ -181,13 +182,16 @@ class SemanticVisualSearch:
         self.max_references = max_references
         self._lock = threading.Lock()
 
-    def _vector(self, data: bytes, digest: str) -> tuple[float, ...] | None:
+    def _vector(
+        self, data: bytes, digest: str, *, cacheable: bool = True
+    ) -> tuple[float, ...] | None:
         location = self.cache_root / "visual-embeddings" / self.version / digest[:2] / (
             digest + ".json"
         )
-        cached = _read_cached(location, digest, self.version)
-        if cached is not None:
-            return cached
+        if cacheable:
+            cached = _read_cached(location, digest, self.version)
+            if cached is not None:
+                return cached
         with tempfile.TemporaryDirectory(prefix="office-visual-", dir=None) as work:
             image_path = Path(work) / "input.png"
             if not _thumbnail(data, image_path):
@@ -196,7 +200,7 @@ class SemanticVisualSearch:
         if len(vectors) != 1:
             return None
         normal = unit_vector(vectors[0])
-        if normal is not None:
+        if normal is not None and cacheable:
             try:
                 _write_cached(location, digest, self.version, normal)
             except OSError:
@@ -230,7 +234,11 @@ class SemanticVisualSearch:
         incomplete = len(references) > len(selected)
         inspected = 0
         try:
-            query = self._vector(image_bytes, sha256(image_bytes).hexdigest())
+            # A question photo is transient, not user-confirmed reference content:
+            # never retain its image-derived vector on disk.
+            query = self._vector(
+                image_bytes, sha256(image_bytes).hexdigest(), cacheable=False
+            )
             if query is None:
                 return SemanticSearchResult((), 0, incomplete)
             scored: dict[str, float] = {}
