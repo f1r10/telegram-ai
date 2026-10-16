@@ -165,14 +165,19 @@ class KnowledgeIndexService:
                 )
                 if owner is not None:
                     records = (
-                        await session.execute(
-                            select(KnowledgeIndexRecord).where(
-                                KnowledgeIndexRecord.knowledge_index_job_id == claim.job_id
+                        (
+                            await session.execute(
+                                select(KnowledgeIndexRecord).where(
+                                    KnowledgeIndexRecord.knowledge_index_job_id == claim.job_id
+                                )
                             )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     successful = [
-                        record for record in records
+                        record
+                        for record in records
                         if record.status == KnowledgeIndexRecordStatus.SUCCEEDED
                     ]
                     session.add(
