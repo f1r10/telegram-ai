@@ -500,7 +500,7 @@ def _pending_document_instruction(text: str) -> str | None:
     """
 
     match = re.fullmatch(
-        r"\\s*(?:fayla qeyd|sənədə qeyd|fayl üçün təlimat)\\s*[:：]\\s*(.*?)\\s*",
+        r"\s*(?:fayla qeyd|sənədə qeyd|fayl üçün təlimat)\s*[:：]\s*(.*?)\s*",
         text,
         re.I | re.S,
     )
