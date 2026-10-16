@@ -33,8 +33,8 @@ from office_assistant.infrastructure.database.session import create_session_fact
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.processing.ocr_replay import verified_raw_pdf
-from office_assistant.scripts.replay_scanned_pdfs import already_indexed, safe_artifacts
 from office_assistant.scripts.repair_legacy_index import searchable_chunks
+from office_assistant.scripts.replay_scanned_pdfs import already_indexed, safe_artifacts
 
 RetryKind = Literal["ocr", "index"]
 
