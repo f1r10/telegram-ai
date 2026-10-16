@@ -35,6 +35,10 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEmbedTextAdapter
+from office_assistant.knowledge.indexing import KnowledgeIndexService
+from office_assistant.knowledge.models import ChunkingConfig, RetrievalFilter
+from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.processing.models import ContentBlock, ParsedDocument
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.parsers import ParserRegistry
@@ -42,6 +46,19 @@ from office_assistant.scripts.replay_scanned_pdfs import queue_legacy_scans
 from office_assistant.scripts.retry_scanned_pdfs import retry_failed
 
 pytestmark = pytest.mark.integration
+
+
+class _FakeDense:
+    dimension = 3
+    model_id = "fake-ocr-retry-model"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
+
+class _FakeSparse:
+    def embed(self, texts: list[str]) -> list[tuple[list[int], list[float]]]:
+        return [([17], [1.0]) for _ in texts]
 
 
 class _FakeOcrParser:
@@ -77,7 +94,13 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
     if not (base.postgres_db and base.postgres_host and base.postgres_password):
         pytest.skip("PostgreSQL is required")
     root = Path(base.file_storage_path) / "v2-ocr-replay-integration"
-    settings = base.model_copy(update={"file_storage_path": str(root)})
+    settings = base.model_copy(
+        update={
+            "file_storage_path": str(root),
+            "qdrant_collection_alias": "v2_ocr_retry_test_chunks",
+            "qdrant_collection_name": "v2_ocr_retry_test_chunks_v1",
+        }
+    )
     storage = LocalFileStorage(root)
 
     async def run() -> None:
@@ -181,8 +204,8 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                 index_job = KnowledgeIndexJob(
                     ingestion_job_id=job.id,
                     status=KnowledgeIndexJobStatus.SUCCEEDED,
-                    collection_alias="document_chunks",
-                    collection_name="document_chunks_v1",
+                    collection_alias=settings.qdrant_collection_alias,
+                    collection_name=settings.qdrant_collection_name,
                     embedding_model=settings.embedding_model,
                     chunking_version=settings.chunking_version,
                 )
@@ -357,6 +380,57 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                 index_row.status = KnowledgeIndexJobStatus.FAILED
             assert (await retry_failed(settings, kind="index", apply=True, limit=20)).queued == 0
             raw.write_bytes(original_bytes)
+
+            if settings.qdrant_url:
+                assert (await retry_failed(settings, kind="index", apply=True, limit=20)).queued == 1
+                store = QdrantKnowledgeStore(
+                    settings.qdrant_url,
+                    alias=settings.qdrant_collection_alias,
+                    collection=settings.qdrant_collection_name,
+                )
+                try:
+                    indexer = KnowledgeIndexService(
+                        factory,
+                        storage,
+                        store,
+                        cast(FastEmbedTextAdapter, _FakeDense()),
+                        cast(FastEmbedSparseAdapter, _FakeSparse()),
+                        chunking=ChunkingConfig(
+                            settings.chunking_version,
+                            settings.chunk_max_chars,
+                            settings.chunk_overlap_chars,
+                        ),
+                    )
+                    claim = await indexer.claim_next("retry-index-worker")
+                    assert claim is not None
+                    await indexer.process(claim)
+                    matches = await store.search_dense(
+                        [1.0, 0.0, 0.0],
+                        limit=5,
+                        filters=RetrievalFilter(file_id=ids["file1"]),
+                    )
+                    assert any("KA45" in hit.text for hit in matches)
+                    assert any(hit.locator["blocks"][0]["page"] == 1 for hit in matches)
+                    assert (await retry_failed(settings, kind="index", limit=20)).eligible == 0
+                    async with factory() as db:
+                        good = await db.scalar(
+                            select(KnowledgeIndexRecord).where(
+                                KnowledgeIndexRecord.parse_run_id == ids["run2"]
+                            )
+                        )
+                        assert good is not None and good.chunk_count == 1
+                        assert good.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                        target = await db.scalar(
+                            select(KnowledgeIndexRecord).where(
+                                KnowledgeIndexRecord.parse_run_id == ids["recovered"]
+                            )
+                        )
+                        assert target is not None
+                        assert target.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                        assert target.chunk_count > 0
+                finally:
+                    await store.client.delete_collection(settings.qdrant_collection_name)
+                    await store.close()
 
         finally:
             if ids.get("job"):
