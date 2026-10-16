@@ -9,7 +9,6 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
