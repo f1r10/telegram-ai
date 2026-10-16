@@ -15,7 +15,6 @@ import httpx
 from sqlalchemy import func, select
 
 from office_assistant.core.settings import Settings, load_settings
-from office_assistant.processing.pdf_ocr import PdfOcrConfig
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
     DocumentParseRun,
@@ -28,6 +27,7 @@ from office_assistant.infrastructure.database.models import (
     KnowledgeIndexRecordStatus,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
+from office_assistant.processing.pdf_ocr import PdfOcrConfig
 
 
 @dataclass(frozen=True, slots=True)
