@@ -103,10 +103,7 @@ class OcrReplayService:
                 job = await session.scalar(
                     select(OcrReplayJob)
                     .where(
-                        (
-                            (OcrReplayJob.status == "PENDING")
-                            & (OcrReplayJob.available_at <= now)
-                        )
+                        ((OcrReplayJob.status == "PENDING") & (OcrReplayJob.available_at <= now))
                         | (
                             (OcrReplayJob.status == "RUNNING")
                             & (OcrReplayJob.lease_expires_at <= now)
