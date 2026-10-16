@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from pathlib import Path
 
 from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
@@ -38,6 +39,7 @@ from office_assistant.internal_evidence.tool_adapter import OpenAIToolSchemaAdap
 from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEmbedTextAdapter
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
@@ -200,6 +202,17 @@ def main() -> None:
                 )
         else:
             ai_service = None
+        semantic_visual = (
+            SemanticVisualSearch(
+                storage_root=storage.root,
+                model_cache_root=Path(settings.embedding_cache_path),
+                version=settings.visual_semantic_model_version,
+                min_score=settings.visual_semantic_min_score,
+                max_references=settings.visual_semantic_max_references,
+            )
+            if settings.visual_semantic_enabled
+            else None
+        )
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
@@ -221,6 +234,7 @@ def main() -> None:
             ),
             web_evidence=web_service,
             image_reader=image_reader,
+            semantic_visual=semantic_visual,
             reminders=ReminderService(session_factory, clock=SystemClock()),
             reference_images=ReferenceImageService(session_factory, storage),
             sales=SalesLedgerService(session_factory),

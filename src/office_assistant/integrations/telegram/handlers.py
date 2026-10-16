@@ -113,6 +113,7 @@ from office_assistant.internal_evidence.models import ImageReading, InternalAnsw
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
+from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
@@ -148,6 +149,7 @@ class TelegramServices:
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
     image_reader: ImageVisionExtractor | None = None
+    semantic_visual: SemanticVisualSearch | None = None
     reminders: ReminderService | None = None
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
@@ -1829,7 +1831,7 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
 
 
 async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Exact content identity only; do not mislabel hashes as visual similarity."""
+    """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
     message = update.effective_message
     identity = _identity(update)
@@ -1875,7 +1877,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             # A document sighting or unconfirmed image is never trusted as identity.
             rows = (
                 await session.execute(
-                    select(Product.display_code, ImageAsset.storage_key)
+                    select(Product.display_code, ImageAsset.storage_key, ImageAsset.content_sha256)
                     .select_from(ProductImageRelation)
                     .join(Product, Product.id == ProductImageRelation.product_id)
                     .join(ImageAsset, ImageAsset.id == ProductImageRelation.image_asset_id)
@@ -1892,7 +1894,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
         incomplete = len(rows) > 500
         references = [
             VisualCandidate(product_code=code, storage_key=storage_key)
-            for code, storage_key in rows[:500]
+            for code, storage_key, _ in rows[:500]
         ]
         possible = await asyncio.to_thread(shortlist, picture, references, services.storage.root)
         if possible:
@@ -1904,6 +1906,47 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "Bunlar yalnız ölçüsü/keyfiyyəti dəyişmiş şəkillər üzrə "
                 "ehtimal olunan uyğunluqlardır. Məhsulun eyniliyi və stok "
                 "təsdiqlənməyib; kodu yoxlayın." + warning
+            )
+        elif services.semantic_visual is not None and references:
+            semantic = await asyncio.wait_for(
+                asyncio.to_thread(
+                    services.semantic_visual.search,
+                    picture,
+                    [
+                        SemanticReference(code, storage_key, digest)
+                        for code, storage_key, digest in rows[:500]
+                    ],
+                ),
+                timeout=25.0,
+            )
+            if semantic.candidates:
+                lines = "\n".join(f"• {item.product_code}" for item in semantic.candidates)
+                limited = (
+                    "\nYoxlama yalnız seçilmiş təsdiqli nümunələri əhatə edir."
+                    if incomplete or semantic.incomplete
+                    else ""
+                )
+                await message.reply_text(
+                    "📷 MƏHSUL ÜZRƏ EHTİMAL OLUNAN NAMİZƏDLƏR\n\n"
+                    f"{lines}\n\n"
+                    "Fərqli bucaqdan çəkilmiş şəkillərin semantik oxşarlığı əsasında "
+                    "göstərilib. Bu, məhsulun eyniliyinin təsdiqi deyil. "
+                    "Məhsul kodunu yoxlayın; anbarda stok olduğu da təsdiqlənmir." + limited
+                )
+                return
+            if semantic.unavailable:
+                await message.reply_text(
+                    "Semantik şəkil modeli bu anda əlçatan deyil. "
+                    "Məhsulun kimliyini təxmin etmirəm; kodla axtarın."
+                )
+                return
+            if asset_id is not None:
+                await message.reply_text("Bu şəkil bazadadır, lakin aktiv məhsul təsdiqi yoxdur.")
+                return
+            await message.reply_text(
+                "Təsdiqli fotolar arasında etibarlı semantik namizəd tapılmadı. "
+                "Bu, məhsulun kataloqda olmadığı demək deyil. "
+                "Kodunu yoxlayın."
             )
         elif asset_id is not None:
             await message.reply_text(
@@ -1919,7 +1962,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "Bu şəkli məhsulla əlaqələndirmək üçün kodunu qeyd edib "
                 "«Bu KA45-dir, yadda saxla» kimi yenidən göndərin." + warning
             )
-    except (TelegramError, SQLAlchemyError) as error:
+    except (TelegramError, SQLAlchemyError, TimeoutError) as error:
         logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
         await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")
 
