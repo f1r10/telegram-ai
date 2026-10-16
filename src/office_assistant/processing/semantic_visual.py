@@ -48,7 +48,6 @@ class LocalClipEncoder:
         from fastembed import ImageEmbedding
 
         if self._model is None:
-
             self._model = ImageEmbedding(
                 model_name=CLIP_MODEL,
                 cache_dir=str(self.cache_root),
@@ -185,8 +184,8 @@ class SemanticVisualSearch:
     def _vector(
         self, data: bytes, digest: str, *, cacheable: bool = True
     ) -> tuple[float, ...] | None:
-        location = self.cache_root / "visual-embeddings" / self.version / digest[:2] / (
-            digest + ".json"
+        location = (
+            self.cache_root / "visual-embeddings" / self.version / digest[:2] / (digest + ".json")
         )
         if cacheable:
             cached = _read_cached(location, digest, self.version)
@@ -236,9 +235,7 @@ class SemanticVisualSearch:
         try:
             # A question photo is transient, not user-confirmed reference content:
             # never retain its image-derived vector on disk.
-            query = self._vector(
-                image_bytes, sha256(image_bytes).hexdigest(), cacheable=False
-            )
+            query = self._vector(image_bytes, sha256(image_bytes).hexdigest(), cacheable=False)
             if query is None:
                 return SemanticSearchResult((), 0, incomplete)
             scored: dict[str, float] = {}
