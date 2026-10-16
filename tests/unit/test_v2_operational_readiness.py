@@ -78,19 +78,9 @@ def test_pdf_ocr_readiness_sanitizes_engine_timeouts(
 
 
 def test_replay_progress_requires_nonempty_indexed_vectors() -> None:
-    assert replay_progress_health(
-        pending=0, failed=0, awaiting_index=0, indexed=4
-    ).status == "OK"
-    assert replay_progress_health(
-        pending=0, failed=0, awaiting_index=1, indexed=0
-    ).status == "WARN"
-    assert replay_progress_health(
-        pending=0, failed=1, awaiting_index=0, indexed=1
-    ).status == "WARN"
-    assert replay_progress_health(
-        pending=2, failed=0, awaiting_index=0, indexed=0
-    ).status == "WARN"
-    detail = replay_progress_health(
-        pending=2, failed=1, awaiting_index=3, indexed=4
-    ).detail
+    assert replay_progress_health(pending=0, failed=0, awaiting_index=0, indexed=4).status == "OK"
+    assert replay_progress_health(pending=0, failed=0, awaiting_index=1, indexed=0).status == "WARN"
+    assert replay_progress_health(pending=0, failed=1, awaiting_index=0, indexed=1).status == "WARN"
+    assert replay_progress_health(pending=2, failed=0, awaiting_index=0, indexed=0).status == "WARN"
+    detail = replay_progress_health(pending=2, failed=1, awaiting_index=3, indexed=4).detail
     assert detail == "pending_or_running=2 failed=1 awaiting_index=3 indexed=4"
