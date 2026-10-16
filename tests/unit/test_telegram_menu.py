@@ -89,6 +89,7 @@ def _update(
         effective_chat=SimpleNamespace(type=ChatType.PRIVATE, id=123),
         effective_message=message,
         callback_query=query,
+        update_id=17,
     )
     return cast(Update, fake)
 
@@ -464,7 +465,7 @@ def test_pending_upload_never_swallows_an_ordinary_question() -> None:
     text = "QA-KA45 məhsulunun qiyməti neçədir?"
     message = _message(text)
     asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
-    answer.answer.assert_awaited_once_with(user, text)
+    answer.answer.assert_awaited_once_with(user, text, image_readings=[])
     ingest.add_instruction.assert_not_awaited()
     message.reply_text.assert_awaited_once_with("Kataloqda yoxlanıldı.")
 
