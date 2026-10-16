@@ -10,12 +10,12 @@ from pypdf import PdfWriter
 from office_assistant.infrastructure.database.models import DocumentProcessingStatus
 from office_assistant.knowledge.chunking import chunk_normalized_document
 from office_assistant.knowledge.models import ChunkingConfig
+from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.processing.pdf_ocr import (
     OcrPageResult,
     PdfOcrConfig,
     PdfOcrService,
 )
-from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.processing.worker_service import searchable_parse_status
 
 
