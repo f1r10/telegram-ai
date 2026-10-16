@@ -1009,9 +1009,7 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 async with asyncio.timeout(services.answer_deadline_seconds):
                     turn = build_turn_context(message, text=message.text)
                     images = turn.images
-                    readings = await _read_turn_images(
-                        context, services, images, user_id=user.id
-                    )
+                    readings = await _read_turn_images(context, services, images, user_id=user.id)
                     result = await services.internal_evidence.answer(
                         user, message.text, image_readings=readings
                     )
@@ -1530,9 +1528,7 @@ async def handle_baza(
         await _send_typing(context, message.chat_id)
         async with asyncio.timeout(services.answer_deadline_seconds):
             images = turn.images
-            readings = await _read_turn_images(
-                context, services, images, user_id=user.id
-            )
+            readings = await _read_turn_images(context, services, images, user_id=user.id)
             result = await services.internal_evidence.answer(
                 user, question, force_internal=True, image_readings=readings
             )
@@ -1601,13 +1597,9 @@ async def _handle_web_command(
         # caption router already told the user the file was not stored. OPEN-QUESTIONS Q23.
         async with asyncio.timeout(services.answer_deadline_seconds):
             images = turn.images if combined else ()
-            readings = await _read_turn_images(
-                context, services, images, user_id=user.id
-            )
+            readings = await _read_turn_images(context, services, images, user_id=user.id)
             result = (
-                await services.web_evidence.answer_combined(
-                    user, question, image_readings=readings
-                )
+                await services.web_evidence.answer_combined(user, question, image_readings=readings)
                 if combined
                 else await services.web_evidence.answer_internet(user, question)
             )
