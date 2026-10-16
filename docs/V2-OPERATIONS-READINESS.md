@@ -164,4 +164,55 @@ workflow above. If OCR or Qdrant later fails, use the phase-specific
 `retry_scanned_pdfs` commands. None of these operations has been executed
 against the user's live WSL data as part of these GitHub changes.
 
+## Opt-in multi-angle product image candidates (experimental)
+
+The image-asset and product-confirmation tables already protect exact identity.
+Simple dHash/aHash near-duplicates remain available with the feature **off**.
+Opt-in local semantic retrieval adds a second, *unverified candidate-only* tier
+to photo questions when no conservative visual duplicate was found. It does
+not create products, update a relation, infer price or make stock claims.
+
+The implementation uses FastEmbed's local-only CLIP vision encoder
+(`Qdrant/clip-ViT-B-32-vision`, 512 dimensions); its constructor sets
+`local_files_only=True` so a Telegram photo does **not** trigger a Hugging Face
+download or vendor API call. The model (~340 MB) must be pre-provisioned in
+the **app** container's persistent `/models/cache` by an operator on an
+approved network and checked against the expected artifact/revision/license
+before enabling. Example *operator-initiated* provisioning (not used by the
+chat bot or ingestion worker):
+
+```bash
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -c 'from fastembed import ImageEmbedding; ImageEmbedding(model_name="Qdrant/clip-ViT-B-32-vision", cache_dir="/models/cache")'
+```
+
+Set `VISUAL_SEMANTIC_ENABLED=true` only in a controlled staging rollout.
+`VISUAL_SEMANTIC_MODEL_VERSION=clip-vit-b32-v1` labels the operator-reviewed
+model snapshot and also namespaces the local cache; change it on model or
+preprocessing upgrades. `VISUAL_SEMANTIC_MIN_SCORE=0.60` is a conservative
+**display threshold, not a calibrated probability**, and should be tuned on
+a separate holdout set of real customer photos before production use.
+`VISUAL_SEMANTIC_MAX_REFERENCES=80` bounds per-request CPU work. The
+Telegram handler has a 25-second deadline and detects a busy model; the
+regular chatbot stays available if the optional model is unavailable.
+
+Only currently active, explicit user-confirmed reference images are read,
+up to the bounded latest-reference subset. Every source image's bytes are
+checked against its stored SHA-256, paths are constrained inside storage,
+and EXIF orientation and input pixels are bounded. Per-reference embeddings
+are cached locally by content hash and model version, **never the unconfirmed
+query-photo embedding**. Revoked references drop out of the database query
+immediately even if a stale cache file still exists. Purge obsolete model
+versions and reference cache material during scheduled retention maintenance.
+This repository currently operates as one company tenant; any future
+multi-tenant rollout must add a tenant predicate and isolation tests first.
+
+Accept only after running `benchmark_visual.py` with labeled **different
+camera angles, background changes, low light, similar models and unseen
+products**, and documenting recall, false-identity rate and abstention.
+No semantic score is a confirmation or a warehouse-stock assertion. Where
+no adequately similar candidate exists, the bot abstains; a returned
+candidate still requires human code confirmation before it can become a
+product fact. The exact/near-duplicate path remains the safe fallback while
+this flag is disabled.
+
 The readiness probe does not constitute production certification: manual bot interaction, cross-user access control, resource and soak tests, restore drills and customer document accuracy tests remain necessary.
