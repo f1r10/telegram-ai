@@ -335,6 +335,46 @@ class DocumentParseRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+
+class OcrReplayJob(Base):
+    """Operator-approved OCR replay for an existing scanned PDF; never a new upload."""
+
+    __tablename__ = "ocr_replay_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'INDEX_QUEUED', 'FAILED', 'SKIPPED')",
+            name="ck_ocr_replay_job_status",
+        ),
+        Index("ix_ocr_replay_due", "status", "available_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    file_object_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("file_objects.id", ondelete="RESTRICT"), unique=True, nullable=False
+    )
+    source_parse_run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document_parse_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    result_parse_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("document_parse_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="PENDING")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class OutboxEvent(Base):
     """Durable application event consumed by the Telegram notification loop."""
 
