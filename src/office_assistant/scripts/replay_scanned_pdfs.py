@@ -6,6 +6,7 @@ run in the normal durable workers, without creating fake Telegram submissions.
 
 import argparse
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,14 +113,18 @@ def safe_artifacts(
         if not path.is_file() or not (0 < path.stat().st_size <= max_raw_bytes):
             return False
         derived = storage.path_for_key(run.normalized_storage_key)
+        if not derived.is_file() or not 0 < derived.stat().st_size <= 32 * 1024 * 1024:
+            return False
+        artifact: object = json.loads(derived.read_text(encoding="utf-8"))
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("blocks"), list):
+            return False
         return (
             searchable_chunks(
                 derived, file_id=file_object.id, run_id=run.id, config=chunking
             )
             == 0
-            and derived.is_file()
         )
-    except (OSError, ValueError):
+    except (OSError, ValueError, UnicodeError, TypeError):
         return False
 
 
