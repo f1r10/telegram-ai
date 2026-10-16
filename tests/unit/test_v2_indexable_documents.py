@@ -73,8 +73,6 @@ def test_index_job_never_succeeds_with_no_chunks_or_all_failures() -> None:
         == KnowledgeIndexJobStatus.SUCCEEDED
     )
     assert (
-        index_job_outcome(
-            [KnowledgeIndexRecordStatus.SUCCEEDED, KnowledgeIndexRecordStatus.FAILED]
-        )
+        index_job_outcome([KnowledgeIndexRecordStatus.SUCCEEDED, KnowledgeIndexRecordStatus.FAILED])
         == KnowledgeIndexJobStatus.PARTIAL
     )
