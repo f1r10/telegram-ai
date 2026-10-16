@@ -336,9 +336,9 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                         )
                     )).all()
                 )
-                assert [event.event_metadata["phase"] for event in events if event.event_metadata] == [
-                    "ocr", "index"
-                ]
+                assert [
+                    event.event_metadata["phase"] for event in events if event.event_metadata
+                ] == ["ocr", "index"]
             # Replaced original bytes cannot be silently used to retry a failed projection.
             raw = storage.blob_root / "1-old-scan.pdf"
             original_bytes = raw.read_bytes()
