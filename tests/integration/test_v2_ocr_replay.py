@@ -382,7 +382,8 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             raw.write_bytes(original_bytes)
 
             if settings.qdrant_url:
-                assert (await retry_failed(settings, kind="index", apply=True, limit=20)).queued == 1
+                retried = await retry_failed(settings, kind="index", apply=True, limit=20)
+                assert retried.queued == 1
                 store = QdrantKnowledgeStore(
                     settings.qdrant_url,
                     alias=settings.qdrant_collection_alias,
