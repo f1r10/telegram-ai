@@ -141,6 +141,7 @@ class TelegramServices:
     ai: GroundedAnswerService | None = None
     rate_guard: InProcessRateGuard | None = None
     telegram_message_limit: int = 4096
+    answer_deadline_seconds: float = 75.0
     extraction_reviews: ExtractionReviewService | None = None
     internal_evidence: InternalEvidenceService | None = None
     knowledge: KnowledgeRetrievalService | None = None
@@ -1005,12 +1006,13 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     return
                 await _send_typing(context, message.chat_id)
                 # A picture the user replies to is a first-class parameter of the question.
-                turn = build_turn_context(message, text=message.text)
-                images = turn.images
-                readings = await _read_turn_images(context, services, images, user_id=user.id)
-                result = await services.internal_evidence.answer(
-                    user, message.text, image_readings=readings
-                )
+                async with asyncio.timeout(services.answer_deadline_seconds):
+                    turn = build_turn_context(message, text=message.text)
+                    images = turn.images
+                    readings = await _read_turn_images(context, services, images, user_id=user.id)
+                    result = await services.internal_evidence.answer(
+                        user, message.text, image_readings=readings
+                    )
                 await _reply_long(
                     message,
                     _with_image_notice(_format_internal(result), images, readings),
@@ -1021,12 +1023,16 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     await message.reply_text(messages.AI_RATE_LIMITED)
                     return
                 await _send_typing(context, message.chat_id)
-                result = await services.ai.answer_general(user.id, message.text)
+                async with asyncio.timeout(services.answer_deadline_seconds):
+                    result = await services.ai.answer_general(user.id, message.text)
                 await _reply_long(message, result.answer, services.telegram_message_limit)
             elif services.ai is None:
                 await message.reply_text(messages.AI_NOT_CONFIGURED)
             else:
                 await message.reply_text(messages.NO_OPEN_SESSION)
+        except TimeoutError:
+            logger.warning("Telegram text answer exceeded bounded deadline")
+            await message.reply_text(messages.AI_TIMEOUT)
         except AnswerGenerationUnavailable:
             await _reply_long(message, messages.AI_UNAVAILABLE, services.telegram_message_limit)
         except RetrievalUnavailable:
@@ -1520,16 +1526,20 @@ async def handle_baza(
         return
     try:
         await _send_typing(context, message.chat_id)
-        images = turn.images
-        readings = await _read_turn_images(context, services, images, user_id=user.id)
-        result = await services.internal_evidence.answer(
-            user, question, force_internal=True, image_readings=readings
-        )
+        async with asyncio.timeout(services.answer_deadline_seconds):
+            images = turn.images
+            readings = await _read_turn_images(context, services, images, user_id=user.id)
+            result = await services.internal_evidence.answer(
+                user, question, force_internal=True, image_readings=readings
+            )
         await _reply_long(
             message,
             _with_image_notice(_format_internal(result), images, readings),
             services.telegram_message_limit,
         )
+    except TimeoutError:
+        logger.warning("Baza answer exceeded bounded deadline")
+        await message.reply_text(messages.AI_TIMEOUT)
     except AnswerGenerationUnavailable:
         await message.reply_text(messages.AI_UNAVAILABLE)
     except RetrievalUnavailable:
@@ -1585,18 +1595,22 @@ async def _handle_web_command(
         await _send_typing(context, message.chat_id)
         # /internet has no internal evidence to combine with, so its picture is not read; the
         # caption router already told the user the file was not stored. OPEN-QUESTIONS Q23.
-        images = turn.images if combined else ()
-        readings = await _read_turn_images(context, services, images, user_id=user.id)
-        result = (
-            await services.web_evidence.answer_combined(user, question, image_readings=readings)
-            if combined
-            else await services.web_evidence.answer_internet(user, question)
-        )
+        async with asyncio.timeout(services.answer_deadline_seconds):
+            images = turn.images if combined else ()
+            readings = await _read_turn_images(context, services, images, user_id=user.id)
+            result = (
+                await services.web_evidence.answer_combined(user, question, image_readings=readings)
+                if combined
+                else await services.web_evidence.answer_internet(user, question)
+            )
         await _reply_long(
             message,
             _with_image_notice(_format_web(result), images, readings),
             services.telegram_message_limit,
         )
+    except TimeoutError:
+        logger.warning("Web answer exceeded bounded deadline | combined=%s", combined)
+        await message.reply_text(messages.AI_TIMEOUT)
     except (WebEvidenceUnavailable, AnswerGenerationUnavailable):
         await message.reply_text(messages.WEB_UNAVAILABLE)
     except RetrievalUnavailable:
