@@ -56,9 +56,7 @@ def test_separate_users_progress_while_first_user_is_waiting() -> None:
             assert not second_started.is_set()
             assert order == ["first-start", "other-start"]
             first_release.set()
-            await asyncio.wait_for(
-                asyncio.gather(first_task, second_task, third_task), timeout=2
-            )
+            await asyncio.wait_for(asyncio.gather(first_task, second_task, third_task), timeout=2)
             assert order == ["first-start", "other-start", "first-end", "second-start"]
 
     asyncio.run(exercise())
@@ -71,8 +69,6 @@ def test_application_uses_bounded_user_serial_processor() -> None:
 
     from office_assistant.integrations.telegram.handlers import TelegramServices
 
-    application = create_telegram_application(
-        "test-token", cast(TelegramServices, MagicMock())
-    )
+    application = create_telegram_application("test-token", cast(TelegramServices, MagicMock()))
     assert isinstance(application.update_processor, UserSerialUpdateProcessor)
     assert application.update_processor.max_concurrent_updates == 8
