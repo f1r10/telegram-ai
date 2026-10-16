@@ -74,7 +74,9 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     result2 = search.search(photo(234), refs)
     assert result2 == result
     assert encoder.calls == first_calls + 1
-    assert not (cache / "visual-embeddings" / "clip-vit-b32-v1" / sha256(photo(234)).hexdigest()[:2] / (sha256(photo(234)).hexdigest() + ".json")).exists()
+    digest = sha256(photo(234)).hexdigest()
+    query_cache = cache / "visual-embeddings" / "clip-vit-b32-v1" / digest[:2]
+    assert not (query_cache / (digest + ".json")).exists()
     # The active-reference query has removed this confirmed photo: stale
     # cached feature files may exist but are never treated as active authority.
     assert search.search(photo(234), []).candidates == ()
@@ -94,7 +96,8 @@ def test_unknown_and_uncertain_images_abstain(tmp_path: Path) -> None:
     assert result.candidates == ()
     assert not result.unavailable
     assert search.search(b"not an image", refs).candidates == ()
-    assert search.search(photo(250), [SemanticReference("KA45", "missing.jpg", "a" * 64)]).candidates == ()
+    missing = [SemanticReference("KA45", "missing.jpg", "a" * 64)]
+    assert search.search(photo(250), missing).candidates == ()
 
 
 def test_changed_digest_and_symlink_escape_never_score(tmp_path: Path) -> None:
@@ -128,7 +131,12 @@ def test_unavailable_model_degrades_instead_of_guessing(tmp_path: Path) -> None:
 
 
 def test_reference_limits_and_validation(tmp_path: Path) -> None:
-    for value in ([0.0] * CLIP_DIMENSION, [1.0, float("nan")] + [0.0] * (CLIP_DIMENSION - 2), [2.0]):
+    values = (
+        [0.0] * CLIP_DIMENSION,
+        [1.0, float("nan")] + [0.0] * (CLIP_DIMENSION - 2),
+        [2.0],
+    )
+    for value in values:
         assert unit_vector(value) is None
     root = tmp_path / "root"
     root.mkdir()
