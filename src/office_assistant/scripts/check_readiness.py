@@ -7,6 +7,7 @@ Run inside the running app container, not from a Docker host namespace.
 import asyncio
 import json
 from dataclasses import asdict, dataclass
+from typing import cast
 
 import httpx
 from sqlalchemy import func, select
@@ -42,9 +43,12 @@ def overall(checks: list[Check]) -> str:
 
 
 def search_health(payload: object) -> Check:
-    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+    if not isinstance(payload, dict):
         return Check("searxng_search", "FAIL", "Malformed or disabled JSON search API")
-    results = payload["results"]
+    value = cast(dict[str, object], payload).get("results")
+    if not isinstance(value, list):
+        return Check("searxng_search", "FAIL", "Malformed or disabled JSON search API")
+    results = cast(list[object], value)
     if not results:
         return Check(
             "searxng_search", "WARN", "HTTP endpoint is healthy, but live search returned no hits"
@@ -127,7 +131,9 @@ async def check() -> tuple[str, list[Check]]:
                 response = await client.get(settings.qdrant_url.rstrip("/") + "/collections")
                 response.raise_for_status()
                 payload: object = response.json()
-                if not isinstance(payload, dict) or payload.get("status") != "ok":
+                if not isinstance(payload, dict):
+                    raise ValueError("Unexpected Qdrant response")
+                if cast(dict[str, object], payload).get("status") != "ok":
                     raise ValueError("Unexpected Qdrant response")
                 checks.append(Check("qdrant", "OK", "Collection API is accessible"))
             except (httpx.HTTPError, ValueError) as error:
