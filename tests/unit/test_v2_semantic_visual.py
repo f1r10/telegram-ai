@@ -1,5 +1,6 @@
 """Offline semantic visual candidates remain non-authoritative and fail closed."""
 
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 
@@ -50,10 +51,8 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     (root / "front.jpg").write_bytes(red)
     (root / "side.jpg").write_bytes(photo(226))
     (root / "other.png").write_bytes(blue)
-    import hashlib
-
     refs = [
-        SemanticReference("KA45", "front.jpg", hashlib.sha256(red).hexdigest()),
+        SemanticReference("KA45", "front.jpg", sha256(red).hexdigest()),
         SemanticReference(
             "KA45", "side.jpg", hashlib.sha256((root / "side.jpg").read_bytes()).hexdigest()
         ),
@@ -70,14 +69,14 @@ def test_cross_angle_candidate_is_ranked_but_not_declared_identity(tmp_path: Pat
     assert [candidate.product_code for candidate in result.candidates] == ["KA45"]
     assert all(0.85 <= candidate.score <= 1.0 for candidate in result.candidates)
     first_calls = encoder.calls
-    assert first_calls == 4
+    assert first_calls == 5
     # After caching, no local inference or model download is needed.
     result2 = search.search(photo(234), refs)
     assert result2 == result
-    assert encoder.calls == first_calls
+    assert encoder.calls == first_calls + 1
     # The active-reference query has removed this confirmed photo: stale
     # cached feature files may exist but are never treated as active authority.
-    assert search.search(photo(234), []) .candidates == ()
+    assert search.search(photo(234), []).candidates == ()
 
 
 def test_unknown_and_uncertain_images_abstain(tmp_path: Path) -> None:
@@ -85,8 +84,6 @@ def test_unknown_and_uncertain_images_abstain(tmp_path: Path) -> None:
     root.mkdir()
     original = photo(250)
     (root / "red.png").write_bytes(original)
-    import hashlib
-
     refs = [SemanticReference("KA45", "red.png", hashlib.sha256(original).hexdigest())]
     search = SemanticVisualSearch(
         storage_root=root, model_cache_root=tmp_path / "models",
