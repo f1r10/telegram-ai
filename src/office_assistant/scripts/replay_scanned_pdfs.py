@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -74,7 +75,7 @@ async def latest_deferred_scans(
         .order_by(DocumentParseRun.id)
         .limit(limit)
     )
-    return list((await session.execute(statement)).all())
+    return [(run, file) for run, file in (await session.execute(statement)).all()]
 
 
 async def already_indexed(session: AsyncSession, file_id: int) -> bool:
@@ -115,7 +116,9 @@ def safe_artifacts(
         if not derived.is_file() or not 0 < derived.stat().st_size <= 32 * 1024 * 1024:
             return False
         artifact: object = json.loads(derived.read_text(encoding="utf-8"))
-        if not isinstance(artifact, dict) or not isinstance(artifact.get("blocks"), list):
+        if not isinstance(artifact, dict) or not isinstance(
+            cast(dict[str, object], artifact).get("blocks"), list
+        ):
             return False
         return (
             searchable_chunks(derived, file_id=file_object.id, run_id=run.id, config=chunking) == 0
