@@ -129,9 +129,7 @@ async def _eligible_index(
     ):
         return False
     last_id = await session.scalar(
-        select(func.max(DocumentParseRun.id)).where(
-            DocumentParseRun.file_object_id == file.id
-        )
+        select(func.max(DocumentParseRun.id)).where(DocumentParseRun.file_object_id == file.id)
     )
     if last_id != result.id:
         return False
