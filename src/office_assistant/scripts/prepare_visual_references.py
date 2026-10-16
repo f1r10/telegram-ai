@@ -7,8 +7,8 @@ already provisioned on disk; it never downloads model weights or stores user que
 import argparse
 import asyncio
 import logging
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select
 
