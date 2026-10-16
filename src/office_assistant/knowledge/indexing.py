@@ -26,6 +26,16 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 logger = logging.getLogger(__name__)
 
 
+def index_job_outcome(statuses: list[str]) -> KnowledgeIndexJobStatus:
+    """Never report success when not a single searchable document was indexed."""
+
+    if statuses and all(status == KnowledgeIndexRecordStatus.SUCCEEDED for status in statuses):
+        return KnowledgeIndexJobStatus.SUCCEEDED
+    if any(status == KnowledgeIndexRecordStatus.SUCCEEDED for status in statuses):
+        return KnowledgeIndexJobStatus.PARTIAL
+    return KnowledgeIndexJobStatus.FAILED
+
+
 @dataclass(frozen=True, slots=True)
 class IndexJobClaim:
     job_id: int
@@ -121,15 +131,7 @@ class KnowledgeIndexService:
         statuses: list[str] = []
         for parse_run, file_object in parse_runs:
             statuses.append(await self._process_parse_run(claim, job, parse_run, file_object))
-        success = {KnowledgeIndexRecordStatus.SUCCEEDED}
-        # A job that indexed no documents cannot truthfully be SUCCEEDED.
-        final = (
-            KnowledgeIndexJobStatus.SUCCEEDED
-            if statuses and all(status in success for status in statuses)
-            else KnowledgeIndexJobStatus.PARTIAL
-            if any(status in success for status in statuses)
-            else KnowledgeIndexJobStatus.FAILED
-        )
+        final = index_job_outcome(statuses)
         async with self.session_factory.begin() as session:
             row = await session.get(KnowledgeIndexJob, claim.job_id, with_for_update=True)
             if row is not None:
