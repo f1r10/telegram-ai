@@ -34,8 +34,22 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
+from office_assistant.processing.models import ParsedDocument
 
 logger = logging.getLogger(__name__)
+
+
+def searchable_parse_status(parsed: ParsedDocument) -> DocumentProcessingStatus:
+    """Index the readable portion of a partial OCR document; never claim empty success.
+
+    requires_ocr and warnings remain independently persisted to report missing pages.
+    """
+
+    return (
+        DocumentProcessingStatus.SUCCEEDED
+        if any(block.text.strip() for block in parsed.blocks)
+        else DocumentProcessingStatus.DEFERRED
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,10 +248,7 @@ class IngestionJobService:
         # indexed. Keep the requires_ocr flag and warnings for incomplete pages.
         # Entirely empty / image-only documents remain deferred rather than falsely
         # appearing as "indexed" with zero searchable chunks.
-        searchable = any(block.text.strip() for block in parsed.blocks)
-        status = (
-            DocumentProcessingStatus.SUCCEEDED if searchable else DocumentProcessingStatus.DEFERRED
-        )
+        status = searchable_parse_status(parsed)
         async with self.session_factory.begin() as session:
             run = await session.get(DocumentParseRun, run_id, with_for_update=True)
             if run is None:
