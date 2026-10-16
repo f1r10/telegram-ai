@@ -80,8 +80,10 @@ def test_blank_page_remains_deferred_if_ocr_returns_no_text(
             return OcrPageResult(reason="OCR_NO_TEXT")
 
     monkeypatch.setattr(engine, "session", lambda _: EmptySession())
-    parsed = ParserRegistry(pdf_ocr=engine).for_filename(path.name).parse(
-        path, source_file_id=1, media_type="application/pdf"
+    parsed = (
+        ParserRegistry(pdf_ocr=engine)
+        .for_filename(path.name)
+        .parse(path, source_file_id=1, media_type="application/pdf")
     )
     assert searchable_parse_status(parsed) == DocumentProcessingStatus.DEFERRED
     assert parsed.requires_ocr
@@ -108,9 +110,7 @@ def test_subprocess_is_bounded_and_never_uses_shell(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = PdfOcrService(PdfOcrConfig(languages="aze+eng", max_pages=2)).session(
-        pdf
-    ).read_page(2)
+    result = PdfOcrService(PdfOcrConfig(languages="aze+eng", max_pages=2)).session(pdf).read_page(2)
     assert result.text == "Məhsul KA45"
     assert len(seen) == 2
     assert seen[0][0][0] == "pdftoppm"
@@ -159,9 +159,7 @@ def test_invalid_ocr_languages_are_rejected() -> None:
             PdfOcrConfig(languages=languages)
 
 
-def test_page_timeout_is_sanitized(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_page_timeout_is_sanitized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def timed_out(*args: object, **kwargs: object) -> None:
         raise subprocess.TimeoutExpired(["pdftoppm", "secret.pdf"], 15, output=b"private")
 
