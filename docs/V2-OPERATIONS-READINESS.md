@@ -24,6 +24,55 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 
 The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing.
 
+## Historical scanned-PDF OCR replay (operator controlled)
+
+This is **different** from `repair_legacy_index`: a historical **fully scanned**
+PDF had no normalized searchable text, so its original bytes require a new
+parser attempt. The durable `ocr_replay_jobs` table records source and result
+parse IDs; original `file_objects`, `ingestion_session_items`, Telegram
+message identity, and old parse runs remain unchanged. No business extraction,
+sales or user-message submission is replayed.
+
+Apply the new Alembic migration **0019** as part of a reviewed deployment.
+After verifying a PostgreSQL backup, Qdrant snapshot, storage backup, OCR
+language packs and worker health, inspect the old candidates inside the app
+container (default **read-only DB** mode):
+
+```bash
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.replay_scanned_pdfs --limit 100
+```
+
+Review the bounded `inspected`, `eligible`, `queued`, `skipped`
+counts first. This only considers the **latest** historical parse per physical
+active PDF: a deferred OCR-required result with valid, zero-chunk normalized
+data, original session-item provenance, and no successful indexed version.
+Unreadable/missing raw sources are not made searchable.
+
+Only in an approved maintenance window, run the **explicitly mutating**
+variant:
+
+```bash
+sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.replay_scanned_pdfs --apply --limit 100
+```
+
+`--apply` queues work transactionally; it **does not perform OCR in the CLI**
+and it **does not certify indexing as completed**. The worker claims one
+replay at a time using expiring leases, validates original PDF bytes against
+their stored SHA-256, extracts OCR locally, creates a **new** normalized parse
+run, and schedules the existing Qdrant index job. Replay deduplication is
+per physical file; rerunning `--apply` does not create duplicate work.
+Failures remain visible in `ocr_replay_jobs.status/last_error` and
+`knowledge_index_jobs`, without logging document text. A blank scan remains
+unsearchable.
+
+After workers finish, rerun the readiness doctor and inspect the index
+completion event. Search for a unique phrase in each representative recovered
+PDF, confirm the original PDF page number and source delivery, and verify that
+a second unrelated file in the same original session remains indexed. Do not
+report full document recovery based only on replay status
+`INDEX_QUEUED`: Qdrant indexing can still fail. No production replay has
+been executed as part of this change.
+
 ## Scanned PDF OCR (new imports)
 
 The ingestion **worker** can now recognize page images locally using Poppler and
