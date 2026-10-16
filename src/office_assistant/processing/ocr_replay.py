@@ -183,7 +183,7 @@ class OcrReplayService:
             if source is None:
                 await self._skip(claim, "OCR_SOURCE_NO_LONGER_ELIGIBLE")
                 return
-            original, file = source
+            _, file = source
             path = verified_raw_pdf(self.storage, file, self.settings.max_upload_bytes)
             if path is None:
                 await self._skip(claim, "OCR_SOURCE_MISSING_OR_CHANGED")
