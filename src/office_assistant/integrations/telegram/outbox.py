@@ -89,6 +89,17 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
                     ]
                 ]
             )
+        elif event.event_type == "KNOWLEDGE_INDEX_COMPLETED":
+            text = messages.KNOWLEDGE_INDEX_COMPLETED.format(
+                files=payload.get("files_indexed", 0),
+                chunks=payload.get("chunks_indexed", 0),
+                failed=payload.get("files_failed", 0),
+            )
+            if payload.get("status") != "SUCCEEDED":
+                text += (
+                    "\nBəzi faylların axtarış indeksi hazır deyil. "
+                    "Oxunmayan fayllar üçün yenidən emal və ya OCR tələb oluna bilər."
+                )
         else:
             text = messages.INGESTION_COMPLETED.format(
                 total=payload.get("total", 0),
@@ -96,6 +107,11 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
                 deferred=payload.get("deferred", 0),
                 failed=payload.get("failed", 0),
             )
+            if payload.get("succeeded", 0):
+                text += "\nAxtarış indeksinin hazırlanması davam edir."
+            else:
+                text += "\nAxtarış üçün oxuna bilən mətn tapılmadı."
+
         try:
             sent = await bot.send_message(
                 chat_id=event.recipient_telegram_id, text=text, reply_markup=markup
