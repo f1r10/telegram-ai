@@ -10,8 +10,8 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 ```
 
 Expected JSON:
-- `readiness: READY`: PostgreSQL queries succeed, Qdrant collection endpoint is available, real SearXNG JSON search gives at least one result, and existing indexing rows have no recorded failure/deferred warnings.
-- `readiness: DEGRADED`: some historical documents still need OCR, index failures require operator attention, or the live internet search returned no hits. Do not advertise fully working web search based only on `/healthz`.
+- `readiness: READY`: PostgreSQL queries succeed, Qdrant collection endpoint is available, real SearXNG JSON search gives at least one result, the locally installed PDF OCR binaries and configured language packs are available, and existing indexing rows have no recorded failure/deferred warnings.
+- `readiness: DEGRADED`: some historical documents still need OCR, local OCR prerequisites are missing or disabled, index failures require operator attention, or the live internet search returned no hits. Do not advertise fully working web search based only on `/healthz`.
 - `readiness: NOT_READY`: essential PostgreSQL or Qdrant checks failed.
 
 **Historical partial-PDF recovery** (no source deletion):
@@ -31,6 +31,10 @@ Tesseract. The image stays on the server; no page pixels or OCR text are sent to
 external OCR provider. A PDF's native text pages remain untouched; scanned pages
 are added as `page_ocr` blocks with original PDF page numbers. Both kinds of
 blocks use the existing Qdrant index queue.
+
+The read-only readiness probe now includes a `pdf_ocr` check. It verifies
+that the renderer executes and Tesseract reports the configured language packs;
+missing prerequisites yield `DEGRADED`, not a misleading `READY`.
 
 The container image installs `pdftoppm`, `tesseract` and default language packs
 for Azerbaijani, English and Russian. The worker enables OCR by default.
