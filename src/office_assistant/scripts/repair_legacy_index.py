@@ -120,12 +120,16 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
                     # Already valid nonempty records remain untouched; only false
                     # zero-chunk successes must be reprocessed by the worker.
                     records = (
-                        await session.execute(
-                            select(KnowledgeIndexRecord).where(
-                                KnowledgeIndexRecord.knowledge_index_job_id == job.id
+                        (
+                            await session.execute(
+                                select(KnowledgeIndexRecord).where(
+                                    KnowledgeIndexRecord.knowledge_index_job_id == job.id
+                                )
                             )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     for record in records:
                         if (
                             record.status == KnowledgeIndexRecordStatus.SUCCEEDED
