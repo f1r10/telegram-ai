@@ -118,10 +118,7 @@ def safe_artifacts(
         if not isinstance(artifact, dict) or not isinstance(artifact.get("blocks"), list):
             return False
         return (
-            searchable_chunks(
-                derived, file_id=file_object.id, run_id=run.id, config=chunking
-            )
-            == 0
+            searchable_chunks(derived, file_id=file_object.id, run_id=run.id, config=chunking) == 0
         )
     except (OSError, ValueError, UnicodeError, TypeError):
         return False
@@ -144,11 +141,12 @@ async def queue_legacy_scans(
             rows = await latest_deferred_scans(session, limit=limit)
         for run, file_object in rows:
             inspected += 1
-            if (
-                not safe_artifacts(
-                    storage, run, file_object, max_raw_bytes=settings.max_upload_bytes,
-                    chunking=chunking,
-                )
+            if not safe_artifacts(
+                storage,
+                run,
+                file_object,
+                max_raw_bytes=settings.max_upload_bytes,
+                chunking=chunking,
             ):
                 skipped += 1
                 continue
