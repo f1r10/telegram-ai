@@ -122,12 +122,15 @@ def _read_cached(path: Path, digest: str, version: str) -> tuple[float, ...] | N
         vector = fields.get("vector")
         if fields.get("sha256") != digest or fields.get("version") != version:
             return None
-        if not isinstance(vector, list) or len(vector) != CLIP_DIMENSION:
+        if not isinstance(vector, list):
             return None
         raw = cast(list[object], vector)
-        if not all(type(item) in {int, float} for item in raw):
+        if len(raw) != CLIP_DIMENSION:
             return None
-        return unit_vector([float(item) for item in raw])
+        numbers = [float(item) for item in raw if type(item) in {int, float}]
+        if len(numbers) != CLIP_DIMENSION:
+            return None
+        return unit_vector(numbers)
     except (OSError, ValueError, TypeError):
         return None
 
