@@ -480,7 +480,7 @@ def test_pending_document_does_not_swallow_ordinary_statement() -> None:
         answer=AsyncMock(
             return_value=InternalAnswer(
                 answer="Salam! Sənədlə işləyə bilərəm.",
-                route=RoutingCategory.GENERAL,
+                route=RoutingCategory.GENERAL_CHAT,
             )
         )
     )
