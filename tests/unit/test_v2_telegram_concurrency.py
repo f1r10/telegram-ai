@@ -66,10 +66,10 @@ def test_separate_users_progress_while_first_user_is_waiting() -> None:
 
 def test_application_uses_bounded_user_serial_processor() -> None:
     # No network calls are required to inspect the Telegram application builder.
+    from typing import cast
     from unittest.mock import MagicMock
 
     from office_assistant.integrations.telegram.handlers import TelegramServices
-    from typing import cast
 
     application = create_telegram_application(
         "test-token", cast(TelegramServices, MagicMock())
