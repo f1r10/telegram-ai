@@ -226,10 +226,14 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
             claims = [claim for claim in [first, second] if claim is not None]
             assert len(claims) == 1
             # Old worker's attempt cannot commit after operator retry advanced the lease.
-            await empty._commit(blank_claim, _FakeOcrParser().parse(
-                storage.blob_root / "1-old-scan.pdf",
-                source_file_id=ids["file1"], media_type="application/pdf"
-            ))
+            await empty._commit(
+                blank_claim,
+                _FakeOcrParser().parse(
+                    storage.blob_root / "1-old-scan.pdf",
+                    source_file_id=ids["file1"],
+                    media_type="application/pdf",
+                ),
+            )
             await replay.process(claims[0])
             async with factory() as db:
                 row = (await db.execute(select(OcrReplayJob))).scalar_one()
@@ -321,20 +325,24 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                 assert target is not None
                 assert target.status == KnowledgeIndexRecordStatus.FAILED
                 parses = list(
-                    (await db.scalars(
-                        select(DocumentParseRun).where(
-                            DocumentParseRun.ingestion_job_id == ids["job"]
+                    (
+                        await db.scalars(
+                            select(DocumentParseRun).where(
+                                DocumentParseRun.ingestion_job_id == ids["job"]
+                            )
                         )
-                    )).all()
+                    ).all()
                 )
                 assert len(parses) == 3
                 events = list(
-                    (await db.scalars(
-                        select(AuditEvent).where(
-                            AuditEvent.entity_type == "ocr_replay_job",
-                            AuditEvent.entity_id == str(ids["replay"]),
+                    (
+                        await db.scalars(
+                            select(AuditEvent).where(
+                                AuditEvent.entity_type == "ocr_replay_job",
+                                AuditEvent.entity_id == str(ids["replay"]),
+                            )
                         )
-                    )).all()
+                    ).all()
                 )
                 assert [
                     event.event_metadata["phase"] for event in events if event.event_metadata
