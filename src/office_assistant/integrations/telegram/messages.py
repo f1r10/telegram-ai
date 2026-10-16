@@ -88,6 +88,10 @@ USERS_NO_USERNAME = "username yoxdur"
 USERS_LINE = "ID: {telegram_user_id} | {name} | {username} | {status}"
 CANCELLED = "Parol daxil etmə prosesi ləğv edildi."
 TEMPORARY_ERROR = "Müvəqqəti texniki xəta baş verdi. Zəhmət olmasa sonra yenidən cəhd edin."
+AI_TIMEOUT = (
+    "Sorğunun emalı vaxt limitini keçdi. Heç bir əlavə məlumat "
+    "bazaya yazılmadı. Sualı qısaldıb yenidən sınayın."
+)
 FILE_UNSUPPORTED = "Bu fayl növü dəstəklənmir. PDF, DOCX, XLSX, TXT, JPG, JPEG və PNG göndərin."
 FILE_TOO_LARGE = "Fayl texniki ölçü limitini aşır."
 FILE_ADDED = (
