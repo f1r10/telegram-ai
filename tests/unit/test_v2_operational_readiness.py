@@ -36,7 +36,7 @@ def test_pdf_ocr_is_only_ready_with_renderer_and_requested_languages(
         args: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
         if args[0] == "tesseract":
-            return subprocess.CompletedProcess(args, 0, "List of available languages:\\naze\\neng\\nrus\\n")
+            return subprocess.CompletedProcess(args, 0, "List of available languages:\naze\neng\nrus\n")
         return subprocess.CompletedProcess(args, 0, "")
 
     monkeypatch.setattr(check_readiness.shutil, "which", fake_which)
