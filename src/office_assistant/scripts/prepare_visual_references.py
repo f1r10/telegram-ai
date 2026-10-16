@@ -68,8 +68,7 @@ async def approved_references(settings: Settings, *, limit: int) -> list[Semanti
                 )
             ).all()
             return [
-                SemanticReference(code, storage_key, digest)
-                for code, storage_key, digest in rows
+                SemanticReference(code, storage_key, digest) for code, storage_key, digest in rows
             ]
     finally:
         await engine.dispose()
@@ -100,9 +99,7 @@ async def prepare_references(
         min_score=settings.visual_semantic_min_score,
         max_references=limit,
     )
-    outcome: ReferenceWarmResult = await asyncio.to_thread(
-        service.warm_references, selected
-    )
+    outcome: ReferenceWarmResult = await asyncio.to_thread(service.warm_references, selected)
     return WarmSummary(
         inspected=outcome.inspected,
         eligible=len(selected),
