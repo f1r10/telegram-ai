@@ -41,7 +41,10 @@ def test_scanned_pdf_becomes_indexable_with_original_page_provenance(
             assert page_number == 1
             return OcrPageResult(text="KA45 məhsul kataloqu")
 
-    monkeypatch.setattr(engine, "session", lambda _: FakeSession())
+    def fake_session(_path: Path) -> FakeSession:
+        return FakeSession()
+
+    monkeypatch.setattr(engine, "session", fake_session)
     parser = ParserRegistry(pdf_ocr=engine).for_filename(path.name)
     parsed = parser.parse(path, source_file_id=9, media_type="application/pdf")
     assert searchable_parse_status(parsed) == DocumentProcessingStatus.SUCCEEDED
@@ -79,7 +82,10 @@ def test_blank_page_remains_deferred_if_ocr_returns_no_text(
         def read_page(self, _: int) -> OcrPageResult:
             return OcrPageResult(reason="OCR_NO_TEXT")
 
-    monkeypatch.setattr(engine, "session", lambda _: EmptySession())
+    def empty_session(_path: Path) -> EmptySession:
+        return EmptySession()
+
+    monkeypatch.setattr(engine, "session", empty_session)
     parsed = (
         ParserRegistry(pdf_ocr=engine)
         .for_filename(path.name)
@@ -117,7 +123,7 @@ def test_subprocess_is_bounded_and_never_uses_shell(
     assert seen[1][0][0] == "tesseract"
     assert seen[1][0][seen[1][0].index("-l") + 1] == "aze+eng"
     assert all("shell" not in kw for _, kw in seen)
-    assert all(float(kw["timeout"]) <= 15 for _, kw in seen)
+    assert all(cast(float, kw["timeout"]) <= 15 for _, kw in seen)
     assert all(kw["stderr"] == subprocess.DEVNULL for _, kw in seen)
     assert not raster[0].exists()
 
