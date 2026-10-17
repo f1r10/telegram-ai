@@ -1096,7 +1096,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
     else:
-        await message.reply_text(messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url))
+        await message.reply_text(
+            messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
+        )
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1139,7 +1141,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(_status_message(user))
             return
         if action == "om:home":
-            await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url))
+            await query.edit_message_text(
+                messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
+            )
             return
         if action == "om:help":
             await query.edit_message_text(messages.MENU_QUICK_HELP, reply_markup=_help_keyboard())
@@ -1371,7 +1375,9 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if user.status == UserStatus.ACTIVE:
         await services.users.touch_active_user(identity.telegram_user_id)
     if user.status == UserStatus.ACTIVE:
-        await message.reply_text(messages.WELCOME, reply_markup=_menu_keyboard(services.miniapp_url))
+        await message.reply_text(
+            messages.WELCOME, reply_markup=_menu_keyboard(services.miniapp_url)
+        )
     else:
         await message.reply_text(_status_message(user))
 
