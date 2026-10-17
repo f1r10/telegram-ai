@@ -15,6 +15,7 @@ from telegram.ext import ContextTypes
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.inventory import InventoryLedgerService, StockSnapshot
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
@@ -119,7 +120,8 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     keyboard = args.kwargs["reply_markup"]
     assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
         ["om:ask", "om:product"],
-        ["om:upload", "om:sales"],
+        ["om:stock", "om:sales"],
+        ["om:upload"],
         ["om:internet", "om:help"],
     ]
 
@@ -175,6 +177,28 @@ def test_combined_menu_passes_both_evidence_scopes() -> None:
     )
     web.answer_combined.assert_awaited_once_with(user, text, image_readings=[])
     web.answer_internet.assert_not_called()
+
+
+def test_stock_menu_uses_authorized_ledger_instead_of_catalog_rag() -> None:
+    user = _user()
+    context, services = _context(user)
+    inventory = SimpleNamespace(
+        snapshot=AsyncMock(return_value=StockSnapshot("KA45", (), None)),
+        record=AsyncMock(),
+    )
+    internal = SimpleNamespace(answer=AsyncMock())
+    services.inventory = cast(InventoryLedgerService, inventory)
+    services.internal_evidence = cast(object, internal)  # type: ignore[assignment]
+    query = _select(context, "stock")
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_STOCK_PROMPT)
+    assert MENU_SELECTION_KEY in context.user_data
+    message = _message("KA45")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    inventory.snapshot.assert_awaited_once_with(user, "KA45")
+    inventory.record.assert_not_awaited()
+    internal.answer.assert_not_called()
+    assert "MƏLUM DEYİL" in message.reply_text.await_args.args[0]
+    assert MENU_SELECTION_KEY not in context.user_data
 
 
 def test_internal_menu_keeps_search_inside_company_data() -> None:

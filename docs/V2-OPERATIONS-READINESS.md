@@ -33,6 +33,14 @@ warehouse. If a product has no approved opening balance, `/stok KA45` and
 `Stok: KA45` explicitly report **UNKNOWN**, not zero. This protects against
 misrepresenting missing warehouse records as actual availability.
 
+The touch-first `🏬 Anbar qalığı` menu now accepts a product code and
+shows the known per-warehouse quantities without running the document model.
+Clearly phrased code questions such as `KA45 stokda varmı?` and
+`KA45 neçə ədəd qalıb?` also resolve deterministically to this ledger,
+while ambiguous questions about products lacking an identifiable code
+continue through normal document/business evidence. This does not mean
+that a catalog/price listing constitutes available warehouse stock.
+
 The authorized, private Telegram UI uses a two-step confirmation:
 
 ```text

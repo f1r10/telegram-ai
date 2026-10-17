@@ -104,6 +104,16 @@ def test_missing_opening_is_reported_unknown_not_zero() -> None:
     assert "0.000" not in response
 
 
+def test_plain_azerbaijani_product_stock_question_uses_ledger() -> None:
+    context, inventory = _context()
+    message = _message("KA45 stokda varmı?")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    inventory.snapshot.assert_awaited_once()
+    inventory.record.assert_not_awaited()
+    response = message.reply_text.await_args.args[0]
+    assert "MƏLUM DEYİL" in response
+
+
 def test_known_stock_splits_warehouses_without_an_invented_total() -> None:
     context, inventory = _context()
     inventory.snapshot.return_value = StockSnapshot(

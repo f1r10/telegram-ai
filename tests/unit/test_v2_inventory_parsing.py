@@ -7,6 +7,7 @@ import pytest
 from office_assistant.application.inventory import (
     InventoryValidationError,
     StockDraft,
+    parse_natural_stock_request,
     parse_stock_draft,
     parse_stock_request,
 )
@@ -49,3 +50,28 @@ def test_unrelated_conversation_does_not_activate_stock_operations() -> None:
     assert parse_stock_draft("Satış əlavə et: A MMC | 2026-10-01 | 1 | 5 | AZN") is None
     with pytest.raises(InventoryValidationError):
         parse_stock_request("Stok: ")
+
+
+@pytest.mark.parametrize(
+    ("utterance", "code"),
+    [
+        ("KA45 stokda varmı?", "KA45"),
+        ("QA-KA45 anbarda varmi?", "QAKA45"),
+        ("KA45 stok qalığı neçədir?", "KA45"),
+        ("KA45 neçə ədəd qalıb?", "KA45"),
+    ],
+)
+def test_natural_stock_questions_are_deterministic(utterance: str, code: str) -> None:
+    assert parse_natural_stock_request(utterance) == code
+
+
+def test_natural_stock_extraction_does_not_capture_general_chat() -> None:
+    for phrase in (
+        "Məhsul stokda varmı?",
+        "KA45 qiyməti neçədir?",
+        "Bu il KA45 stokda varmı?",
+        "Sifarişim haradadır?",
+        "Kağız anbarda varmı?",
+        "Gələn həftə KA45 stokda varmı?",
+    ):
+        assert parse_natural_stock_request(phrase) is None
