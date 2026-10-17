@@ -1207,11 +1207,7 @@ async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYP
         if not isinstance(entry, tuple):
             continue
         pair = cast(tuple[object, ...], entry)
-        if (
-            len(pair) == 2
-            and pair[0] == citation_index
-            and isinstance(pair[1], int)
-        ):
+        if len(pair) == 2 and pair[0] == citation_index and isinstance(pair[1], int):
             authorized_file_id = pair[1]
             break
     if authorized_file_id is None:
