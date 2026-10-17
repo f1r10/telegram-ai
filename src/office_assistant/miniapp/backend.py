@@ -331,9 +331,7 @@ class MiniAppBackend:
         actor = await self.actor(init_data)
         if self.uploads is None:
             raise MiniAppServiceUnavailable("Document upload is not configured")
-        return await self.uploads.register(
-            actor, key=key, filename=filename, mime=mime, size=size
-        )
+        return await self.uploads.register(actor, key=key, filename=filename, mime=mime, size=size)
 
     async def confirm_upload(self, init_data: str, *, token: str) -> dict[str, object]:
         actor = await self.actor(init_data)
