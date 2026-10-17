@@ -29,12 +29,13 @@ class DummyBackend:
 
     async def product(self, raw: str, *, query: str) -> dict[str, object]:
         self.calls.append("product:" + raw + ":" + query)
-        return {"status": "found", "product": {"code": query, "name": "Təsdiqli məhsul"},
-                "candidates": []}
+        return {
+            "status": "found",
+            "product": {"code": query, "name": "Təsdiqli məhsul"},
+            "candidates": [],
+        }
 
-    async def sales_report(
-        self, raw: str, *, customer: str, year: int
-    ) -> dict[str, object]:
+    async def sales_report(self, raw: str, *, customer: str, year: int) -> dict[str, object]:
         self.calls.append("sales:" + raw + ":" + customer + ":" + str(year))
         return {
             "customer": customer,
@@ -179,7 +180,10 @@ def test_malformed_json_and_path_guessing_fail_closed() -> None:
 def test_product_and_sales_http_cards_preserve_permissions_and_currency_values() -> None:
     with serve() as (port, backend):
         code, _, body = call(
-            port, "POST", "/api/product", body={"query": "KA45"},
+            port,
+            "POST",
+            "/api/product",
+            body={"query": "KA45"},
             origin="https://assistant.example.org",
         )
         assert code == 200
@@ -188,14 +192,15 @@ def test_product_and_sales_http_cards_preserve_permissions_and_currency_values()
         assert "price" not in result["product"]
 
         code, _, body = call(
-            port, "POST", "/api/sales", body={"customer": "A şirkəti", "year": 2026},
+            port,
+            "POST",
+            "/api/sales",
+            body={"customer": "A şirkəti", "year": 2026},
             origin="https://assistant.example.org",
         )
         assert code == 200
         result = json.loads(body)
-        assert result["totals"] == [
-            {"currency": "AZN", "invoice_count": 2, "amount": "40.00"}
-        ]
+        assert result["totals"] == [{"currency": "AZN", "invoice_count": 2, "amount": "40.00"}]
         assert backend.calls == [
             "product:pretend-signed-data:KA45",
             "sales:pretend-signed-data:A şirkəti:2026",
@@ -208,8 +213,14 @@ def test_product_sales_invalid_payloads_and_origins_fail_without_dispatch() -> N
         assert call(port, "POST", "/api/sales", body={"customer": "A", "year": True})[0] == 400
         assert call(port, "POST", "/api/sales", body={"customer": "A", "year": "2026"})[0] == 400
         assert call(port, "POST", "/api/product", body={"query": "KA45"}, signed=None)[0] == 401
-        assert call(
-            port, "POST", "/api/sales", body={"customer": "A", "year": 2026},
-            origin="https://evil.example",
-        )[0] == 403
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/sales",
+                body={"customer": "A", "year": 2026},
+                origin="https://evil.example",
+            )[0]
+            == 403
+        )
         assert backend.calls == []
