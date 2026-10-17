@@ -73,18 +73,17 @@ class MiniAppDocumentProgress:
 
     async def recent(self, actor: User, *, limit: int = 6) -> list[dict[str, object]]:
         async with self.session_factory() as session:
-            rows = (
-                await session.execute(
-                    select(IngestionJob)
-                    .join(IngestionSession, IngestionSession.id == IngestionJob.session_id)
-                    .where(
-                        IngestionSession.user_id == actor.id,
-                        IngestionSession.status == "COMMITTED",
-                    )
-                    .order_by(IngestionJob.id.desc())
-                    .limit(min(max(1, limit), 8))
+            query = (
+                select(IngestionJob)
+                .join(IngestionSession, IngestionSession.id == IngestionJob.session_id)
+                .where(
+                    IngestionSession.user_id == actor.id,
+                    IngestionSession.status == "COMMITTED",
                 )
-            ).scalars().all()
+                .order_by(IngestionJob.id.desc())
+                .limit(min(max(1, limit), 8))
+            )
+            rows = (await session.execute(query)).scalars().all()
             return [await self._describe(session, row) for row in rows]
 
     async def one(self, actor: User, *, job_id: int) -> dict[str, object]:
@@ -111,16 +110,10 @@ class MiniAppDocumentProgress:
             .order_by(IngestionSessionItem.sequence_no)
             .limit(1)
         )
-        parse_states = list(
-            (
-                await session.execute(
-                    select(DocumentParseRun.status)
-                    .where(DocumentParseRun.ingestion_job_id == job.id)
-                )
-            )
-            .scalars()
-            .all()
+        parse_query = select(DocumentParseRun.status).where(
+            DocumentParseRun.ingestion_job_id == job.id
         )
+        parse_states = list((await session.execute(parse_query)).scalars().all())
         index = await session.scalar(
             select(KnowledgeIndexJob).where(KnowledgeIndexJob.ingestion_job_id == job.id)
         )
@@ -128,13 +121,10 @@ class MiniAppDocumentProgress:
         if index is not None and index.status == KnowledgeIndexJobStatus.SUCCEEDED:
             # Check every indexed record; a merely SUCCEEDED flag is not proof
             # that a document actually made it into the searchable collection.
-            records = (
-                await session.execute(
-                    select(KnowledgeIndexRecord).where(
-                        KnowledgeIndexRecord.knowledge_index_job_id == index.id
-                    )
-                )
-            ).scalars().all()
+            record_query = select(KnowledgeIndexRecord).where(
+                KnowledgeIndexRecord.knowledge_index_job_id == index.id
+            )
+            records = (await session.execute(record_query)).scalars().all()
             # All parsed documents need a successful, non-empty index record.
             # A single successful file must not make a batch look fully ready.
             if len(records) == len(parse_states) and all(
