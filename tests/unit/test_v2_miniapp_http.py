@@ -164,9 +164,7 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert code == 200
         result = json.loads(body)
         assert result["answer"] == "Mənbəli cavab"
-        assert result["sources"] == [
-            {"number": 1, "label": "sənəd.pdf", "download_token": None}
-        ]
+        assert result["sources"] == [{"number": 1, "label": "sənəd.pdf", "download_token": None}]
         code, _, body = call(
             port,
             "POST",
@@ -242,9 +240,7 @@ def test_source_is_downloaded_by_private_authenticated_post_only(tmp_path: Path)
     bytes_value = b"%PDF-original-binary-test"
     original.write_bytes(bytes_value)
     with serve(original) as (port, backend):
-        response, headers, body = call(
-            port, "POST", "/api/source", body={"token": "opaque-test"}
-        )
+        response, headers, body = call(port, "POST", "/api/source", body={"token": "opaque-test"})
         assert response == 200
         assert body == bytes_value
         assert headers["Content-Type"] == "application/octet-stream"
@@ -259,14 +255,16 @@ def test_source_routes_reject_unsigned_and_forged_file_requests(tmp_path: Path) 
     original.write_bytes(b"fixture")
     with serve(original) as (port, backend):
         assert call(port, "GET", "/api/source")[0] == 404
-        assert call(
-            port, "POST", "/api/source", body={"token": "any"}, signed=None
-        )[0] == 401
-        assert call(
-            port, "POST", "/api/source", body={"token": 123}
-        )[0] == 400
-        assert call(
-            port, "POST", "/api/source", body={"token": "source-token"},
-            origin="https://malicious.example",
-        )[0] == 403
+        assert call(port, "POST", "/api/source", body={"token": "any"}, signed=None)[0] == 401
+        assert call(port, "POST", "/api/source", body={"token": 123})[0] == 400
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/source",
+                body={"token": "source-token"},
+                origin="https://malicious.example",
+            )[0]
+            == 403
+        )
         assert backend.calls == []
