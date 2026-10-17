@@ -23,12 +23,14 @@
       <section class="intro" id="intro">
         <p class="kicker">Sual vermək kifayətdir</p>
         <h2>İşinizdə lazım olan cavab, <em>bir söhbətdə.</em></h2>
-        <p>Şirkətinizə aid məlumatları axtarın, sənədləri soruşun və stok qalığını yoxlayın. Əmr və texniki bilik lazım deyil.</p>
+        <p>Şirkət məlumatlarını axtarın, məhsulu tapın, satış və anbar qalığını yoxlayın. Əmr və texniki bilik lazım deyil.</p>
       </section>
       <nav class="modes" aria-label="Sorğu növünü seçin" id="modes">
         <button class="mode active" type="button" data-scope="chat" aria-pressed="true"><span aria-hidden="true">✦</span><strong>Sual ver</strong><small>Adi söhbət</small></button>
         <button class="mode" type="button" data-scope="baza" aria-pressed="false"><span aria-hidden="true">▤</span><strong>Bizim baza</strong><small>Yalnız daxili məlumat</small></button>
+        <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
+        <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
       </nav>
       <section class="workspace" aria-label="Köməkçi ilə söhbət">
         <div class="workhead">
@@ -45,6 +47,11 @@
         <div class="suggestions" id="suggestions" aria-label="Nümunə suallar">
           <button type="button" data-example="KA45 haqqında nə bilirik?">KA45 haqqında nə bilirik? <span>↗</span></button>
           <button type="button" data-example="Şirkətin sənədləri barədə nə soruşa bilərəm?">Sənədlərlə işləmək <span>↗</span></button>
+        </div>
+        <div class="sales-fields" id="sales-fields" hidden>
+          <label for="sales-year">Hesabat ili</label>
+          <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
+          <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
         <form id="composer" class="composer">
           <label for="question" class="visually-hidden" id="question-label">Sualınız</label>
