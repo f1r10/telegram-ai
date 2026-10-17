@@ -129,11 +129,7 @@ class MiniAppUploadWorkflow:
         if not 20 <= len(token) <= 64:
             raise MiniAppUploadExpired("Invalid upload token")
         preview = self._previews.get(token)
-        if (
-            preview is None
-            or preview.actor_id != actor.id
-            or preview.expires_at < monotonic()
-        ):
+        if preview is None or preview.actor_id != actor.id or preview.expires_at < monotonic():
             raise MiniAppUploadExpired("Preview expired or belongs to another account")
         return preview
 
@@ -192,7 +188,6 @@ class MiniAppUploadWorkflow:
             "file_count": summary.file_count,
             "job_id": summary.job_id,
             "notice": (
-                "Fayl təsdiqləndi və emal növbəsinə verildi. "
-                "Emal bitməsi hələ təsdiqlənməyib."
+                "Fayl təsdiqləndi və emal növbəsinə verildi. Emal bitməsi hələ təsdiqlənməyib."
             ),
         }
