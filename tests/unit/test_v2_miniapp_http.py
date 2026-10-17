@@ -45,8 +45,10 @@ def serve() -> Iterator[tuple[int, DummyBackend]]:
     running.start()
     backend = DummyBackend()
     server = MiniAppHTTPServer(
-        port=0, public_origin="https://assistant.example.org",
-        backend=cast(MiniAppBackend, backend), loop=loop,
+        port=0,
+        public_origin="https://assistant.example.org",
+        backend=cast(MiniAppBackend, backend),
+        loop=loop,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -62,8 +64,13 @@ def serve() -> Iterator[tuple[int, DummyBackend]]:
 
 
 def call(
-    port: int, method: str, path: str, *, body: object = None,
-    signed: str | None = "pretend-signed-data", origin: str | None = None,
+    port: int,
+    method: str,
+    path: str,
+    *,
+    body: object = None,
+    signed: str | None = "pretend-signed-data",
+    origin: str | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
     headers: dict[str, str] = {}
@@ -102,8 +109,16 @@ def test_missing_auth_and_wrong_origin_cannot_reach_backend() -> None:
     with serve() as (port, backend):
         assert call(port, "GET", "/api/me", signed=None)[0] == 401
         assert call(port, "GET", "/api/me", origin="https://attacker.example")[0] == 403
-        assert call(port, "POST", "/api/ask", body={"question": "KA45", "scope": "baza"},
-                    origin="https://attacker.example")[0] == 403
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/ask",
+                body={"question": "KA45", "scope": "baza"},
+                origin="https://attacker.example",
+            )[0]
+            == 403
+        )
         assert backend.calls == []
 
 
@@ -113,7 +128,10 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert code == 200
         assert json.loads(body)["role"] == "employee"
         code, _, body = call(
-            port, "POST", "/api/ask", body={"question": "KA45?", "scope": "baza"},
+            port,
+            "POST",
+            "/api/ask",
+            body={"question": "KA45?", "scope": "baza"},
             origin="https://assistant.example.org",
         )
         assert code == 200
@@ -121,7 +139,10 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert result["answer"] == "Mənbəli cavab"
         assert result["sources"] == [{"number": 1, "label": "sənəd.pdf"}]
         code, _, body = call(
-            port, "POST", "/api/stock", body={"code": "KA45"},
+            port,
+            "POST",
+            "/api/stock",
+            body={"code": "KA45"},
             origin="https://assistant.example.org",
         )
         assert code == 200
