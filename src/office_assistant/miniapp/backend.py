@@ -7,6 +7,8 @@ search. Business and document answers reuse the existing internal service.
 import asyncio
 import logging
 import re
+import secrets
+from time import monotonic
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -27,6 +29,11 @@ from office_assistant.business_tools.models import (
 )
 from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.internal_evidence.delivery import (
+    DeliverableFile,
+    FileDeliveryError,
+    SourceFileDeliveryService,
+)
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
 
@@ -52,6 +59,16 @@ class ChatResponse:
     answer: str
     sources: tuple[tuple[int, str], ...]
     insufficient_evidence: bool
+    source_actions: tuple[tuple[int, str], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SourceTicket:
+    actor_id: int
+    telegram_user_id: int
+    file_id: int
+    citation_number: int
+    expires_at: float
 
 
 class MiniAppBackend:
@@ -66,6 +83,7 @@ class MiniAppBackend:
         inventory: InventoryLedgerService | None = None,
         products: BusinessQueryService | None = None,
         sales: SalesLedgerService | None = None,
+        file_delivery: SourceFileDeliveryService | None = None,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -77,6 +95,8 @@ class MiniAppBackend:
         self.inventory = inventory
         self.products = products
         self.sales = sales
+        self.file_delivery = file_delivery
+        self._source_tickets: dict[str, SourceTicket] = {}
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
         self._inflight = asyncio.Semaphore(4)
@@ -112,6 +132,12 @@ class MiniAppBackend:
             raise MiniAppServiceUnavailable("Company knowledge is not configured")
         if not self.rate_guard.allow(actor.id):
             raise MiniAppRateLimited("Too many requests")
+        # The next answer supersedes any older one-tap source buttons for this actor.
+        self._source_tickets = {
+            token: ticket
+            for token, ticket in self._source_tickets.items()
+            if ticket.actor_id != actor.id and ticket.expires_at > monotonic()
+        }
         if self._inflight.locked():
             raise MiniAppRateLimited("The assistant is busy")
         async with self._inflight:
@@ -125,13 +151,56 @@ class MiniAppBackend:
                     )
             except TimeoutError as error:
                 raise MiniAppServiceUnavailable("AI request timed out") from error
+        source_actions: list[tuple[int, str]] = []
+        if self.file_delivery is not None:
+            for citation in result.citations[:3]:
+                if citation.file_id is None or not 1 <= citation.number <= 99:
+                    continue
+                token = secrets.token_urlsafe(24)
+                self._source_tickets[token] = SourceTicket(
+                    actor_id=actor.id,
+                    telegram_user_id=actor.telegram_user_id,
+                    file_id=citation.file_id,
+                    citation_number=citation.number,
+                    expires_at=monotonic() + 600,
+                )
+                source_actions.append((citation.number, token))
+        # Memory budget: per-session tickets are ephemeral, bounded and never persisted.
+        while len(self._source_tickets) > 256:
+            self._source_tickets.pop(next(iter(self._source_tickets)))
         return ChatResponse(
             answer=result.answer[:16000],
             sources=tuple(
                 (citation.number, citation.label[:240]) for citation in result.citations[:12]
             ),
             insufficient_evidence=result.insufficient_evidence,
+            source_actions=tuple(source_actions),
         )
+
+    async def source_file(self, init_data: str, *, token: str) -> DeliverableFile:
+        """Resolve the original file through the latest persisted citation and actor."""
+
+        actor = await self.actor(init_data)
+        if self.file_delivery is None:
+            raise MiniAppServiceUnavailable("Original file delivery is not configured")
+        if not 20 <= len(token) <= 64:
+            raise FileDeliveryError("Invalid source ticket")
+        ticket = self._source_tickets.get(token)
+        if (
+            ticket is None
+            or ticket.actor_id != actor.id
+            or ticket.telegram_user_id != actor.telegram_user_id
+            or monotonic() > ticket.expires_at
+        ):
+            raise FileDeliveryError("Source button is expired or belongs to another user")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        original = await self.file_delivery.resolve_recent(
+            actor.telegram_user_id, ticket.citation_number
+        )
+        if original.file_id != ticket.file_id:
+            raise FileDeliveryError("Original citation has been superseded")
+        return original
 
     async def stock(self, init_data: str, *, code: str) -> dict[str, object]:
         actor = await self.actor(init_data)
