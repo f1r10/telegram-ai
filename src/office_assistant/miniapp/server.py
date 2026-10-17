@@ -11,6 +11,7 @@ import threading
 from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService
 from office_assistant.application.inventory import InventoryLedgerService
+from office_assistant.application.sales_ledger import SalesLedgerService
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.core.logging import configure_logging
@@ -116,6 +117,8 @@ def main() -> None:
             bot_token=settings.telegram_bot_token.get_secret_value(),
             evidence=evidence,
             inventory=InventoryLedgerService(session_factory),
+            products=BusinessQueryService(session_factory),
+            sales=SalesLedgerService(session_factory),
             rate_limit_per_minute=settings.ai_rate_limit_per_minute,
             request_timeout_seconds=min(75.0, settings.miniapp_request_timeout_seconds),
         )
