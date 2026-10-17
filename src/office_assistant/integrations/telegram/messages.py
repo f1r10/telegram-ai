@@ -12,7 +12,7 @@ AUTH_REJECTED_BY_ADMIN = "Giriş müraciətiniz administrator tərəfindən rəd
 PRIVATE_ONLY = "Bu bot yalnız şəxsi söhbətdə istifadə edilə bilər."
 UNKNOWN_USER = "Əvvəlcə /start əmrini göndərin və giriş prosesini tamamlayın."
 NO_PERMISSION = "Bu əməliyyat üçün icazəniz yoxdur."
-WELCOME = MENU_WELCOME = "Xoş gəlmisiniz! Sualınızı birbaşa yaza və ya aşağıdan seçim edə bilərsiniz."
+WELCOME = "Xoş gəlmisiniz! Sualınızı birbaşa yazın və ya aşağıdan seçim edin."
 MENU_TITLE = (
     "🏢 OFİS KÖMƏKÇİSİ\n\n"
     "Sadəcə sualınızı yazın — adi çat kimi. "
