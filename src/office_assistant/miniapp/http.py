@@ -14,13 +14,19 @@ from collections.abc import Coroutine
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
+from pathlib import Path
 from typing import Any, cast
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import InventoryValidationError
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
+from office_assistant.miniapp.uploads import (
+    MiniAppUploadConflict,
+    MiniAppUploadExpired,
+    MiniAppUploadWorkflow,
+)
 from office_assistant.miniapp.backend import (
     MiniAppAccessDenied,
     MiniAppBackend,
@@ -41,6 +47,7 @@ _CSP = (
     "frame-ancestors https://web.telegram.org https://*.telegram.org"
 )
 _MAX_POST_BODY = 4096
+_MAX_BINARY_UPLOAD_BYTES = MiniAppUploadWorkflow.MAX_BYTES
 
 
 class MiniAppHTTPServer(ThreadingHTTPServer):
@@ -222,6 +229,20 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 value = self._run(self._app().backend.source_file(signed, token=token))
                 assert isinstance(value, DeliverableFile)
                 self._original_file(value)
+            elif method == "POST" and path == "/api/upload/confirm" and args is not None:
+                token = args.get("token")
+                if not isinstance(token, str):
+                    raise ValueError("Invalid upload token")
+                result = self._run(self._app().backend.confirm_upload(signed, token=token))
+                assert isinstance(result, dict)
+                self._json(200, cast(dict[str, object], result))
+            elif method == "POST" and path == "/api/upload/cancel" and args is not None:
+                token = args.get("token")
+                if not isinstance(token, str):
+                    raise ValueError("Invalid upload token")
+                result = self._run(self._app().backend.cancel_upload(signed, token=token))
+                assert isinstance(result, dict)
+                self._json(200, cast(dict[str, object], result))
             elif method == "POST" and path == "/api/sales" and args is not None:
                 customer = args.get("customer")
                 year = args.get("year")
@@ -240,6 +261,10 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid_request"})
         except FileDeliveryError:
             self._json(404, {"error": "source_unavailable"})
+        except MiniAppUploadConflict:
+            self._json(409, {"error": "upload_session_conflict"})
+        except MiniAppUploadExpired:
+            self._json(410, {"error": "upload_preview_expired"})
         except MiniAppRateLimited:
             self._json(429, {"error": "too_many_requests"})
         except MiniAppServiceUnavailable:
@@ -266,10 +291,111 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         )
         self._send(200, contents, mime)
 
+    def _prepare_upload(self, signed: str) -> None:
+        """Stream at most eight MiB to a random private temp key; no DB mutation."""
+
+        from office_assistant.application.file_validation import validate_upload
+
+        length_headers = self.headers.get_all("Content-Length", [])
+        names = self.headers.get_all("X-Office-Filename", [])
+        if (
+            self.headers.get("Transfer-Encoding")
+            or len(length_headers) != 1
+            or len(names) != 1
+            or not re.fullmatch(r"[0-9]{1,9}", length_headers[0])
+            or len(names[0]) > 600
+        ):
+            self._json(400, {"error": "invalid_upload_headers"})
+            return
+        size = int(length_headers[0])
+        if size < 1 or size > _MAX_BINARY_UPLOAD_BYTES:
+            self._json(413, {"error": "upload_too_large"})
+            return
+        mime = self.headers.get("Content-Type", "")
+        try:
+            filename = unquote(names[0], encoding="utf-8", errors="strict")
+            filename, normalized = MiniAppUploadWorkflow.validated_name(filename, mime, size)
+            validate_upload(filename, mime, size, _MAX_BINARY_UPLOAD_BYTES)
+            backend = self._app().backend
+            if backend.uploads is None:
+                raise MiniAppServiceUnavailable("Uploads not configured")
+            self._run(backend.upload_permission(signed))
+        except (ValueError, UnicodeError):
+            self._json(400, {"error": "unsupported_upload"})
+            return
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            self._json(401, {"error": "unauthorized"})
+            return
+        except MiniAppUploadConflict:
+            self._json(409, {"error": "upload_session_conflict"})
+            return
+        except MiniAppRateLimited:
+            self._json(429, {"error": "too_many_requests"})
+            return
+        except MiniAppServiceUnavailable:
+            self._json(503, {"error": "service_unavailable"})
+            return
+        path, key = backend.uploads.storage.create_staging_path(Path(filename).suffix)
+        try:
+            self.connection.settimeout(20.0)
+            remaining = size
+            with path.open("xb") as stream:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("Truncated upload")
+                    stream.write(chunk)
+                    remaining -= len(chunk)
+            value = self._run(
+                backend.register_upload(
+                    signed,
+                    key=key,
+                    filename=filename,
+                    mime=normalized,
+                    size=size,
+                )
+            )
+            assert isinstance(value, dict)
+            self._json(200, cast(dict[str, object], value))
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            backend.uploads.storage.delete(key)
+            self._json(401, {"error": "unauthorized"})
+        except MiniAppUploadConflict:
+            backend.uploads.storage.delete(key)
+            self._json(409, {"error": "upload_session_conflict"})
+        except (ValueError, TimeoutError):
+            backend.uploads.storage.delete(key)
+            self._json(400, {"error": "invalid_upload"})
+        except (MiniAppRateLimited, MiniAppServiceUnavailable):
+            backend.uploads.storage.delete(key)
+            self._json(503, {"error": "service_unavailable"})
+        except Exception as error:
+            backend.uploads.storage.delete(key)
+            logger.warning("Mini App upload failed | error_type=%s", type(error).__name__)
+            self._json(503, {"error": "service_unavailable"})
+
     def do_POST(self) -> None:
         path = urlsplit(self.path)
+        if path.path == "/api/upload/prepare" and not path.query:
+            if not self._allowed_origin():
+                self._json(403, {"error": "origin_not_allowed"})
+                return
+            signed = self._authenticate_header()
+            if signed is None:
+                self._json(401, {"error": "telegram_authorization_required"})
+                return
+            self._prepare_upload(signed)
+            return
         if (
-            path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales", "/api/source"}
+            path.path not in {
+                "/api/ask",
+                "/api/stock",
+                "/api/product",
+                "/api/sales",
+                "/api/source",
+                "/api/upload/confirm",
+                "/api/upload/cancel",
+            }
             or path.query
         ):
             self._json(404, {"error": "not_found"})
