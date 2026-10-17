@@ -136,8 +136,7 @@ class MiniAppBackend:
             "known": snapshot.total is not None,
             "total": str(snapshot.total) if isinstance(snapshot.total, Decimal) else None,
             "locations": [
-                {"warehouse": x.warehouse, "quantity": str(x.quantity)}
-                for x in snapshot.locations
+                {"warehouse": x.warehouse, "quantity": str(x.quantity)} for x in snapshot.locations
             ],
             "notice": (
                 "Yalnız təsdiqlənmiş anbar əməliyyatları əsasında."
