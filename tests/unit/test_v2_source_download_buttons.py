@@ -109,9 +109,7 @@ def test_source_is_downloaded_directly_with_consent_and_existing_authorization(
     buttons = keyboard.inline_keyboard[0]
     assert [button.text for button in buttons] == ["📎 Mənbə 1"]
     query = _query(buttons[0].callback_data or "")
-    asyncio.run(
-        handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context)))
     query.edit_message_text.assert_not_awaited()
     query.answer.assert_awaited_once()
     service.resolve_recent.assert_awaited_once_with(123, 1)
@@ -131,15 +129,10 @@ def test_source_token_rejects_stale_index_instead_of_delivering_wrong_file(
     first_button = first.inline_keyboard[0][0]
     _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer(2))
     query = _query(first_button.callback_data or "")
-    asyncio.run(
-        handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context)))
     service.resolve_recent.assert_not_awaited()
     context.bot.send_document.assert_not_awaited()
-    assert (
-        context.bot.send_message.await_args.kwargs["text"]
-        == messages.MENU_SOURCE_BUTTON_EXPIRED
-    )
+    assert context.bot.send_message.await_args.kwargs["text"] == messages.MENU_SOURCE_BUTTON_EXPIRED
     assert SOURCE_BUTTONS_KEY in context.user_data
     _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer(None))
     assert SOURCE_BUTTONS_KEY not in context.user_data
@@ -153,15 +146,11 @@ def test_source_index_tampering_and_expired_button_are_rejected(tmp_path: Path) 
     keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
     callback = keyboard.inline_keyboard[0][0].callback_data or ""
     forged = _query(callback.rsplit(":", 1)[0] + ":2")
-    asyncio.run(
-        handle_source_button(_update(forged), cast(ContextTypes.DEFAULT_TYPE, context))
-    )
+    asyncio.run(handle_source_button(_update(forged), cast(ContextTypes.DEFAULT_TYPE, context)))
     token, _expiry, indices = context.user_data[SOURCE_BUTTONS_KEY]
     context.user_data[SOURCE_BUTTONS_KEY] = (token, -1.0, indices)
     asyncio.run(
-        handle_source_button(
-            _update(_query(callback)), cast(ContextTypes.DEFAULT_TYPE, context)
-        )
+        handle_source_button(_update(_query(callback)), cast(ContextTypes.DEFAULT_TYPE, context))
     )
     service.resolve_recent.assert_not_awaited()
     assert context.bot.send_message.await_count == 2
@@ -178,16 +167,11 @@ def test_newer_message_cannot_swap_the_button_target_file(tmp_path: Path) -> Non
         path, "different.pdf", "application/pdf", 99
     )
     asyncio.run(
-        handle_source_button(
-            _update(_query(callback)), cast(ContextTypes.DEFAULT_TYPE, context)
-        )
+        handle_source_button(_update(_query(callback)), cast(ContextTypes.DEFAULT_TYPE, context))
     )
     service.resolve_recent.assert_awaited_once_with(123, 1)
     context.bot.send_document.assert_not_awaited()
-    assert (
-        context.bot.send_message.await_args.kwargs["text"]
-        == messages.MENU_SOURCE_BUTTON_EXPIRED
-    )
+    assert context.bot.send_message.await_args.kwargs["text"] == messages.MENU_SOURCE_BUTTON_EXPIRED
 
 
 def test_group_chat_button_never_exposes_a_document(tmp_path: Path) -> None:
