@@ -23,6 +23,7 @@ from telegram import (
     Message,
     MessageEntity,
     Update,
+    WebAppInfo,
 )
 from telegram.constants import ChatAction, ChatType
 from telegram.error import NetworkError, TelegramError
@@ -166,6 +167,7 @@ class TelegramServices:
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
     inventory: InventoryLedgerService | None = None
+    miniapp_url: str | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
@@ -460,29 +462,33 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
     return None
 
 
-def _menu_keyboard() -> InlineKeyboardMarkup:
-    """V2 touch-first dashboard, usable on mobile without memorizing commands."""
+def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
+    """Native bot stays complete; optional Web App requires its own HTTPS origin."""
 
-    return InlineKeyboardMarkup(
+    rows = [
         [
-            [
-                InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
-                InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
-                InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
-                InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
-                InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
-            ],
-        ]
-    )
+            InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
+            InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
+            InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
+            InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
+            InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
+        ],
+    ]
+    if miniapp_url is not None and miniapp_url.startswith("https://"):
+        rows.insert(
+            0,
+            [InlineKeyboardButton("✨ Mini App-ı aç", web_app=WebAppInfo(url=miniapp_url))],
+        )
+    return InlineKeyboardMarkup(rows)
 
 
 def _answer_keyboard(
@@ -1074,8 +1080,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if identity is None or message is None:
         return
     _discard_menu_selection(context)
+    services = _services(context)
     try:
-        user = await _services(context).users.get_by_telegram_id(identity.telegram_user_id)
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     except SQLAlchemyError:
         logger.exception("Telegram menu database lookup failed")
         await message.reply_text(messages.TEMPORARY_ERROR)
@@ -1085,7 +1092,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
     else:
-        await message.reply_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
+        await message.reply_text(
+            messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
+        )
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1128,7 +1137,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(_status_message(user))
             return
         if action == "om:home":
-            await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
+            await query.edit_message_text(
+                messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
+            )
             return
         if action == "om:help":
             await query.edit_message_text(messages.MENU_QUICK_HELP, reply_markup=_help_keyboard())
@@ -1284,7 +1295,7 @@ async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT
             keyboard = _examples_keyboard()
         else:
             content = messages.MENU_TITLE
-            keyboard = _menu_keyboard()
+            keyboard = _menu_keyboard(services.miniapp_url)
         await context.bot.send_message(
             chat_id=identity.telegram_user_id, text=content, reply_markup=keyboard
         )
@@ -1360,7 +1371,9 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if user.status == UserStatus.ACTIVE:
         await services.users.touch_active_user(identity.telegram_user_id)
     if user.status == UserStatus.ACTIVE:
-        await message.reply_text(messages.WELCOME, reply_markup=_menu_keyboard())
+        await message.reply_text(
+            messages.WELCOME, reply_markup=_menu_keyboard(services.miniapp_url)
+        )
     else:
         await message.reply_text(_status_message(user))
 
