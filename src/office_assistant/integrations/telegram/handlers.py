@@ -2305,9 +2305,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
         async with services.session_factory() as session:
             holder = await ProductImageRelationRepository(
                 session
-            ).active_confirmation_holder_by_content(
-                digest, active_product_only=True
-            )
+            ).active_confirmation_holder_by_content(digest, active_product_only=True)
             if holder is not None:
                 await message.reply_text(
                     f"📦 MƏHSUL TAPILDI\n\nKod: {holder[1]}\n"
