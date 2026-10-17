@@ -377,8 +377,12 @@ def test_one_tap_expiry_supersession_and_revocation(tmp_path: Path) -> None:
                 route=RoutingCategory.INTERNAL_DOCUMENT,
                 citations=(
                     UnifiedCitation(
-                        evidence_id="file:1", number=1, source_class="INTERNAL_DOCUMENT",
-                        file_id=42, filename="source.pdf", label="source.pdf"
+                        evidence_id="file:1",
+                        number=1,
+                        source_class="INTERNAL_DOCUMENT",
+                        file_id=42,
+                        filename="source.pdf",
+                        label="source.pdf",
                     ),
                 ),
             )
@@ -414,8 +418,12 @@ def test_one_tap_expiry_supersession_and_revocation(tmp_path: Path) -> None:
         route=RoutingCategory.INTERNAL_DOCUMENT,
         citations=(
             UnifiedCitation(
-                evidence_id="file:1", number=1, source_class="INTERNAL_DOCUMENT",
-                file_id=42, filename="source.pdf", label="source.pdf"
+                evidence_id="file:1",
+                number=1,
+                source_class="INTERNAL_DOCUMENT",
+                file_id=42,
+                filename="source.pdf",
+                label="source.pdf",
             ),
         ),
     )
