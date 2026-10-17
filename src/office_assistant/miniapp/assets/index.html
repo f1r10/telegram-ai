@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="az">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101c30">
+  <meta name="color-scheme" content="light dark">
+  <title>Ofis köməkçisi · Bizim baza</title>
+  <link rel="stylesheet" href="/app.css">
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="identity">
+        <div class="mark" aria-hidden="true">O</div>
+        <div><p class="eyebrow">SİZİN ŞİRKƏT · RƏQƏMSAL OFİS</p><h1>Ofis köməkçisi</h1></div>
+      </div>
+      <span class="state" id="connection"><span class="state-dot"></span>Giriş yoxlanılır</span>
+    </header>
+    <main>
+      <section class="intro" id="intro">
+        <p class="kicker">Sual vermək kifayətdir</p>
+        <h2>İşinizdə lazım olan cavab, <em>bir söhbətdə.</em></h2>
+        <p>Şirkətinizə aid məlumatları axtarın, sənədləri soruşun və stok qalığını yoxlayın. Əmr və texniki bilik lazım deyil.</p>
+      </section>
+      <nav class="modes" aria-label="Sorğu növünü seçin" id="modes">
+        <button class="mode active" type="button" data-scope="chat" aria-pressed="true"><span aria-hidden="true">✦</span><strong>Sual ver</strong><small>Adi söhbət</small></button>
+        <button class="mode" type="button" data-scope="baza" aria-pressed="false"><span aria-hidden="true">▤</span><strong>Bizim baza</strong><small>Yalnız daxili məlumat</small></button>
+        <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
+      </nav>
+      <section class="workspace" aria-label="Köməkçi ilə söhbət">
+        <div class="workhead">
+          <div><p class="eyebrow" id="scope-kicker">AĞILLI OFİS SÖHBƏTİ</p><h3 id="scope-title">Nəyi öyrənmək istəyirsiniz?</h3></div>
+          <button id="new-chat" class="text-button" type="button" aria-label="Söhbət ekranını təmizlə">Yenilə ↗</button>
+        </div>
+        <div id="conversation" class="conversation" role="log" aria-live="polite" aria-relevant="additions">
+          <div class="welcome-card">
+            <span class="spark" aria-hidden="true">✦</span>
+            <p><strong>Salam! Mən sizin ofis köməkçinizəm.</strong></p>
+            <p class="muted">İlk sualınızı aşağıdakı xanaya yazın. Mənbə varsa göstərəcəyəm, məlumat yoxdursa bunu açıq bildirəcəyəm.</p>
+          </div>
+        </div>
+        <div class="suggestions" id="suggestions" aria-label="Nümunə suallar">
+          <button type="button" data-example="KA45 haqqında nə bilirik?">KA45 haqqında nə bilirik? <span>↗</span></button>
+          <button type="button" data-example="Şirkətin sənədləri barədə nə soruşa bilərəm?">Sənədlərlə işləmək <span>↗</span></button>
+        </div>
+        <form id="composer" class="composer">
+          <label for="question" class="visually-hidden" id="question-label">Sualınız</label>
+          <textarea id="question" rows="1" maxlength="2000" placeholder="Sualınızı buraya yazın..." required></textarea>
+          <button id="send" type="submit" class="send" aria-label="Sorğunu göndər">➤</button>
+        </form>
+        <p class="footnote" id="scope-note">Cavabların dəqiqliyi mövcud mənbələrdən asılıdır. Şirkət məlumatını internetə avtomatik göndərmirik.</p>
+      </section>
+      <aside class="bottom-hint">
+        <div><strong>Sənəd əlavə etmək və təsdiqli əməliyyatlar üçün</strong><p>Hələlik Telegram botundakı mövcud menyudan istifadə edin. Mini App bu əməliyyatları avtomatik icra etmir.</p></div>
+        <button type="button" id="back-to-chat">Bota qayıt →</button>
+      </aside>
+    </main>
+    <footer><span>Şirkət daxili · İcazəli istifadə</span><span id="employee">Təhlükəsiz giriş</span></footer>
+  </div>
+  <div class="overlay" id="locked" hidden role="alertdialog" aria-modal="true" aria-labelledby="locked-title">
+    <div class="locked-card">
+      <div class="mark large" aria-hidden="true">O</div>
+      <h2 id="locked-title">Telegram girişi tələb olunur</h2>
+      <p id="locked-copy">Bu tətbiqi şirkətinizin Telegram botundakı rəsmi düymədən açın. Giriş məlumatları təsdiqlənmədən şirkət bazasına baxmaq mümkün deyil.</p>
+      <button type="button" id="reload">Yenidən yoxla</button>
+    </div>
+  </div>
+</body>
+</html>
