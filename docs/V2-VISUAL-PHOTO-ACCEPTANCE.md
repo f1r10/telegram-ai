@@ -70,6 +70,12 @@ false-positive *identity claim* rate alone says nothing about false
 suggestions: inspect the negative-candidate metric separately. If
 `truncated=true`, not all approved reference images were evaluated.
 The default 80-reference cap must be declared in any reported results.
+Sampling is deterministic and *product-balanced*: the first approved
+view of each SKU is preferred before a second view from any SKU, avoiding
+one heavily photographed product occupying the entire 80-photo window.
+The DB scan is still capped to the 501 most recent references; other
+products farther outside this window may remain undiscovered.
+A truncated benchmark therefore cannot establish complete catalog recall.
 
 Record the acceptance manifest SHA and model/cache version in the private
 operator run book, and compare before/after parameter changes using the
