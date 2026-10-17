@@ -108,7 +108,7 @@ def test_source_is_downloaded_directly_with_consent_and_existing_authorization(
     keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
     buttons = keyboard.inline_keyboard[0]
     assert [button.text for button in buttons] == ["📎 Mənbə 1"]
-    query = _query(buttons[0].callback_data or "")
+    query = _query(str(buttons[0].callback_data or ""))
     asyncio.run(handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context)))
     query.edit_message_text.assert_not_awaited()
     query.answer.assert_awaited_once()
@@ -128,7 +128,7 @@ def test_source_token_rejects_stale_index_instead_of_delivering_wrong_file(
     first = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer(1))
     first_button = first.inline_keyboard[0][0]
     _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer(2))
-    query = _query(first_button.callback_data or "")
+    query = _query(str(first_button.callback_data or ""))
     asyncio.run(handle_source_button(_update(query), cast(ContextTypes.DEFAULT_TYPE, context)))
     service.resolve_recent.assert_not_awaited()
     context.bot.send_document.assert_not_awaited()
@@ -144,7 +144,7 @@ def test_source_index_tampering_and_expired_button_are_rejected(tmp_path: Path) 
     context, service = _context(path)
     services = context.bot_data["phase2_services"]
     keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
-    callback = keyboard.inline_keyboard[0][0].callback_data or ""
+    callback = str(keyboard.inline_keyboard[0][0].callback_data or "")
     forged = _query(callback.rsplit(":", 1)[0] + ":2")
     asyncio.run(handle_source_button(_update(forged), cast(ContextTypes.DEFAULT_TYPE, context)))
     token, _expiry, indices = context.user_data[SOURCE_BUTTONS_KEY]
@@ -162,7 +162,7 @@ def test_newer_message_cannot_swap_the_button_target_file(tmp_path: Path) -> Non
     context, service = _context(path)
     services = context.bot_data["phase2_services"]
     keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
-    callback = keyboard.inline_keyboard[0][0].callback_data or ""
+    callback = str(keyboard.inline_keyboard[0][0].callback_data or "")
     service.resolve_recent.return_value = DeliverableFile(
         path, "different.pdf", "application/pdf", 99
     )
@@ -180,7 +180,7 @@ def test_group_chat_button_never_exposes_a_document(tmp_path: Path) -> None:
     context, service = _context(path)
     services = context.bot_data["phase2_services"]
     keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
-    query = _query(keyboard.inline_keyboard[0][0].callback_data or "")
+    query = _query(str(keyboard.inline_keyboard[0][0].callback_data or ""))
     asyncio.run(
         handle_source_button(
             _update(query, private=False), cast(ContextTypes.DEFAULT_TYPE, context)
