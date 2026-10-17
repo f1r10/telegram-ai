@@ -119,9 +119,9 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     assert args.args == (messages.MENU_TITLE,)
     keyboard = args.kwargs["reply_markup"]
     assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
-        ["om:ask", "om:product"],
-        ["om:stock", "om:sales"],
-        ["om:upload"],
+        ["om:ask", "om:baza"],
+        ["om:product", "om:stock"],
+        ["om:upload", "om:sales"],
         ["om:internet", "om:help"],
     ]
 
@@ -294,7 +294,7 @@ def test_unsupported_callback_value_never_selects_a_scope() -> None:
     ("later_action", "expected"),
     [
         ("upload", messages.MENU_UPLOAD_GUIDE),
-        ("help", messages.HELP_TEXT),
+        ("help", messages.MENU_QUICK_HELP),
     ],
 )
 def test_navigation_away_from_internet_releases_armed_scope(
@@ -491,7 +491,9 @@ def test_pending_upload_never_swallows_an_ordinary_question() -> None:
     asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     answer.answer.assert_awaited_once_with(user, text, image_readings=[])
     ingest.add_instruction.assert_not_awaited()
-    message.reply_text.assert_awaited_once_with("Kataloqda yoxlanıldı.")
+    message.reply_text.assert_awaited_once()
+    assert message.reply_text.await_args.args == ("Kataloqda yoxlanıldı.",)
+    assert message.reply_text.await_args.kwargs["reply_markup"] is not None
 
 
 def test_pending_document_does_not_swallow_ordinary_statement() -> None:
@@ -515,7 +517,9 @@ def test_pending_document_does_not_swallow_ordinary_statement() -> None:
     asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     answer.answer.assert_awaited_once_with(user, text, image_readings=[])
     ingest.add_instruction.assert_not_awaited()
-    message.reply_text.assert_awaited_once_with("Salam! Sənədlə işləyə bilərəm.")
+    message.reply_text.assert_awaited_once()
+    assert message.reply_text.await_args.args == ("Salam! Sənədlə işləyə bilərəm.",)
+    assert message.reply_text.await_args.kwargs["reply_markup"] is not None
 
 
 def test_explicit_document_note_is_the_only_instruction_during_pending_upload() -> None:
