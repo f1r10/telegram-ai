@@ -453,9 +453,7 @@ def test_recent_and_one_job_progress_revalidate_active_user_each_time() -> None:
     progress.one.assert_awaited_once_with(session.actor, job_id=30)
     assert session.executions == 2
 
-    session.actor = User(
-        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED
-    )
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
     with pytest.raises(MiniAppAccessDenied):
         asyncio.run(backend.recent_uploads(signature(123)))
     with pytest.raises(MiniAppAccessDenied):
