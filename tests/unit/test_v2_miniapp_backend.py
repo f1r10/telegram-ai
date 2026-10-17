@@ -223,6 +223,7 @@ def test_product_card_only_shows_authoritative_exact_match() -> None:
         "candidates": [],
     }
     context, request = lookup.find_product.await_args.args
+    assert actor_session.actor is not None
     assert context.user_id == actor_session.actor.id
     assert request.code_or_alias == "KA45"
     assert request.include_inactive is False
@@ -255,6 +256,7 @@ def test_product_ambiguity_does_not_invent_one_best_item() -> None:
     result = asyncio.run(backend.product(signature(123), query="Oxşar"))
     assert result["status"] == "ambiguous"
     assert result["product"] is None
+    assert isinstance(result["candidates"], list)
     assert len(result["candidates"]) == 2
     lookup.find_product.return_value = ToolResult[ProductLookupView](status=ToolStatus.NOT_FOUND)
     assert asyncio.run(backend.product(signature(123), query="Unknown"))["status"] == "not_found"
