@@ -16,3 +16,20 @@
 .source-download{margin-left:auto;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--accent);padding:8px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
 .source-download:hover{border-color:var(--accent)}
 .source-download:disabled{opacity:.55;cursor:wait}
+
+/* One-file upload: focused, self-explanatory preview before any database commit. */
+.composer[hidden],.upload-panel[hidden],.upload-preview[hidden],.suggestions[hidden]{display:none}
+.upload-panel{padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--bubble);margin-bottom:12px}
+.upload-picker{display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--card);border:1px dashed var(--accent);border-radius:12px;color:var(--navy);font-size:14px;font-weight:700;cursor:pointer}
+.upload-picker input{width:100%;max-width:100%;font:inherit;font-size:12px;color:var(--subtle)}
+.upload-panel p{font-size:12px;line-height:1.6;margin:12px 0;color:var(--subtle)}
+.upload-panel button{border-radius:10px;padding:12px 16px;min-height:42px;font:inherit;font-size:13px;font-weight:750;cursor:pointer}
+.upload-primary{border:0;background:#2563eb;color:white}
+.upload-secondary{border:1px solid var(--line);background:var(--card);color:var(--navy)}
+.upload-panel button:disabled{opacity:.6;cursor:wait}
+.upload-preview{padding:14px;border:1px solid var(--line);background:var(--card);border-radius:13px;margin-top:14px}
+.upload-preview strong{display:block;overflow-wrap:anywhere;color:var(--navy);font-size:14px}
+.upload-actions{display:flex;flex-wrap:wrap;gap:9px}
+.upload-feedback{min-height:18px}
+.upload-feedback.error{color:#c93650}
+@media(max-width:620px){.upload-panel{padding:12px}.upload-actions button{flex:1}}
