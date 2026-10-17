@@ -13,11 +13,17 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     FileObject,
     FileObjectState,
+    DocumentParseRun,
+    DocumentProcessingStatus,
     IngestionJob,
     IngestionJobStatus,
     IngestionSession,
     IngestionSessionItem,
     IngestionSessionStatus,
+    KnowledgeIndexJob,
+    KnowledgeIndexJobStatus,
+    KnowledgeIndexRecord,
+    KnowledgeIndexRecordStatus,
     SystemMetadata,
     User,
     UserRole,
@@ -25,6 +31,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.miniapp.progress import MiniAppDocumentProgress, UploadJobNotFound
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 pytestmark = pytest.mark.integration
@@ -284,6 +291,104 @@ def test_web_commit_guard_does_not_save_extra_unreviewed_bot_notes() -> None:
                 assert (await session.execute(select(IngestionJob))).scalars().all() == []
                 entries = (await session.execute(select(IngestionSession))).scalars().all()
                 assert entries[0].status == IngestionSessionStatus.OPEN
+        finally:
+            await engine.dispose()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(_reset(settings))
+
+
+def test_miniapp_progress_only_uses_own_committed_ingestion_and_index_evidence() -> None:
+    settings = _settings_or_skip()
+    user = asyncio.run(_reset(settings))
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        factory = create_session_factory(engine)
+        storage = LocalFileStorage(Path(settings.file_storage_path) / "miniapp-status-integration")
+        ingestion = IngestionSessionService(factory, storage, max_files=10)
+        progress = MiniAppDocumentProgress(factory)
+        try:
+            created = await ingestion.add_file(
+                user, _metadata(storage, b"%PDF-real-status-test", 702, "status.pdf")
+            )
+            committed = await ingestion.commit(user)
+            assert committed is not None
+            assert created.summary.session_id == committed.session_id
+            assert committed.job_id is not None
+            job_id = committed.job_id
+            queued = await progress.one(user, job_id=job_id)
+            assert queued["stage"] == "queued"
+            assert queued["terminal"] is False
+            assert queued["filename"] == "status.pdf"
+
+            stranger = User(id=user.id + 10000, telegram_user_id=930009)
+            with pytest.raises(UploadJobNotFound):
+                await progress.one(stranger, job_id=job_id)
+            assert await progress.recent(stranger) == []
+            with pytest.raises(ValueError):
+                await progress.one(user, job_id=True)
+
+            async with factory.begin() as session:
+                job = await session.get(IngestionJob, job_id, with_for_update=True)
+                assert job is not None
+                job.status = IngestionJobStatus.RUNNING
+            assert (await progress.one(user, job_id=job_id))["stage"] == "reading"
+
+            async with factory.begin() as session:
+                job = await session.get(IngestionJob, job_id, with_for_update=True)
+                assert job is not None
+                job.status = IngestionJobStatus.SUCCEEDED
+                file = await session.scalar(select(FileObject))
+                assert file is not None
+                parse = DocumentParseRun(
+                    file_object_id=file.id,
+                    ingestion_job_id=job_id,
+                    status=DocumentProcessingStatus.SUCCEEDED,
+                    parser_name="test-fixture",
+                    parser_version="v1",
+                    requires_ocr=False,
+                    requires_vision=False,
+                    warning_count=0,
+                )
+                session.add(parse)
+                await session.flush()
+                parse_id = parse.id
+            assert (await progress.one(user, job_id=job_id))["stage"] == "indexing"
+
+            async with factory.begin() as session:
+                index = KnowledgeIndexJob(
+                    ingestion_job_id=job_id,
+                    status=KnowledgeIndexJobStatus.SUCCEEDED,
+                    attempt_count=1,
+                    collection_alias="documents",
+                    collection_name="documents_test",
+                    embedding_model="test",
+                    chunking_version="test",
+                )
+                session.add(index)
+                await session.flush()
+                index_id = index.id
+            # An index-job success flag with no proven indexed chunks is not ready.
+            assert (await progress.one(user, job_id=job_id))["stage"] == "review"
+
+            async with factory.begin() as session:
+                record = KnowledgeIndexRecord(
+                    knowledge_index_job_id=index_id,
+                    parse_run_id=parse_id,
+                    status=KnowledgeIndexRecordStatus.SUCCEEDED,
+                    collection_name="documents_test",
+                    embedding_model="test",
+                    chunking_version="test",
+                    chunk_count=2,
+                )
+                session.add(record)
+            ready = await progress.one(user, job_id=job_id)
+            assert ready["stage"] == "ready"
+            assert ready["terminal"] is True
+            assert [item["job_id"] for item in await progress.recent(user)] == [job_id]
         finally:
             await engine.dispose()
 
