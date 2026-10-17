@@ -11,12 +11,12 @@ import logging
 import re
 import threading
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from collections.abc import Coroutine
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from typing import cast
+from socket import socket
+from typing import Any, cast
 from urllib.parse import urlsplit
-
-from sqlalchemy.exc import SQLAlchemyError
 
 from office_assistant.application.inventory import InventoryValidationError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
@@ -72,9 +72,9 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
         self.limiter = threading.BoundedSemaphore(16)
         super().__init__(("127.0.0.1", port), MiniAppHandler)
 
-    def process_request(self, request: object, client_address: tuple[str, int]) -> None:
+    def process_request(self, request: socket, client_address: tuple[str, int]) -> None:
         if not self.limiter.acquire(blocking=False):
-            cast(object, request).close()  # type: ignore[attr-defined]
+            request.close()
             return
         try:
             super().process_request(request, client_address)
@@ -82,7 +82,7 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
             self.limiter.release()
             raise
 
-    def process_request_thread(self, request: object, client_address: tuple[str, int]) -> None:
+    def process_request_thread(self, request: socket, client_address: tuple[str, int]) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
@@ -105,7 +105,6 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", _CSP)
-        self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.end_headers()
         try:
@@ -128,11 +127,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             return None
         return values[0]
 
-    def _run(self, coroutine: object) -> object:
-        future = asyncio.run_coroutine_threadsafe(
-            cast("asyncio.coroutines.Coroutine[object, object, object]", coroutine),
-            self.server.loop,
-        )
+    def _run(self, coroutine: Coroutine[Any, Any, object]) -> object:
+        future = asyncio.run_coroutine_threadsafe(coroutine, self.server.loop)
         try:
             return future.result(timeout=80)
         except FutureTimeoutError:
@@ -190,7 +186,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(429, {"error": "too_many_requests"})
         except MiniAppServiceUnavailable:
             self._json(503, {"error": "service_unavailable"})
-        except (SQLAlchemyError, Exception) as error:
+        except Exception as error:
             logger.warning("Mini App API failed | error_type=%s", type(error).__name__)
             self._json(503, {"error": "service_unavailable"})
 
