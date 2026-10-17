@@ -527,24 +527,24 @@ def _answer_markup(
     data.pop(SOURCE_BUTTONS_KEY, None)
     if services.file_delivery is None:
         return _answer_keyboard()
-    numbers = tuple(
+    sources = tuple(
         sorted(
             {
-                item.number
+                (item.number, item.file_id)
                 for item in answer.citations
                 if item.file_id is not None and 1 <= item.number <= 99
             }
         )[:3]
     )
-    if not numbers:
+    if not sources:
         return _answer_keyboard()
     token = secrets.token_urlsafe(8)
     data[SOURCE_BUTTONS_KEY] = (
         token,
         monotonic() + SOURCE_BUTTON_TTL_SECONDS,
-        numbers,
+        sources,
     )
-    return _answer_keyboard(token, numbers)
+    return _answer_keyboard(token, tuple(number for number, _ in sources))
 
 
 def _help_keyboard() -> InlineKeyboardMarkup:
@@ -1196,8 +1196,23 @@ async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYP
         or not isinstance(selected[1], (int, float))
         or monotonic() > selected[1]
         or not isinstance(selected[2], tuple)
-        or citation_index not in selected[2]
     ):
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_BUTTON_EXPIRED,
+        )
+        return
+    authorized_file_id: int | None = None
+    for entry in cast(tuple[object, ...], selected[2]):
+        if (
+            isinstance(entry, tuple)
+            and len(entry) == 2
+            and entry[0] == citation_index
+            and isinstance(entry[1], int)
+        ):
+            authorized_file_id = entry[1]
+            break
+    if authorized_file_id is None:
         await context.bot.send_message(
             chat_id=identity.telegram_user_id,
             text=messages.MENU_SOURCE_BUTTON_EXPIRED,
@@ -1212,6 +1227,12 @@ async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     try:
         file = await service.resolve_recent(identity.telegram_user_id, citation_index)
+        if file.file_id != authorized_file_id:
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text=messages.MENU_SOURCE_BUTTON_EXPIRED,
+            )
+            return
         with file.path.open("rb") as stream:
             await context.bot.send_document(
                 chat_id=identity.telegram_user_id,
@@ -1354,6 +1375,9 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
     if identity is None or message is None or not message.text:
         return
     services = _services(context)
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(SOURCE_BUTTONS_KEY, None)
     if not services.password_state.contains(identity.telegram_user_id):
         try:
             user = await services.users.get_by_telegram_id(identity.telegram_user_id)
@@ -1973,6 +1997,9 @@ async def _handle_web_command(
     if identity is None or message is None:
         return
     services = _services(context)
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(SOURCE_BUTTONS_KEY, None)
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is None:
         await message.reply_text(messages.UNKNOWN_USER)
