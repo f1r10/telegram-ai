@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr | None = None
     telegram_access_password: SecretStr | None = None
     telegram_polling_enabled: bool = False
+    # Independent loopback HTTP service; disabled until operator-provisioned HTTPS TLS.
+    miniapp_enabled: bool = False
+    miniapp_public_origin: str | None = None
+    miniapp_local_port: int = Field(default=18791, ge=1024, le=65535)
+    miniapp_request_timeout_seconds: float = Field(default=75, ge=5, le=75)
     openai_api_key: SecretStr | None = None
     web_search_primary_provider: str = "searxng"
     searxng_base_url: str | None = "http://searxng:8080"
