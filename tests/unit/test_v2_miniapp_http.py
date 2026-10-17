@@ -22,9 +22,7 @@ from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 
 class DummyBackend:
-    def __init__(
-        self, original: Path | None = None, upload_root: Path | None = None
-    ) -> None:
+    def __init__(self, original: Path | None = None, upload_root: Path | None = None) -> None:
         self.calls: list[str] = []
         self.original = original
         self.uploads = (
@@ -358,9 +356,7 @@ def test_upload_binary_preview_then_explicit_confirm_and_cancel(tmp_path: Path) 
 def test_upload_rejects_unsigned_wrong_origin_unsupported_and_large(tmp_path: Path) -> None:
     with serve(upload_root=tmp_path / "staging") as (port, backend):
         assert send_binary(port, "test.pdf", b"%PDF", signed=None)[0] == 401
-        assert send_binary(
-            port, "test.pdf", b"%PDF", origin="https://wrong.example"
-        )[0] == 403
+        assert send_binary(port, "test.pdf", b"%PDF", origin="https://wrong.example")[0] == 403
         assert send_binary(port, "../test.pdf", b"%PDF")[0] == 400
         assert send_binary(port, "test.exe", b"%PDF")[0] == 400
         # The server rejects the declared oversized body before streaming;
