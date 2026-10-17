@@ -62,6 +62,56 @@
     }
   }
 
+  async function downloadSource(token, button) {
+    if (!active || busy || typeof token !== "string" || !token) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = "Yüklənir…";
+    try {
+      const response = await fetch("/api/source", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "X-Telegram-Init-Data": signed,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({token}),
+        signal: controller.signal
+      });
+      if (response.status === 401) {
+        lock("Bu sənəd üçün Telegram icazəsi etibarsızdır. Botdan yenidən daxil olun.");
+        return;
+      }
+      if (!response.ok) throw new Error("Mənbə faylı artıq mövcud deyil və ya icazəniz yoxdur.");
+      const content = response.headers.get("Content-Disposition") || "";
+      const match = content.match(/filename\*=UTF-8''([^;]+)/i);
+      let filename = "menbe-fayli.bin";
+      if (match) {
+        try { filename = decodeURIComponent(match[1]).replace(/[/\\\r\n]/g, "_"); }
+        catch (_) { filename = "menbe-fayli.bin"; }
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      button.textContent = "Endirildi ✓";
+    } catch (error) {
+      appendBubble(error?.message || "Faylı endirmək mümkün olmadı.", "assistant error");
+      button.textContent = oldText;
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = !active;
+    }
+  }
+
   function appendBubble(text, kind, sources = []) {
     const bubble = document.createElement("article");
     bubble.className = "bubble " + kind;
@@ -81,6 +131,17 @@
         const label = document.createElement("span");
         label.textContent = source.label;
         row.append(number, label);
+        if (typeof source.download_token === "string" && source.download_token) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "source-download";
+          button.textContent = "Faylı endir ↓";
+          button.setAttribute("aria-label", source.number + "-ci mənbənin orijinalını endir");
+          button.addEventListener("click", () => {
+            void downloadSource(source.download_token, button);
+          });
+          row.append(button);
+        }
         footer.append(row);
       }
       bubble.append(footer);
