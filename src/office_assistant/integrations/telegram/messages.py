@@ -38,7 +38,7 @@ MENU_PRODUCT_PROMPT = (
     "Məsələn: «KA45 bizdə var? Qiyməti nədir?»"
 )
 MENU_STOCK_PROMPT = (
-    "🏬 ANBAR QALIĞI\\n\\nMəhsulun kodunu yazın: KA45\\n"
+    "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
     "Bu sorğu yalnız təsdiqlənmiş anbar hərəkətlərini yoxlayır. "
     "Kataloq məlumatı avtomatik stok sayılmır."
 )
