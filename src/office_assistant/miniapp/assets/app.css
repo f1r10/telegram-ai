@@ -33,3 +33,17 @@
 .upload-feedback{min-height:18px}
 .upload-feedback.error{color:#c93650}
 @media(max-width:620px){.upload-panel{padding:12px}.upload-actions button{flex:1}}
+
+/* Source-of-truth progress: no guessed percentages, no reload-dependent tokens. */
+.job-history{margin-top:22px;border-top:1px solid var(--line);padding-top:14px}
+.job-history-head{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.job-history-head h4{font-size:14px;margin:0;color:var(--navy)}
+.job-history-head button{min-height:38px;padding:8px 12px}
+.job-list{display:grid;gap:9px;margin-top:12px}
+.job-card{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);min-width:0}
+.job-card strong{font-size:13px;color:var(--navy);overflow-wrap:anywhere}
+.job-card p{margin:0;line-height:1.55}
+.job-card small{color:var(--subtle);font-size:11px}
+.job-stage{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;background:var(--bubble);border:1px solid var(--line);color:var(--navy);font-size:12px;font-weight:700;border-radius:30px}
+.job-stage.completed{border-color:#229267;color:#18764e}
+.job-stage.requires-review{border-color:#be8d43;color:#a46c18}
