@@ -34,9 +34,10 @@ All these screens call existing `InternalEvidenceService`,
 `SalesLedgerService` read paths. It shows cited source
 labels, unknown stock distinctly from confirmed zero, error states, long
 answers, mobile safe-area spacing, and dark/light layouts. File ingestion,
-original-source download, financial writes and stock changes **stay in the
-native bot** in this first read-only increment; none of those operations
-can be performed via the web endpoints.
+financial writes and stock changes **stay in the native bot** in this
+read-only increment. The only browser file operation is explicit,
+authorized one-tap download of an original cited document; the user cannot
+upload, alter or delete any company file through the web endpoints.
 
 **Critical authentication:** the web API verifies the raw
 `Telegram.WebApp.initData` HMAC using the bot-token-derived `WebAppData`
