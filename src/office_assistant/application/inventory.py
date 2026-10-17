@@ -29,10 +29,10 @@ _WRITE_PREFIX = re.compile(r"^\s*anbar əməliyyatı\s*[:：]\s*(.*)$", re.I | r
 _STOCK_PREFIX = re.compile(r"^\s*(?:stok|anbar qalığı)\s*[:：]\s*(.*)$", re.I | re.S)
 _KINDS = {"AÇILIŞ": "OPENING", "GİRİŞ": "RECEIPT", "ÇIXIŞ": "ISSUE"}
 _NATURAL_STOCK = re.compile(
-    r"^\\s*(?P<code>[A-Za-z0-9][A-Za-z0-9_./-]{1,63})\\s+"
-    r"(?:stokda\\s+varm[ıi]|anbarda\\s+varm[ıi]|"
-    r"stok\\s+qal[ıi]ğ[ıi]\\s+neç[əe]dir|"
-    r"neç[əe]\\s+[əe]d[əe]d\\s+qal[ıi]b)\\s*[?!.]*\\s*$",
+    r"^\s*(?P<code>[A-Za-z0-9][A-Za-z0-9_./-]{1,63})\s+"
+    r"(?:stokda\s+varm[ıi]|anbarda\s+varm[ıi]|"
+    r"stok\s+qal[ıi]ğ[ıi]\s+neç[əe]dir|"
+    r"neç[əe]\s+[əe]d[əe]d\s+qal[ıi]b)\s*[?!.]*\s*$",
     re.I,
 )
 
