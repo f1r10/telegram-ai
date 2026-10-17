@@ -7,7 +7,8 @@
     question: $("question"), send: $("send"), composer: $("composer"),
     intro: $("intro"), scopeTitle: $("scope-title"), scopeKicker: $("scope-kicker"),
     scopeNote: $("scope-note"), suggestions: $("suggestions"), modes: $("modes"),
-    locked: $("locked"), lockedCopy: $("locked-copy")
+    locked: $("locked"), lockedCopy: $("locked-copy"),
+    salesFields: $("sales-fields"), salesYear: $("sales-year")
   };
   let scope = "chat";
   let busy = false;
@@ -102,11 +103,23 @@
       note: "Yalnız şirkətin daxili məlumatları. Mənbə tapılmazsa bunu açıq bildirəcəyəm.",
       samples: ["KA45 barədə hansı sənədlərimiz var?", "Son qiymət qeydləri nə deyir?"]
     },
+    product: {
+      kicker: "ŞİRKƏTİN MƏHSUL KATALOQU", title: "Hansı məhsulu axtarırsınız?",
+      placeholder: "Məhsul kodu və ya təsdiqlənmiş adı...",
+      note: "Burada məhsulun yalnız təsdiqlənmiş kataloq məlumatları göstərilir. Kataloqda olması stok və ya qiymət zəmanəti deyil.",
+      samples: ["KA45", "QA-KA45"]
+    },
     stock: {
       kicker: "TƏSDİQLƏNMİŞ ANBAR UÇOTU", title: "Hansı məhsulun qalığını yoxlayaq?",
       placeholder: "Məhsul kodu, məsələn: KA45",
       note: "Stok qiymət təklifindən və ya kataloqdan çıxarılmır. Açılış qalığı yoxdursa «məlum deyil» göstərilir.",
       samples: ["KA45", "QA-KA45"]
+    },
+    sales: {
+      kicker: "SATIŞ FAKTURALARI", title: "Hansı müştərinin satışına baxaq?",
+      placeholder: "Müştərinin adını buraya yazın...",
+      note: "Yalnız təsdiqlənmiş satış fakturaları; valyutalar qarışdırılmır. Qeyd yoxdursa sıfır satış faktı iddia edilmir.",
+      samples: ["A şirkəti", "B şirkəti"]
     }
   };
 
@@ -124,6 +137,10 @@
     ui.scopeNote.textContent = config.note;
     ui.question.placeholder = config.placeholder;
     ui.question.value = "";
+    ui.salesFields.hidden = scope !== "sales";
+    if (scope === "sales" && !ui.salesYear.value) {
+      ui.salesYear.value = String(new Date().getFullYear());
+    }
     ui.suggestions.replaceChildren();
     for (const value of config.samples) {
       const button = document.createElement("button");
@@ -152,6 +169,40 @@
           ? [stock.product_code, ...stock.locations.map(x => x.warehouse + ": " + x.quantity), "Cəmi: " + stock.total]
           : [stock.product_code, "Qalıq MƏLUM DEYİL"];
         pending.textContent = lines.join("\n") + "\n\n" + stock.notice;
+      } else if (currentScope === "product") {
+        const result = await request("/api/product", {query: sent});
+        if (result.status === "found" && result.product) {
+          pending.textContent = [result.product.code + " · " + result.product.name,
+            result.product.description || "Əlavə təsvir yoxdur.",
+            "Məhsul kataloqda təsdiqlənib. Anbar qalığı və qiymət ayrıca yoxlanmalıdır."].join("\n\n");
+        } else if (result.status === "ambiguous") {
+          pending.textContent = "Bir neçə uyğun məhsul tapıldı. Aşağıdakı kodlardan birini seçin:";
+          for (const candidate of result.candidates || []) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "candidate";
+            button.textContent = candidate.code + " — " + candidate.name;
+            button.addEventListener("click", () => {
+              selectScope("product");
+              ui.question.value = candidate.code;
+              ui.question.focus();
+            });
+            pending.append(button);
+          }
+        } else {
+          pending.textContent = "Bu ad və ya kod üzrə təsdiqlənmiş məhsul tapılmadı. Kodu yoxlayın və ya «Bizim baza»da sual verin.";
+        }
+      } else if (currentScope === "sales") {
+        const year = Number(ui.salesYear.value);
+        if (!Number.isInteger(year) || year < 2000 || year > new Date().getFullYear()) {
+          throw new Error("İli düzgün seçin.");
+        }
+        const result = await request("/api/sales", {customer: sent, year});
+        const rows = result.has_records
+          ? result.totals.map(x => x.invoice_count + " faktura · " + x.amount + " " + x.currency)
+          : ["Təsdiqlənmiş satış qeydi tapılmadı."];
+        pending.textContent = [result.customer + " · " + result.year, ...rows,
+          result.notice].join("\n\n");
       } else {
         const result = await request("/api/ask", {question: sent, scope: currentScope});
         pending.remove();

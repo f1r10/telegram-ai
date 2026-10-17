@@ -28,8 +28,10 @@ The second command only queues eligible older documents for the existing indexin
 
 The `office_assistant.miniapp` package now provides a mobile-first HTML/CSS/JS
 client backed by a real signed Telegram API. The interface has **Sual ver**,
-**Bizim baza** and **Anbar qalığı**, all using the existing
-`InternalEvidenceService` or `InventoryLedgerService`. It shows cited source
+**Bizim baza**, **Məhsul tap**, **Anbar qalığı** and **Satış hesabatı**.
+All these screens call existing `InternalEvidenceService`,
+`BusinessQueryService`, `InventoryLedgerService` and
+`SalesLedgerService` read paths. It shows cited source
 labels, unknown stock distinctly from confirmed zero, error states, long
 answers, mobile safe-area spacing, and dark/light layouts. File ingestion,
 original-source download, financial writes and stock changes **stay in the
@@ -49,6 +51,18 @@ paths are sent to the UI. Only known routes are served. The server has
 bounded JSON bodies, explicit same-origin checks, no CORS wildcard,
 `no-store`, an restrictive CSP and a bounded inference concurrency.
 All APIs are read-only.
+
+**Mini App product and sales cards:** `POST /api/product` accepts an exact
+product code or alias and only displays active confirmed catalog identity,
+or a bounded list of candidates when ambiguous. Product cards do not invent
+price or stock. `POST /api/sales` takes a customer name and a separately
+selected report year, checking confirmed `POSTED` invoice totals. Its amounts
+stay separate by currency and missing entries are **not** declared zero sales.
+Both APIs revalidate signed actor identity and DB authorization and never
+create products, sales, inventory movements or source documents. The sales
+year field is shown only inside the sales mode; default chat remains a free
+question box. Files and source downloads still use the native Telegram bot,
+not browser access to private storage.
 
 The HTTP server binds **127.0.0.1 only**, in its own process, independently
 of Telegram polling. It is not automatically exposed by Docker Compose.

@@ -173,6 +173,23 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 value = self._run(self._app().backend.stock(signed, code=code))
                 assert isinstance(value, dict)
                 self._json(200, cast(dict[str, object], value))
+            elif method == "POST" and path == "/api/product" and args is not None:
+                query = args.get("query")
+                if not isinstance(query, str):
+                    raise ValueError("Invalid product query")
+                value = self._run(self._app().backend.product(signed, query=query))
+                assert isinstance(value, dict)
+                self._json(200, cast(dict[str, object], value))
+            elif method == "POST" and path == "/api/sales" and args is not None:
+                customer = args.get("customer")
+                year = args.get("year")
+                if not isinstance(customer, str) or type(year) is not int:
+                    raise ValueError("Invalid sales request")
+                value = self._run(
+                    self._app().backend.sales_report(signed, customer=customer, year=year)
+                )
+                assert isinstance(value, dict)
+                self._json(200, cast(dict[str, object], value))
             else:
                 self._json(404, {"error": "not_found"})
         except (MiniAppAuthenticationError, MiniAppAccessDenied):
@@ -207,7 +224,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path)
-        if path.path not in {"/api/ask", "/api/stock"} or path.query:
+        if path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales"} or path.query:
             self._json(404, {"error": "not_found"})
             return
         headers = self.headers.get_all("Content-Length", [])
