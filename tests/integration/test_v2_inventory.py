@@ -93,14 +93,13 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert len(state.locations) == 2
 
             async with factory() as session:
-                balance_rows = list(
-                    (await session.scalars(select(InventoryBalance))).all()
-                )
+                balance_rows = list((await session.scalars(select(InventoryBalance))).all())
                 movement_rows = list(
                     (
                         await session.scalars(
-                            select(InventoryMovement)
-                            .where(InventoryMovement.product_id == product_id)
+                            select(InventoryMovement).where(
+                                InventoryMovement.product_id == product_id
+                            )
                         )
                     ).all()
                 )
