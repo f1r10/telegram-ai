@@ -56,6 +56,9 @@ async def _reset(settings: Settings) -> User:
     factory = create_session_factory(engine)
     try:
         async with factory.begin() as session:
+            # Parse rows are referenced by index records with RESTRICT;
+            # remove the dependent projections before cascading ingestion jobs.
+            await session.execute(delete(KnowledgeIndexRecord))
             await session.execute(delete(IngestionJob))
             await session.execute(delete(IngestionSessionItem))
             await session.execute(delete(IngestionSession))
