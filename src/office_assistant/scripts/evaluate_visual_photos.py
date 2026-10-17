@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import re
-from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -206,7 +205,11 @@ def evaluate_photos(
     cases_by_id = {case.truth.query_id: case.truth for case in cases}
     negative_cases = [case for case in cases if case.truth.exact_code is None]
     totals["negative_candidate_rate"] = _ratio(
-        sum(bool(row.ranked_codes) for row in outcomes if cases_by_id[row.query_id].exact_code is None),
+        sum(
+            bool(row.ranked_codes)
+            for row in outcomes
+            if cases_by_id[row.query_id].exact_code is None
+        ),
         len(negative_cases),
     )
     scenarios: dict[str, dict[str, int | float | None]] = {}
@@ -220,7 +223,10 @@ def evaluate_photos(
             "positive_queries": len(positives),
             "negative_queries": len(negatives),
             "top1_recall": _ratio(
-                sum(item.exact_code in predictions[item.query_id].ranked_codes[:1] for item in positives),
+                sum(
+                    item.exact_code in predictions[item.query_id].ranked_codes[:1]
+                    for item in positives
+                ),
                 len(positives),
             ),
             "negative_candidate_rate": _ratio(
