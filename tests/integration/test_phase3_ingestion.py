@@ -11,10 +11,10 @@ from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
-    FileObject,
-    FileObjectState,
     DocumentParseRun,
     DocumentProcessingStatus,
+    FileObject,
+    FileObjectState,
     IngestionJob,
     IngestionJobStatus,
     IngestionSession,
