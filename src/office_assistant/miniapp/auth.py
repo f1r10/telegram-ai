@@ -62,7 +62,7 @@ def verify_telegram_init_data(
     if any(not name or any(character in name for character in "\r\n=") for name in fields):
         raise MiniAppAuthenticationError("Invalid parameter name")
     canonical = "\n".join(
-        f"{name}={value}" for name, value in sorted(fields.items()) if name != "hash"
+        f"{name}={value}" for name, value in sorted(fields.items()) if name not in {"hash", "signature"}
     )
     secret = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
     expected = hmac.new(secret, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
