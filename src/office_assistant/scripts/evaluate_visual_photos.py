@@ -113,11 +113,14 @@ def read_photo_manifest(path: Path, *, photo_root: Path) -> list[PhotoCase]:
             raise ValueError("Exact label must be a code or null")
         exact = normalize_product_code(raw_exact) if isinstance(raw_exact, str) else None
         raw_similar = data["similar_codes"]
-        if not isinstance(raw_similar, list) or any(
-            not isinstance(code, str) for code in raw_similar
-        ):
+        if not isinstance(raw_similar, list):
             raise ValueError("Similar labels must be code strings")
-        codes = tuple(normalize_product_code(code) for code in cast(list[str], raw_similar))
+        similar_items = cast(list[object], raw_similar)
+        if not all(isinstance(item, str) for item in similar_items):
+            raise ValueError("Similar labels must be code strings")
+        codes = tuple(
+            normalize_product_code(code) for code in cast(list[str], similar_items)
+        )
         if len(codes) != len(set(codes)) or exact in codes:
             raise ValueError("Similar labels must be unique and distinct from exact")
         ids.add(query_id)
