@@ -53,7 +53,6 @@ def parse_natural_stock_request(text: str) -> str | None:
         return None
 
 
-
 _MAX_QUANTITY = Decimal("999999999999999.999")
 
 
