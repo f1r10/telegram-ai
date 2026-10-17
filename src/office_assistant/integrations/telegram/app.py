@@ -33,6 +33,7 @@ from office_assistant.integrations.telegram.handlers import (
     handle_revoke_reference_callback,
     handle_sales_callback,
     handle_sales_import_callback,
+    handle_source_button,
     handle_stock_callback,
     handle_user_callback,
 )
@@ -111,6 +112,7 @@ def create_telegram_application(
     application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^ua:"))
     application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern=r"^om:"))
     application.add_handler(CallbackQueryHandler(handle_answer_navigation, pattern=r"^nav:"))
+    application.add_handler(CallbackQueryHandler(handle_source_button, pattern=r"^src:"))
     application.add_handler(CallbackQueryHandler(handle_sales_callback, pattern=r"^sl:"))
     application.add_handler(CallbackQueryHandler(handle_stock_callback, pattern=r"^st:"))
     application.add_handler(CallbackQueryHandler(handle_sales_import_callback, pattern=r"^si:"))

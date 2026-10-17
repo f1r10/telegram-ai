@@ -49,6 +49,19 @@ actor's active account, and reset an older internet-only choice before
 starting another message. No button writes product, stock, sales or
 documents without that workflow's distinct confirmation.
 
+For answers that have an original file-backed citation, the answer footer
+also offers up to three **📎 Mənbə N** download buttons. These do not
+send a guessed file or a catalog screenshot: the existing source-delivery
+service independently verifies the current ACTIVE user, the latest eligible
+persisted conversation source, the file's active state and delivery limits.
+A short-lived per-user button token is tied to both the citation number
+**and the original file ID**. If another answer changes the latest cited
+file, the old button becomes invalid rather than sending the wrong
+document. New question and web-search turns invalidate older buttons.
+Downloads open the committed original bytes only on user tap, and leave
+the visible answer unmodified. Files cannot be delivered from a group chat.
+For more than three originals, users may still write "2-ci mənbəni göndər".
+
 These are Telegram-native inline controls, not yet a standalone
 Telegram Web App/Mini App. A full web surface requires a separately
 authenticated web backend, Telegram signed `initData` verification,

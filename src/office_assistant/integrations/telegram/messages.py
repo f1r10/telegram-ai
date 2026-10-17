@@ -34,6 +34,15 @@ MENU_EXAMPLES_BUTTON = "✨ Nümunələr"
 MENU_NAV_ASK = "💬 Yeni sual"
 MENU_NAV_BAZA = "🏢 Bizim baza"
 MENU_NAV_HOME = "🏠 Menyu"
+MENU_SOURCE_FILE_BUTTON = "📎 Mənbə {number}"
+MENU_SOURCE_BUTTON_EXPIRED = (
+    "Bu mənbə düyməsinin vaxtı bitib və ya daha yeni cavab göstərilib. "
+    "Son cavabdan mənbə nömrəsini yazaraq faylı istəyə bilərsiniz."
+)
+MENU_SOURCE_NO_FILE = (
+    "Bu mənbənin orijinal faylı hazırda təqdim edilmir. "
+    "Mənbə nömrəsini yoxlayın və ya son cavabı yenidən açın."
+)
 MENU_QUICK_HELP = (
     "❔ NECƏ İSTİFADƏ ETMƏLİ?\n\n"
     "1. Mesaj yerinə istədiyiniz sualı yazın; əmrləri əzbərləməyə ehtiyac yoxdur.\n"
