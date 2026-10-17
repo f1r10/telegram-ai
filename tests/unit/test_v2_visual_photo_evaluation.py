@@ -97,11 +97,14 @@ def test_real_photo_bytes_evaluate_exact_and_cross_angle_without_identity_claim(
 ) -> None:
     cases, refs, root = scenario(tmp_path)
     # Differently posed photo should not be a dHash/aHash near duplicate.
-    assert shortlist(
-        cases[1].photo.read_bytes(),
-        [VisualCandidate(x.product_code, x.storage_key) for x in refs],
-        root,
-    ) == []
+    assert (
+        shortlist(
+            cases[1].photo.read_bytes(),
+            [VisualCandidate(x.product_code, x.storage_key) for x in refs],
+            root,
+        )
+        == []
+    )
     semantic = SemanticVisualSearch(
         storage_root=root,
         model_cache_root=tmp_path / "cache",
@@ -160,9 +163,7 @@ def test_no_local_model_cannot_be_falsely_reported_as_calibrated(tmp_path: Path)
 
 def _manifest(root: Path, rows: list[dict[str, object]]) -> Path:
     destination = root / "manifest.jsonl"
-    destination.write_text(
-        "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
-    )
+    destination.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
     return destination
 
 
