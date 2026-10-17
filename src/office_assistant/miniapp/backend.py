@@ -7,6 +7,9 @@ search. Business and document answers reuse the existing internal service.
 import asyncio
 import logging
 import re
+from datetime import datetime
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -14,6 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.service import InProcessRateGuard
+from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest
+from office_assistant.business_tools.models import FindProductInput, ToolExecutionContext, ToolStatus
+from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.application.inventory import (
     InventoryLedgerService,
     parse_stock_request,
@@ -56,6 +62,8 @@ class MiniAppBackend:
         bot_token: str,
         evidence: InternalEvidenceService | None = None,
         inventory: InventoryLedgerService | None = None,
+        products: BusinessQueryService | None = None,
+        sales: SalesLedgerService | None = None,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -65,6 +73,8 @@ class MiniAppBackend:
         self.bot_token = bot_token
         self.evidence = evidence
         self.inventory = inventory
+        self.products = products
+        self.sales = sales
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
         self._inflight = asyncio.Semaphore(4)
@@ -142,5 +152,91 @@ class MiniAppBackend:
                 "Yalnız təsdiqlənmiş anbar əməliyyatları əsasında."
                 if snapshot.total is not None
                 else "Açılış qalığı yoxdur: stok məlum deyil, sıfır hesab edilmir."
+            ),
+        }
+
+
+    async def product(self, init_data: str, *, query: str) -> dict[str, object]:
+        """Only exact, active and authorized company product identities are shown."""
+
+        actor = await self.actor(init_data)
+        query = query.strip()
+        if not 1 <= len(query) <= 120 or any(ord(c) < 32 for c in query):
+            raise ValueError("Məhsul adını və ya kodunu yazın.")
+        if self.products is None:
+            raise MiniAppServiceUnavailable("Product catalog is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        context = ToolExecutionContext(
+            user_id=actor.id,
+            role="ADMIN" if actor.role == "ADMIN" else "USER",
+            request_id=f"miniapp-product-{uuid4().hex}",
+        )
+        result = await self.products.find_product(
+            context, FindProductInput(code_or_alias=query, include_inactive=False)
+        )
+
+        def card(item: object) -> dict[str, object]:
+            from office_assistant.business_tools.models import ProductView
+
+            assert isinstance(item, ProductView)
+            return {
+                "code": item.display_code,
+                "name": item.name,
+                "description": item.description,
+            }
+
+        if result.status == ToolStatus.NOT_FOUND:
+            return {"status": "not_found", "product": None, "candidates": []}
+        if result.status == ToolStatus.AMBIGUOUS and result.data is not None:
+            return {
+                "status": "ambiguous",
+                "product": None,
+                "candidates": [card(item) for item in result.data.candidates[:5]],
+            }
+        if result.status != ToolStatus.OK or result.data is None or result.data.product is None:
+            raise MiniAppServiceUnavailable("Product catalog returned no confirmed identity")
+        return {
+            "status": "found",
+            "product": card(result.data.product),
+            "candidates": [],
+        }
+
+    async def sales_report(
+        self, init_data: str, *, customer: str, year: int
+    ) -> dict[str, object]:
+        """Read immutable posted invoice totals; never merge currencies or infer sales."""
+
+        actor = await self.actor(init_data)
+        customer = " ".join(customer.split())
+        current_year = datetime.now(ZoneInfo("Asia/Baku")).year
+        if (
+            not 1 <= len(customer) <= 160
+            or any(ord(c) < 32 for c in customer)
+            or not 2000 <= year <= current_year
+        ):
+            raise ValueError("Müştəri adı və hesabat ilini yoxlayın.")
+        if self.sales is None:
+            raise MiniAppServiceUnavailable("Sales ledger is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        totals = await self.sales.totals(actor, SalesRequest(customer_name=customer, year=year))
+        return {
+            "customer": customer,
+            "year": year,
+            "has_records": bool(totals),
+            "totals": [
+                {
+                    "currency": row.currency,
+                    "invoice_count": row.invoice_count,
+                    "amount": str(row.amount),
+                }
+                for row in totals
+            ],
+            "notice": (
+                "Yalnız uçota alınmış təsdiqlənmiş fakturalar əsasında."
+                if totals
+                else "Bu müştəri və il üzrə təsdiqlənmiş satış qeydi tapılmadı; "
+                "bu, sıfır satışın təsdiqi deyil."
             ),
         }
