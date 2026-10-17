@@ -130,6 +130,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Mini App shutdown requested")
     finally:
+
         async def close_resources() -> None:
             if ai is not None:
                 await ai.close()
