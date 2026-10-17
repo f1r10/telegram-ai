@@ -164,7 +164,9 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert code == 200
         result = json.loads(body)
         assert result["answer"] == "Mənbəli cavab"
-        assert result["sources"] == [{"number": 1, "label": "sənəd.pdf"}]
+        assert result["sources"] == [
+            {"number": 1, "label": "sənəd.pdf", "download_token": None}
+        ]
         code, _, body = call(
             port,
             "POST",
