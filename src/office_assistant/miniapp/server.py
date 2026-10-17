@@ -10,6 +10,7 @@ import threading
 
 from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService
+from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.inventory import InventoryLedgerService
 from office_assistant.application.sales_ledger import SalesLedgerService
 from office_assistant.business_tools.registry import BusinessToolRegistry
@@ -32,6 +33,7 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.miniapp.backend import MiniAppBackend
 from office_assistant.miniapp.http import MiniAppHTTPServer
+from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,7 @@ def main() -> None:
                 max_tool_calls=settings.internal_tool_max_calls,
             )
 
+        storage = LocalFileStorage(settings.file_storage_path)
         backend = MiniAppBackend(
             session_factory,
             bot_token=settings.telegram_bot_token.get_secret_value(),
@@ -123,8 +126,18 @@ def main() -> None:
             sales=SalesLedgerService(session_factory),
             file_delivery=SourceFileDeliveryService(
                 session_factory,
-                LocalFileStorage(settings.file_storage_path),
+                storage,
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
+            ),
+            uploads=MiniAppUploadWorkflow(
+                storage,
+                IngestionSessionService(
+                    session_factory,
+                    storage,
+                    max_files=settings.max_files_per_pending_session,
+                    ttl_hours=settings.pending_session_ttl_hours,
+                    max_upload_bytes=settings.max_upload_bytes,
+                ),
             ),
             rate_limit_per_minute=settings.ai_rate_limit_per_minute,
             request_timeout_seconds=min(75.0, settings.miniapp_request_timeout_seconds),

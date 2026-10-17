@@ -7,20 +7,29 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
+from urllib.parse import quote
 
+from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.backend import (
     ChatResponse,
     MiniAppBackend,
 )
 from office_assistant.miniapp.http import MiniAppHTTPServer
+from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 
 class DummyBackend:
-    def __init__(self, original: Path | None = None) -> None:
+    def __init__(self, original: Path | None = None, upload_root: Path | None = None) -> None:
         self.calls: list[str] = []
         self.original = original
+        self.uploads = (
+            cast(MiniAppUploadWorkflow, SimpleNamespace(storage=LocalFileStorage(upload_root)))
+            if upload_root is not None
+            else None
+        )
 
     async def profile(self, raw: str) -> dict[str, str]:
         self.calls.append("me:" + raw)
@@ -48,6 +57,30 @@ class DummyBackend:
             "notice": "Təsdiqlənmiş fakturalar.",
         }
 
+    async def upload_permission(self, raw: str) -> None:
+        self.calls.append("upload-permission:" + raw)
+
+    async def register_upload(
+        self, raw: str, *, key: str, filename: str, mime: str, size: int
+    ) -> dict[str, object]:
+        self.calls.append("upload-register:" + raw + ":" + filename)
+        assert self.uploads is not None
+        assert self.uploads.storage.size(self.uploads.storage.path_for_key(key)) == size
+        return {
+            "token": "uploaded-preview-ticket-1234567890",
+            "filename": filename,
+            "size": size,
+            "status": "preview",
+        }
+
+    async def confirm_upload(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("upload-confirm:" + raw + ":" + token)
+        return {"status": "queued", "job_id": 77, "notice": "Saved for indexing"}
+
+    async def cancel_upload(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("upload-cancel:" + raw + ":" + token)
+        return {"status": "cancelled", "notice": "Not saved"}
+
     async def source_file(self, raw: str, *, token: str) -> DeliverableFile:
         self.calls.append("source:" + raw + ":" + token)
         if self.original is None:
@@ -66,11 +99,13 @@ class DummyBackend:
 
 
 @contextmanager
-def serve(original: Path | None = None) -> Generator[tuple[int, DummyBackend], None, None]:
+def serve(
+    original: Path | None = None, upload_root: Path | None = None
+) -> Generator[tuple[int, DummyBackend], None, None]:
     loop = asyncio.new_event_loop()
     running = threading.Thread(target=loop.run_forever, daemon=True)
     running.start()
-    backend = DummyBackend(original)
+    backend = DummyBackend(original, upload_root)
     server = MiniAppHTTPServer(
         port=0,
         public_origin="https://assistant.example.org",
@@ -267,4 +302,76 @@ def test_source_routes_reject_unsigned_and_forged_file_requests(tmp_path: Path) 
             )[0]
             == 403
         )
+        assert backend.calls == []
+
+
+def send_binary(
+    port: int,
+    filename: str,
+    content: bytes,
+    *,
+    signed: str | None = "pretend-signed-data",
+    origin: str | None = None,
+) -> tuple[int, dict[str, str], bytes]:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+    headers = {
+        "X-Office-Filename": quote(filename),
+        "Content-Type": "application/pdf",
+    }
+    if signed is not None:
+        headers["X-Telegram-Init-Data"] = signed
+    if origin is not None:
+        headers["Origin"] = origin
+    connection.request("POST", "/api/upload/prepare", body=content, headers=headers)
+    reply = connection.getresponse()
+    output = (reply.status, dict(reply.getheaders()), reply.read())
+    connection.close()
+    return output
+
+
+def test_upload_binary_preview_then_explicit_confirm_and_cancel(tmp_path: Path) -> None:
+    with serve(upload_root=tmp_path / "staging") as (port, backend):
+        status, _, body = send_binary(
+            port, "sənəd.pdf", b"%PDF-example", origin="https://assistant.example.org"
+        )
+        assert status == 200
+        preview = json.loads(body)
+        assert preview["status"] == "preview"
+        assert preview["filename"] == "sənəd.pdf"
+        assert "upload-register:pretend-signed-data:sənəd.pdf" in backend.calls
+        assert not any(x.startswith("upload-confirm:") for x in backend.calls)
+        token = preview["token"]
+        status, _, data = call(port, "POST", "/api/upload/confirm", body={"token": token})
+        assert status == 200
+        assert json.loads(data)["status"] == "queued"
+        status, _, data = call(port, "POST", "/api/upload/cancel", body={"token": token})
+        assert status == 200
+        assert json.loads(data)["status"] == "cancelled"
+        assert backend.calls[-2:] == [
+            "upload-confirm:pretend-signed-data:" + token,
+            "upload-cancel:pretend-signed-data:" + token,
+        ]
+
+
+def test_upload_rejects_unsigned_wrong_origin_unsupported_and_large(tmp_path: Path) -> None:
+    with serve(upload_root=tmp_path / "staging") as (port, backend):
+        assert send_binary(port, "test.pdf", b"%PDF", signed=None)[0] == 401
+        assert send_binary(port, "test.pdf", b"%PDF", origin="https://wrong.example")[0] == 403
+        assert send_binary(port, "../test.pdf", b"%PDF")[0] == 400
+        assert send_binary(port, "test.exe", b"%PDF")[0] == 400
+        # The server rejects the declared oversized body before streaming;
+        # transmitting >8 MiB here would race the intentional socket close.
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+        connection.putrequest("POST", "/api/upload/prepare")
+        connection.putheader("X-Telegram-Init-Data", "pretend-signed-data")
+        connection.putheader("X-Office-Filename", "test.pdf")
+        connection.putheader("Content-Type", "application/pdf")
+        connection.putheader("Content-Length", str(8 * 1024 * 1024 + 1))
+        connection.endheaders()
+        result = connection.getresponse()
+        assert result.status == 413
+        result.read()
+        connection.close()
+        assert call(port, "POST", "/api/upload/confirm", body={"token": 123})[0] == 400
+        assert call(port, "POST", "/api/upload/cancel", body={"token": "x"}, signed=None)[0] == 401
         assert backend.calls == []

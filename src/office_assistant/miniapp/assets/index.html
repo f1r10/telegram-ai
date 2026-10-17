@@ -31,6 +31,7 @@
         <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
         <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
+        <button class="mode" type="button" data-scope="upload" aria-pressed="false"><span aria-hidden="true">＋</span><strong>Sənəd əlavə et</strong><small>Bax və təsdiqlə</small></button>
       </nav>
       <section class="workspace" aria-label="Köməkçi ilə söhbət">
         <div class="workhead">
@@ -53,6 +54,23 @@
           <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
           <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
+        <section class="upload-panel" id="upload-panel" hidden aria-label="Sənəd əlavə etmə">
+          <label class="upload-picker" for="upload-file">Fayl seçin
+            <input id="upload-file" type="file" accept=".pdf,.docx,.xlsx,.txt,.jpg,.jpeg,.png">
+          </label>
+          <p class="muted">PDF, Word, Excel, TXT, JPG və PNG. Maksimum 8 MB. Yalnız bir fayl.</p>
+          <button type="button" id="upload-prepare" class="upload-primary">Faylı yoxla →</button>
+          <div id="upload-preview" class="upload-preview" hidden>
+            <strong id="upload-name"></strong>
+            <p id="upload-size" class="muted"></p>
+            <p>Bu mərhələdə sənəd hələ bazaya əlavə edilməyib. Saxlamaq üçün təsdiqləyin.</p>
+            <div class="upload-actions">
+              <button type="button" id="upload-confirm" class="upload-primary">Təsdiqlə və saxla</button>
+              <button type="button" id="upload-cancel" class="upload-secondary">Ləğv et</button>
+            </div>
+          </div>
+          <p class="upload-feedback" id="upload-feedback" role="status" aria-live="polite"></p>
+        </section>
         <form id="composer" class="composer">
           <label for="question" class="visually-hidden" id="question-label">Sualınız</label>
           <textarea id="question" rows="1" maxlength="2000" placeholder="Sualınızı buraya yazın..." required></textarea>
@@ -61,7 +79,7 @@
         <p class="footnote" id="scope-note">Cavabların dəqiqliyi mövcud mənbələrdən asılıdır. Şirkət məlumatını internetə avtomatik göndərmirik.</p>
       </section>
       <aside class="bottom-hint">
-        <div><strong>Sənəd əlavə etmək və təsdiqli əməliyyatlar üçün</strong><p>Hələlik Telegram botundakı mövcud menyudan istifadə edin. Mini App bu əməliyyatları avtomatik icra etmir.</p></div>
+        <div><strong>Qeyd və əməliyyatlar</strong><p>Sənədi bu ekranda təsdiqləyərək əlavə edə bilərsiniz. Satış və anbar dəyişiklikləri üçün Telegram botunun mövcud təsdiq menyusundan istifadə edin.</p></div>
         <button type="button" id="back-to-chat">Bota qayıt →</button>
       </aside>
     </main>

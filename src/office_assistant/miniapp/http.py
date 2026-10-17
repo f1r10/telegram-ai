@@ -10,22 +10,29 @@ import json
 import logging
 import re
 import threading
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
+from pathlib import Path
 from typing import Any, cast
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import InventoryValidationError
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
+    ChatResponse,
     MiniAppAccessDenied,
     MiniAppBackend,
     MiniAppRateLimited,
     MiniAppServiceUnavailable,
+)
+from office_assistant.miniapp.uploads import (
+    MiniAppUploadConflict,
+    MiniAppUploadExpired,
+    MiniAppUploadWorkflow,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,7 @@ _CSP = (
     "frame-ancestors https://web.telegram.org https://*.telegram.org"
 )
 _MAX_POST_BODY = 4096
+_MAX_BINARY_UPLOAD_BYTES = MiniAppUploadWorkflow.MAX_BYTES
 
 
 class MiniAppHTTPServer(ThreadingHTTPServer):
@@ -162,6 +170,101 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             future.cancel()
             raise MiniAppServiceUnavailable("Operation timed out") from None
 
+    def _api_ask(self, signed: str, args: dict[str, object]) -> None:
+        question = args.get("question")
+        scope = args.get("scope")
+        if not isinstance(question, str) or not isinstance(scope, str):
+            raise ValueError("Invalid question")
+        answer = self._run(self._app().backend.answer(signed, question=question, scope=scope))
+        assert isinstance(answer, ChatResponse)
+        self._json(
+            200,
+            {
+                "answer": answer.answer,
+                "sources": [
+                    {
+                        "number": number,
+                        "label": label,
+                        "download_token": dict(answer.source_actions).get(number),
+                    }
+                    for number, label in answer.sources
+                ],
+                "insufficient_evidence": answer.insufficient_evidence,
+            },
+        )
+
+    def _api_stock(self, signed: str, args: dict[str, object]) -> None:
+        code = args.get("code")
+        if not isinstance(code, str):
+            raise ValueError("Invalid stock code")
+        value = self._run(self._app().backend.stock(signed, code=code))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_product(self, signed: str, args: dict[str, object]) -> None:
+        query = args.get("query")
+        if not isinstance(query, str):
+            raise ValueError("Invalid product query")
+        value = self._run(self._app().backend.product(signed, query=query))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_sales(self, signed: str, args: dict[str, object]) -> None:
+        customer = args.get("customer")
+        year = args.get("year")
+        if not isinstance(customer, str) or type(year) is not int:
+            raise ValueError("Invalid sales report request")
+        value = self._run(self._app().backend.sales_report(signed, customer=customer, year=year))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_source(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid source ticket")
+        value = self._run(self._app().backend.source_file(signed, token=token))
+        assert isinstance(value, DeliverableFile)
+        self._original_file(value)
+
+    def _api_upload_confirm(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid upload token")
+        value = self._run(self._app().backend.confirm_upload(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_upload_cancel(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid upload token")
+        value = self._run(self._app().backend.cancel_upload(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_dispatch(
+        self, method: str, path: str, signed: str, args: dict[str, object] | None
+    ) -> None:
+        if method == "GET" and path == "/api/me":
+            value = self._run(self._app().backend.profile(signed))
+            assert isinstance(value, dict)
+            self._json(200, cast(dict[str, object], value))
+            return
+        routes: dict[str, Callable[[str, dict[str, object]], None]] = {
+            "/api/ask": self._api_ask,
+            "/api/stock": self._api_stock,
+            "/api/product": self._api_product,
+            "/api/sales": self._api_sales,
+            "/api/source": self._api_source,
+            "/api/upload/confirm": self._api_upload_confirm,
+            "/api/upload/cancel": self._api_upload_cancel,
+        }
+        handler = routes.get(path) if method == "POST" and args is not None else None
+        if handler is None or args is None:
+            self._json(404, {"error": "not_found"})
+            return
+        handler(signed, args)
+
     def _process_api(self, method: str, path: str, args: dict[str, object] | None) -> None:
         if not self._allowed_origin():
             self._json(403, {"error": "origin_not_allowed"})
@@ -171,75 +274,17 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "telegram_authorization_required"})
             return
         try:
-            if method == "GET" and path == "/api/me":
-                value = self._run(self._app().backend.profile(signed))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/ask" and args is not None:
-                question = args.get("question")
-                scope = args.get("scope")
-                if not isinstance(question, str) or not isinstance(scope, str):
-                    raise ValueError("Invalid question")
-                answer = self._run(
-                    self._app().backend.answer(signed, question=question, scope=scope)
-                )
-                from office_assistant.miniapp.backend import ChatResponse
-
-                assert isinstance(answer, ChatResponse)
-                self._json(
-                    200,
-                    {
-                        "answer": answer.answer,
-                        "sources": [
-                            {
-                                "number": n,
-                                "label": label,
-                                "download_token": dict(answer.source_actions).get(n),
-                            }
-                            for n, label in answer.sources
-                        ],
-                        "insufficient_evidence": answer.insufficient_evidence,
-                    },
-                )
-            elif method == "POST" and path == "/api/stock" and args is not None:
-                code = args.get("code")
-                if not isinstance(code, str):
-                    raise ValueError("Invalid code")
-                value = self._run(self._app().backend.stock(signed, code=code))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/product" and args is not None:
-                query = args.get("query")
-                if not isinstance(query, str):
-                    raise ValueError("Invalid product query")
-                value = self._run(self._app().backend.product(signed, query=query))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/source" and args is not None:
-                token = args.get("token")
-                if not isinstance(token, str):
-                    raise ValueError("Invalid source ticket")
-                value = self._run(self._app().backend.source_file(signed, token=token))
-                assert isinstance(value, DeliverableFile)
-                self._original_file(value)
-            elif method == "POST" and path == "/api/sales" and args is not None:
-                customer = args.get("customer")
-                year = args.get("year")
-                if not isinstance(customer, str) or type(year) is not int:
-                    raise ValueError("Invalid sales request")
-                value = self._run(
-                    self._app().backend.sales_report(signed, customer=customer, year=year)
-                )
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            else:
-                self._json(404, {"error": "not_found"})
+            self._api_dispatch(method, path, signed, args)
         except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
             self._json(401, {"error": "unauthorized"})
         except (ValueError, InventoryValidationError):
             self._json(400, {"error": "invalid_request"})
         except FileDeliveryError:
             self._json(404, {"error": "source_unavailable"})
+        except MiniAppUploadConflict:
+            self._json(409, {"error": "upload_session_conflict"})
+        except MiniAppUploadExpired:
+            self._json(410, {"error": "upload_preview_expired"})
         except MiniAppRateLimited:
             self._json(429, {"error": "too_many_requests"})
         except MiniAppServiceUnavailable:
@@ -266,10 +311,112 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         )
         self._send(200, contents, mime)
 
+    def _prepare_upload(self, signed: str) -> None:
+        """Stream at most eight MiB to a random private temp key; no DB mutation."""
+
+        from office_assistant.application.file_validation import validate_upload
+
+        length_headers = self.headers.get_all("Content-Length", [])
+        names = self.headers.get_all("X-Office-Filename", [])
+        if (
+            self.headers.get("Transfer-Encoding")
+            or len(length_headers) != 1
+            or len(names) != 1
+            or not re.fullmatch(r"[0-9]{1,9}", length_headers[0])
+            or len(names[0]) > 600
+        ):
+            self._json(400, {"error": "invalid_upload_headers"})
+            return
+        size = int(length_headers[0])
+        if size < 1 or size > _MAX_BINARY_UPLOAD_BYTES:
+            self._json(413, {"error": "upload_too_large"})
+            return
+        mime = self.headers.get("Content-Type", "")
+        try:
+            filename = unquote(names[0], encoding="utf-8", errors="strict")
+            filename, normalized = MiniAppUploadWorkflow.validated_name(filename, mime, size)
+            validate_upload(filename, mime, size, _MAX_BINARY_UPLOAD_BYTES)
+            backend = self._app().backend
+            if backend.uploads is None:
+                raise MiniAppServiceUnavailable("Uploads not configured")
+            self._run(backend.upload_permission(signed))
+        except (ValueError, UnicodeError):
+            self._json(400, {"error": "unsupported_upload"})
+            return
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            self._json(401, {"error": "unauthorized"})
+            return
+        except MiniAppUploadConflict:
+            self._json(409, {"error": "upload_session_conflict"})
+            return
+        except MiniAppRateLimited:
+            self._json(429, {"error": "too_many_requests"})
+            return
+        except MiniAppServiceUnavailable:
+            self._json(503, {"error": "service_unavailable"})
+            return
+        path, key = backend.uploads.storage.create_staging_path(Path(filename).suffix)
+        try:
+            self.connection.settimeout(20.0)
+            remaining = size
+            with path.open("xb") as stream:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("Truncated upload")
+                    stream.write(chunk)
+                    remaining -= len(chunk)
+            value = self._run(
+                backend.register_upload(
+                    signed,
+                    key=key,
+                    filename=filename,
+                    mime=normalized,
+                    size=size,
+                )
+            )
+            assert isinstance(value, dict)
+            self._json(200, cast(dict[str, object], value))
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            backend.uploads.storage.delete(key)
+            self._json(401, {"error": "unauthorized"})
+        except MiniAppUploadConflict:
+            backend.uploads.storage.delete(key)
+            self._json(409, {"error": "upload_session_conflict"})
+        except (ValueError, TimeoutError):
+            backend.uploads.storage.delete(key)
+            self._json(400, {"error": "invalid_upload"})
+        except (MiniAppRateLimited, MiniAppServiceUnavailable):
+            backend.uploads.storage.delete(key)
+            self._json(503, {"error": "service_unavailable"})
+        except Exception as error:
+            backend.uploads.storage.delete(key)
+            logger.warning("Mini App upload failed | error_type=%s", type(error).__name__)
+            self._json(503, {"error": "service_unavailable"})
+
     def do_POST(self) -> None:
         path = urlsplit(self.path)
+        if path.path == "/api/upload/prepare" and not path.query:
+            if not self._allowed_origin():
+                self._json(403, {"error": "origin_not_allowed"})
+                return
+            signed = self._authenticate_header()
+            if signed is None:
+                self._json(401, {"error": "telegram_authorization_required"})
+                return
+            self._prepare_upload(signed)
+            return
         if (
-            path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales", "/api/source"}
+            path.path
+            not in {
+                "/api/ask",
+                "/api/stock",
+                "/api/product",
+                "/api/sales",
+                "/api/source",
+                "/api/upload/confirm",
+                "/api/upload/cancel",
+            }
             or path.query
         ):
             self._json(404, {"error": "not_found"})

@@ -36,6 +36,7 @@ from office_assistant.internal_evidence.delivery import (
 )
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
+from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class MiniAppBackend:
         products: BusinessQueryService | None = None,
         sales: SalesLedgerService | None = None,
         file_delivery: SourceFileDeliveryService | None = None,
+        uploads: MiniAppUploadWorkflow | None = None,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -96,6 +98,7 @@ class MiniAppBackend:
         self.products = products
         self.sales = sales
         self.file_delivery = file_delivery
+        self.uploads = uploads
         self._source_tickets: dict[str, SourceTicket] = {}
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
@@ -307,3 +310,39 @@ class MiniAppBackend:
                 "bu, sıfır satışın təsdiqi deyil."
             ),
         }
+
+    async def upload_permission(self, init_data: str) -> None:
+        actor = await self.actor(init_data)
+        if self.uploads is None:
+            raise MiniAppServiceUnavailable("Document upload is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        await self.uploads.permission(actor)
+
+    async def register_upload(
+        self,
+        init_data: str,
+        *,
+        key: str,
+        filename: str,
+        mime: str,
+        size: int,
+    ) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if self.uploads is None:
+            raise MiniAppServiceUnavailable("Document upload is not configured")
+        return await self.uploads.register(actor, key=key, filename=filename, mime=mime, size=size)
+
+    async def confirm_upload(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if self.uploads is None:
+            raise MiniAppServiceUnavailable("Document upload is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        return await self.uploads.confirm(actor, token)
+
+    async def cancel_upload(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if self.uploads is None:
+            raise MiniAppServiceUnavailable("Document upload is not configured")
+        return await self.uploads.cancel(actor, token)

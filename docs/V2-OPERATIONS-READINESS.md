@@ -33,9 +33,9 @@ All these screens call existing `InternalEvidenceService`,
 `BusinessQueryService`, `InventoryLedgerService` and
 `SalesLedgerService` read paths. It shows cited source
 labels, unknown stock distinctly from confirmed zero, error states, long
-answers, mobile safe-area spacing, and dark/light layouts. File ingestion,
-financial writes and stock changes **stay in the native bot** in this
-read-only increment. The only browser file operation is explicit,
+answers, mobile safe-area spacing, and dark/light layouts. Financial writes, stock changes and bulk imports **stay in the native
+bot**. The Mini App supports only user-confirmed single-file ingestion via
+the existing transactional service. The only browser file operation is explicit,
 authorized one-tap download of an original cited document; the user cannot
 upload, alter or delete any company file through the web endpoints.
 
@@ -104,6 +104,32 @@ approved domain and Mini App URL using official Telegram bot management
 before exposing it. Keep the bot native dashboard as operational fallback.
 The web client refuses unsigned ordinary-browser access. It contains no
 `initDataUnsafe` use or client-side privilege checks as an authority.
+
+**Mini App document upload (single file, explicit consent):**
+Select **Sənəd əlavə et**, choose one PDF/DOCX/XLSX/TXT/JPG/PNG
+(max **8 MiB**), and choose **Faylı yoxla**. The server streams
+bytes into a random private `staged/` path and returns a short-lived
+10-minute preview token bound to the current verified ACTIVE actor.
+At preview time **no FileObject, ingestion session or index job is created**.
+Only **Təsdiqlə və saxla** invokes the existing IngestionSessionService's
+`add_file` and `commit` boundaries. A successful response means
+**queued for ingestion**, not OCR/indexed/completed. **Ləğv et**
+removes the uncommitted temporary file. One file per confirmation.
+
+The service refuses to auto-save if Telegram already has an open
+ingestion session. Even if a second upload appears while the web file
+is being approved, `commit` now validates the expected session ID,
+file count and instruction count **inside the locked transaction**:
+it may fail closed and require the operator to use native Telegram
+`/saxla` or `/cancel` to resolve the pending session; it must never
+commit someone else's new pending files without confirmation.
+The native `/saxla` method's default behavior remains unchanged.
+The temporary preview lives in memory, so a restart invalidates its
+approval token. Operators should inspect temporary storage for
+orphaned unconfirmed files during restart/cleanup and must never
+blindly erase staged files referenced by the ingestion database.
+This increment does **not** add web sales posting, stock mutations,
+picture-relation confirmation or bulk import.
 
 **Before real activation:** confirm both processes see the same database,
 bot token and configured evidence projection; test Telegram iOS/Android/web
