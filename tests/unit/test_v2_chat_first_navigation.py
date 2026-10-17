@@ -139,9 +139,7 @@ def test_help_and_example_callbacks_never_arm_search_or_write() -> None:
         context.user_data[MENU_SELECTION_KEY] = ("internet", 1e9)
         query = _query(action)
         asyncio.run(
-            handle_menu_callback(
-                _update(action, query), cast(ContextTypes.DEFAULT_TYPE, context)
-            )
+            handle_menu_callback(_update(action, query), cast(ContextTypes.DEFAULT_TYPE, context))
         )
         assert query.edit_message_text.await_args.args == (expected,)
         keyboard = query.edit_message_text.await_args.kwargs["reply_markup"]
@@ -151,9 +149,7 @@ def test_help_and_example_callbacks_never_arm_search_or_write() -> None:
 
 def test_multi_part_answer_has_actions_only_on_last_chunk() -> None:
     message = SimpleNamespace(reply_text=AsyncMock())
-    markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Menyu", callback_data="nav:home")]]
-    )
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton("Menyu", callback_data="nav:home")]])
     asyncio.run(_reply_long(message, "a" * 130, 70, reply_markup=markup))
     assert message.reply_text.await_count == 2
     first, second = message.reply_text.await_args_list
