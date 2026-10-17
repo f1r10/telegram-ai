@@ -528,9 +528,10 @@ def test_deactivated_product_photo_is_not_returned_as_active_identity() -> None:
             )
             # The historical ownership rule still blocks silently
             # reassigning this picture to a different company product.
-            assert (
-                await relation.active_confirmation_holder_by_content(_digest(PNG_BYTES))
-            ) == (product_id, "KA45")
+            assert (await relation.active_confirmation_holder_by_content(_digest(PNG_BYTES))) == (
+                product_id,
+                "KA45",
+            )
 
     _scenario(behavior)
 
