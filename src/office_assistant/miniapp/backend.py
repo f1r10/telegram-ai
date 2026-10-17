@@ -7,23 +7,25 @@ search. Business and document answers reuse the existing internal service.
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.service import InProcessRateGuard
+from office_assistant.application.inventory import InventoryLedgerService, parse_stock_request
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest
-from office_assistant.business_tools.models import FindProductInput, ToolExecutionContext, ToolStatus
-from office_assistant.business_tools.service import BusinessQueryService
-from office_assistant.application.inventory import (
-    InventoryLedgerService,
-    parse_stock_request,
+from office_assistant.business_tools.models import (
+    FindProductInput,
+    ProductView,
+    ToolExecutionContext,
+    ToolStatus,
 )
+from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.infrastructure.database.models import User, UserStatus
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
@@ -176,10 +178,7 @@ class MiniAppBackend:
             context, FindProductInput(code_or_alias=query, include_inactive=False)
         )
 
-        def card(item: object) -> dict[str, object]:
-            from office_assistant.business_tools.models import ProductView
-
-            assert isinstance(item, ProductView)
+        def card(item: ProductView) -> dict[str, object]:
             return {
                 "code": item.display_code,
                 "name": item.name,
