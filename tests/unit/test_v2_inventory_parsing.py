@@ -61,9 +61,7 @@ def test_unrelated_conversation_does_not_activate_stock_operations() -> None:
         ("KA45 neçə ədəd qalıb?", "KA45"),
     ],
 )
-def test_natural_stock_questions_are_deterministic(
-    utterance: str, code: str
-) -> None:
+def test_natural_stock_questions_are_deterministic(utterance: str, code: str) -> None:
     assert parse_natural_stock_request(utterance) == code
 
 
