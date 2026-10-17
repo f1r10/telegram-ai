@@ -16,12 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.inventory import (
     InventoryLedgerService,
-    InventoryValidationError,
     parse_stock_request,
 )
 from office_assistant.infrastructure.database.models import User, UserStatus
 from office_assistant.internal_evidence.service import InternalEvidenceService
-from office_assistant.miniapp.auth import MiniAppAuthenticationError, verify_telegram_init_data
+from office_assistant.miniapp.auth import verify_telegram_init_data
 
 logger = logging.getLogger(__name__)
 
