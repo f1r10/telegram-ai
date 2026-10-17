@@ -15,6 +15,7 @@ from office_assistant.processing.semantic_visual import (
     LocalClipEncoder,
     SemanticReference,
     SemanticVisualSearch,
+    balanced_references,
     unit_vector,
 )
 from office_assistant.scripts import prepare_visual_references
@@ -239,3 +240,42 @@ def test_operator_dryrun_never_starts_clip_model(
                 limit=0,
             )
         )
+
+
+def test_many_angles_of_one_sku_cannot_hide_other_products_from_reference_limit(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    red = photo(230)
+    blue = photo(15)
+    references: list[SemanticReference] = []
+    for index in range(12):
+        # Distinct storage paths model separate confirmed photos of one SKU.
+        name = f"red-{index}.png"
+        (root / name).write_bytes(red)
+        references.append(SemanticReference("KA45", name, sha256(red).hexdigest()))
+    (root / "blue.png").write_bytes(blue)
+    references.append(SemanticReference("KA46", "blue.png", sha256(blue).hexdigest()))
+    selected = balanced_references(references, limit=2)
+    assert [item.product_code for item in selected] == ["KA45", "KA46"]
+    assert balanced_references(references, limit=2) == selected
+    assert len(balanced_references(references, limit=20)) == 13
+    search = SemanticVisualSearch(
+        storage_root=root,
+        model_cache_root=tmp_path / "models",
+        encoder=ColorEncoder(),
+        min_score=0.98,
+        max_references=2,
+    )
+    result = search.search(blue, references, limit=2)
+    assert result.incomplete
+    assert [item.product_code for item in result.candidates] == ["KA46"]
+
+
+def test_empty_reference_sampler_and_invalid_limit_fail_closed() -> None:
+    assert balanced_references([], limit=5) == []
+    with pytest.raises(ValueError):
+        balanced_references([], limit=0)
+    with pytest.raises(ValueError):
+        balanced_references([], limit=501)
