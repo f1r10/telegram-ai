@@ -135,11 +135,13 @@ class MiniAppDocumentProgress:
                     )
                 )
             ).scalars().all()
-            indexed_chunks = sum(
-                row.chunk_count
+            # All parsed documents need a successful, non-empty index record.
+            # A single successful file must not make a batch look fully ready.
+            if len(records) == len(parse_states) and all(
+                row.status == KnowledgeIndexRecordStatus.SUCCEEDED and row.chunk_count > 0
                 for row in records
-                if row.status == KnowledgeIndexRecordStatus.SUCCEEDED
-            )
+            ):
+                indexed_chunks = sum(row.chunk_count for row in records)
         status, notice, terminal = summarize_progress(
             ingest=job.status,
             parse_states=parse_states,
