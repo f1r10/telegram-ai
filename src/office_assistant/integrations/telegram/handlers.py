@@ -47,6 +47,14 @@ from office_assistant.application.errors import (
 )
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
+from office_assistant.application.inventory import (
+    InventoryConflict,
+    InventoryLedgerService,
+    InventoryValidationError,
+    StockDraft,
+    parse_stock_draft,
+    parse_stock_request,
+)
 from office_assistant.application.reference_images import (
     ReferenceImageDenialReason,
     ReferenceImageResult,
@@ -124,6 +132,7 @@ SERVICES_KEY = "phase2_services"
 MENU_SELECTION_KEY = "office_menu_selection"
 MENU_SELECTION_TTL_SECONDS = 600
 SALES_DRAFT_KEY = "office_sales_draft"
+STOCK_DRAFT_KEY = "office_stock_draft"
 SALES_IMPORT_KEY = "office_sales_import"
 SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
@@ -153,6 +162,7 @@ class TelegramServices:
     reminders: ReminderService | None = None
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
+    inventory: InventoryLedgerService | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
         default_factory=DeleteConfirmationState
@@ -603,6 +613,174 @@ def _format_sales_draft(draft: SaleDraft) -> str:
     )
 
 
+def _stock_confirmation_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✅ Təsdiqlə", callback_data=f"st:ok:{token}"),
+                InlineKeyboardButton("Ləğv et", callback_data=f"st:no:{token}"),
+            ]
+        ]
+    )
+
+
+async def _try_stock_turn(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    actor: User,
+    text: str,
+) -> bool:
+    """Keep stock inquiries and approved manual inventory mutations out of model RAG."""
+
+    if update.effective_message is None:
+        return False
+    try:
+        draft = parse_stock_draft(text)
+        lookup = None if draft is not None else parse_stock_request(text)
+    except InventoryValidationError as error:
+        await update.effective_message.reply_text(str(error))
+        return True
+    if draft is None and lookup is None:
+        return False
+    _discard_menu_selection(context)
+    if services.inventory is None:
+        await update.effective_message.reply_text("Anbar uçotu xidməti hələ aktiv deyil.")
+        return True
+    if draft is not None:
+        if actor.role != UserRole.ADMIN:
+            await update.effective_message.reply_text(
+                "Stok giriş-çıxışını yalnız administrator təsdiqləyə bilər."
+            )
+            return True
+        data = getattr(context, "user_data", None)
+        if data is None:
+            await update.effective_message.reply_text(messages.TEMPORARY_ERROR)
+            return True
+        token = secrets.token_urlsafe(12)
+        data[STOCK_DRAFT_KEY] = (token, monotonic() + 600, draft)
+        descriptions = {"OPENING": "Açılış qalığı", "RECEIPT": "Giriş", "ISSUE": "Çıxış"}
+        await update.effective_message.reply_text(
+            "📦 ANBAR ƏMƏLİYYATI — TƏSDİQ\n\n"
+            f"Məhsul: {draft.product_code}\n"
+            f"Anbar: {draft.warehouse}\n"
+            f"Əməliyyat: {descriptions[draft.kind]}\n"
+            f"Miqdar: {draft.quantity:.3f}\n"
+            f"Sənəd: {draft.reference}\n\n"
+            "Yalnız real, sənədləşdirilmiş hərəkəti təsdiqləyin.",
+            reply_markup=_stock_confirmation_keyboard(token),
+        )
+        return True
+    assert lookup is not None
+    try:
+        snapshot = await services.inventory.snapshot(actor, lookup)
+    except InventoryValidationError as error:
+        await update.effective_message.reply_text(str(error))
+        return True
+    except AuthorizationDenied:
+        await update.effective_message.reply_text(messages.NO_PERMISSION)
+        return True
+    if snapshot.total is None:
+        await update.effective_message.reply_text(
+            f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
+            "Təsdiqlənmiş açılış qalığı yoxdur; stok MƏLUM DEYİL. "
+            "Kataloqda olması anbarda olduğunu sübut etmir."
+        )
+        return True
+    breakdown = "\n".join(f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations)
+    await update.effective_message.reply_text(
+        f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
+        f"{breakdown}\n\nCəmi: {snapshot.total:.3f}\n"
+        "Yalnız sistemdə təsdiqlənmiş anbar əməliyyatları əsasında."
+    )
+    return True
+
+
+async def handle_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_private(update) or update.effective_message is None:
+        return
+    identity = _identity(update)
+    if identity is None:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await update.effective_message.reply_text(messages.NO_PERMISSION)
+        return
+    raw = update.effective_message.text or ""
+    code = raw.partition(" ")[2].strip()
+    if not code:
+        await update.effective_message.reply_text(
+            "Məhsul kodunu yazın: /stok KA45\n"
+            "Yeni anbar qalığı: Anbar əməliyyatı: KA45 | Əsas | AÇILIŞ | 10 | SAY-001"
+        )
+        return
+    await _try_stock_turn(update, context, services, user, "Stok: " + code)
+
+
+async def handle_stock_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """One verified, expiring admin approval; callbacks cannot directly set quantities."""
+
+    query = update.callback_query
+    identity = _identity(update)
+    if not _is_private(update) or query is None or identity is None:
+        return
+    await query.answer()
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    raw: object = data.get(STOCK_DRAFT_KEY)
+    selected = cast(tuple[object, ...], raw) if isinstance(raw, tuple) else ()
+    parts = (query.data or "").split(":")
+    if (
+        len(selected) != 3
+        or len(parts) != 3
+        or parts[0] != "st"
+        or parts[1] not in {"ok", "no"}
+        or selected[0] != parts[2]
+        or not isinstance(selected[1], (int, float))
+        or monotonic() > selected[1]
+        or not isinstance(selected[2], StockDraft)
+    ):
+        data.pop(STOCK_DRAFT_KEY, None)
+        await query.edit_message_text("Bu stok təsdiqi artıq etibarlı deyil.")
+        return
+    data.pop(STOCK_DRAFT_KEY, None)
+    if parts[1] == "no":
+        await query.edit_message_text("Anbar əməliyyatı ləğv edildi; heç nə yazılmadı.")
+        return
+    services = _services(context)
+    if services.inventory is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    try:
+        entry = await services.inventory.record(user, selected[2])
+    except InventoryConflict as error:
+        await query.edit_message_text(str(error))
+        return
+    except InventoryValidationError as error:
+        await query.edit_message_text(str(error))
+        return
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Stock ledger write failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        f"✅ ANBAR QEYDİ TƏSDİQLƏNDİ\n\n"
+        f"Məhsul: {entry.product_code}\nAnbar: {entry.warehouse}\n"
+        f"Sənəd: {entry.reference}\nYeni qalıq: {entry.balance_after:.3f}\n"
+        "Əməliyyat audit jurnalına daxil edildi."
+    )
+
+
 async def _try_sales_turn(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -970,6 +1148,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
                 )
+                return
+            elif await _try_stock_turn(update, context, services, user, message.text):
                 return
             elif await _try_sales_turn(update, context, services, user, message.text):
                 return
@@ -2337,6 +2517,7 @@ CommandCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, A
 
 COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "start": handle_start,
+    "stok": handle_stock_command,
     "menu": handle_menu,
     "whoami": handle_whoami,
     "users": handle_users,

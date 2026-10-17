@@ -24,6 +24,52 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 
 The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing.
 
+## Explicit inventory ledger and stock accounting (migration 0020)
+
+Stock is not inferred from catalogs, price offers, sales invoices, customer
+payments, product photos, PDF text, or AI predictions. `inventory_balances`
+holds one **known** nonnegative quantity per active product and named
+warehouse. If a product has no approved opening balance, `/stok KA45` and
+`Stok: KA45` explicitly report **UNKNOWN**, not zero. This protects against
+misrepresenting missing warehouse records as actual availability.
+
+The authorized, private Telegram UI uses a two-step confirmation:
+
+```text
+/stok KA45
+Stok: KA45
+Anbar əməliyyatı: KA45 | Əsas | AÇILIŞ | 10.000 | SAY-2026-001
+Anbar əməliyyatı: KA45 | Əsas | GİRİŞ | 5.250 | QE-2026-001
+Anbar əməliyyatı: KA45 | Əsas | ÇIXIŞ | 2.000 | CI-2026-001
+```
+
+`AÇILIŞ` is the operator's first witnessed warehouse count. An existing
+warehouse cannot be opened a second time, and a new warehouse cannot have
+`GİRİŞ` or `ÇIXIŞ` before its opening count is recorded. Zero opening is
+valid and means a *known* empty warehouse. Only administrators can post
+movements, and the user must click the confirmation button before a write.
+The approval expires, is removed after use, and re-checks admin privileges.
+A globally unique **product/warehouse/reference** constraint rejects
+replayed approvals. Nonnegative balances are enforced at both service and
+database levels, and all successful entries append audit events with source
+document reference, operator and resulting balance. Product-row locking
+serializes concurrent first openings and concurrent withdrawals.
+
+The three operations are manual warehouse events, **not** automatically
+inferred from financial sales. An admin should enter only inventory changes
+verified from an actual stock count or goods receipt/dispatch document.
+There is deliberately no unsourced arbitrary `set stock to N` overwrite:
+an incorrect opening or issue requires a separately designed, audited
+correction procedure, not deletion or silent historical rewriting. This
+first increment does not cover inter-warehouse transfers, reservations,
+lot/batch expiry, returns, picking or multi-tenant branch ownership.
+
+Run Alembic migration `0020_inventory_ledger` on a backed-up staging
+copy, check `alembic_version`, verify the above paths with at least two
+authorized roles, duplicated reference numbers and concurrent withdrawals,
+then test actual Telegram confirmation/replay and restore. **No production
+stock opening or migration has been run from ChatGPT.**
+
 ## Historical scanned-PDF OCR replay (operator controlled)
 
 This is **different** from `repair_legacy_index`: a historical **fully scanned**

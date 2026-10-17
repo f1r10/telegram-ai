@@ -94,7 +94,7 @@ def test_alembic_schema_is_at_head() -> None:
         try:
             async with engine.connect() as connection:
                 version = await connection.execute(text("SELECT version_num FROM alembic_version"))
-                assert version.scalar_one() == "0019_ocr_replay_jobs"
+                assert version.scalar_one() == "0020_inventory_ledger"
                 table = await connection.execute(
                     text(
                         """
