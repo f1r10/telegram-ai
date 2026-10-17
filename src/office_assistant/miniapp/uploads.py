@@ -191,5 +191,8 @@ class MiniAppUploadWorkflow:
             "session_id": summary.session_id,
             "file_count": summary.file_count,
             "job_id": summary.job_id,
-            "notice": "Fayl təsdiqləndi və emal növbəsinə verildi. Emal bitməsi hələ təsdiqlənməyib.",
+            "notice": (
+                "Fayl təsdiqləndi və emal növbəsinə verildi. "
+                "Emal bitməsi hələ təsdiqlənməyib."
+            ),
         }
