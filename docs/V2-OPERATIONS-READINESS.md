@@ -24,6 +24,71 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 
 The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing.
 
+## Real read-only Telegram Mini App (experimental, default OFF)
+
+The `office_assistant.miniapp` package now provides a mobile-first HTML/CSS/JS
+client backed by a real signed Telegram API. The interface has **Sual ver**,
+**Bizim baza** and **Anbar qalığı**, all using the existing
+`InternalEvidenceService` or `InventoryLedgerService`. It shows cited source
+labels, unknown stock distinctly from confirmed zero, error states, long
+answers, mobile safe-area spacing, and dark/light layouts. File ingestion,
+original-source download, financial writes and stock changes **stay in the
+native bot** in this first read-only increment; none of those operations
+can be performed via the web endpoints.
+
+**Critical authentication:** the web API verifies the raw
+`Telegram.WebApp.initData` HMAC using the bot-token-derived `WebAppData`
+secret, a constant-time hash comparison, a bounded `auth_date` and unique
+signed parameters. The verifier accommodates Telegram's newer third-party
+`signature` field. It then queries the *current* PostgreSQL user record
+on **every** request, requiring `ACTIVE`; no user ID, role, stock quantity,
+file path, or permission sent by the browser is ever trusted. The browser
+sends the signed data in a request header, never in a URL, cookie or
+localStorage. Source answers are text-only with labels; no private blob
+paths are sent to the UI. Only known routes are served. The server has
+bounded JSON bodies, explicit same-origin checks, no CORS wildcard,
+`no-store`, an restrictive CSP and a bounded inference concurrency.
+All APIs are read-only.
+
+The HTTP server binds **127.0.0.1 only**, in its own process, independently
+of Telegram polling. It is not automatically exposed by Docker Compose.
+A qualified operator must stage it with an approved **HTTPS hostname and
+reverse proxy** that provides TLS, sensible connection/request limits,
+safe forwarded headers and firewall policy. No direct WAN port is allowed.
+The `MINIAPP_PUBLIC_ORIGIN` must match the complete HTTPS origin sent to
+Telegram and the server. Do not set it to HTTP or an IP address.
+
+```bash
+# Operator-managed WSL staging only; use live secrets and backed-up local DB
+# in the private .env, never commit those values.
+MINIAPP_ENABLED=true
+MINIAPP_PUBLIC_ORIGIN=https://office.example-company.com
+MINIAPP_LOCAL_PORT=18791
+
+# With private env configured for host PostgreSQL/Qdrant:
+uv run --no-dev python -m office_assistant.miniapp.server
+# Operator's HTTPS reverse proxy forwards exactly to http://127.0.0.1:18791
+```
+
+The native bot's optional **✨ Mini App-ı aç** button is shown only if
+`MINIAPP_ENABLED=true` and a configured HTTPS URL exists. Set the
+approved domain and Mini App URL using official Telegram bot management
+before exposing it. Keep the bot native dashboard as operational fallback.
+The web client refuses unsigned ordinary-browser access. It contains no
+`initDataUnsafe` use or client-side privilege checks as an authority.
+
+**Before real activation:** confirm both processes see the same database,
+bot token and configured evidence projection; test Telegram iOS/Android/web
+launch; verify HTTPS/TLS, browser CSP, source text encoding, known zero/unknown
+stock, expired/replayed/tampered initData, revoked user, concurrent questions,
+timeouts, DB/index/AI outages and a rollback with `MINIAPP_ENABLED=false`.
+The web UI has not yet been manually tested in a real Telegram client or
+deployed to the operator's WSL host from ChatGPT. This increment does not
+resolve the broader acceptance criteria of issue #43 (authenticated
+document delivery/upload and expanded screens).
+
+Official Telegram guide: https://core.telegram.org/bots/webapps
+
 ## Conversation-first Telegram interface (native bot)
 
 This release introduces one home screen for an ordinary office employee:
