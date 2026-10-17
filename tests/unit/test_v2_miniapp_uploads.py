@@ -34,7 +34,12 @@ def setup(tmp_path: Path) -> tuple[MiniAppUploadWorkflow, LocalFileStorage, Asyn
         session_id=18, file_count=1, instruction_count=0, duplicate_count=0, job_id=77
     )
     actor = User(id=9, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
-    return MiniAppUploadWorkflow(storage, cast(IngestionSessionService, ingestion)), storage, ingestion, actor
+    return (
+        MiniAppUploadWorkflow(storage, cast(IngestionSessionService, ingestion)),
+        storage,
+        ingestion,
+        actor,
+    )
 
 
 def write_staged(storage: LocalFileStorage, data: bytes = b"%PDF-sample") -> tuple[Path, str]:
@@ -48,7 +53,11 @@ def test_preview_does_not_add_file_or_create_ingestion_job(tmp_path: Path) -> No
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     assert preview["status"] == "preview"
@@ -66,7 +75,11 @@ def test_explicit_confirmation_reuses_ingestion_and_fences_reviewed_session(tmp_
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     token = cast(str, preview["token"])
@@ -97,7 +110,11 @@ def test_existing_bot_session_blocks_preview_and_commit(tmp_path: Path) -> None:
     with pytest.raises(MiniAppUploadConflict):
         asyncio.run(
             workflow.register(
-                actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+                actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
             )
         )
     assert not path.exists()
@@ -111,7 +128,11 @@ def test_uploaded_bytes_must_match_preview_and_unauthorized_actor_cannot_confirm
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     token = cast(str, preview["token"])
@@ -130,7 +151,11 @@ def test_simultaneous_bot_upload_cannot_be_implicitly_committed(tmp_path: Path) 
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     # Existing session appears before confirmation.
@@ -146,7 +171,11 @@ def test_concurrent_addition_causes_pre_save_fence_not_auto_commit(tmp_path: Pat
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     ingestion.add_file.return_value = UploadResult(
@@ -173,7 +202,11 @@ def test_upload_size_mime_filename_and_expiration_are_strict(tmp_path: Path) -> 
     path, key = write_staged(storage)
     preview = asyncio.run(
         workflow.register(
-            actor, key=key, filename="contract.pdf", mime="application/pdf", size=path.stat().st_size
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size
         )
     )
     token = cast(str, preview["token"])
