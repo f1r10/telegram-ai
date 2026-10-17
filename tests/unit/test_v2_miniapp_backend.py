@@ -43,12 +43,12 @@ from office_assistant.internal_evidence.models import (
 )
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
-from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.backend import (
     MiniAppAccessDenied,
     MiniAppBackend,
     MiniAppServiceUnavailable,
 )
+from office_assistant.miniapp.progress import MiniAppDocumentProgress
 
 TOKEN = "123456:TEST-only"
 
