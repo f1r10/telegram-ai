@@ -466,31 +466,27 @@ def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
     """Native bot stays complete; optional Web App requires its own HTTPS origin."""
 
     rows = [
-            [
-                InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
-                InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
-                InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
-                InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
-            ],
-            [
-                InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
-                InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
-            ],
-        ]
+        [
+            InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
+            InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
+            InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
+            InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
+            InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
+        ],
+    ]
     if miniapp_url is not None and miniapp_url.startswith("https://"):
         rows.insert(
             0,
-            [
-                InlineKeyboardButton(
-                    "✨ Mini App-ı aç", web_app=WebAppInfo(url=miniapp_url)
-                )
-            ],
+            [InlineKeyboardButton("✨ Mini App-ı aç", web_app=WebAppInfo(url=miniapp_url))],
         )
     return InlineKeyboardMarkup(rows)
 
