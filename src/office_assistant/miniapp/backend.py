@@ -8,10 +8,10 @@ import asyncio
 import logging
 import re
 import secrets
-from time import monotonic
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from time import monotonic
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -153,7 +153,9 @@ class MiniAppBackend:
                 raise MiniAppServiceUnavailable("AI request timed out") from error
         source_actions: list[tuple[int, str]] = []
         if self.file_delivery is not None:
-            for citation in result.citations[:3]:
+            for citation in result.citations[:12]:
+                if len(source_actions) >= 3:
+                    break
                 if citation.file_id is None or not 1 <= citation.number <= 99:
                     continue
                 token = secrets.token_urlsafe(24)
