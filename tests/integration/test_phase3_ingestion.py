@@ -264,7 +264,8 @@ def test_web_commit_guard_does_not_save_extra_unreviewed_bot_notes() -> None:
                 _metadata(storage, b"unapproved concurrent bot note", 505, "note.pdf"),
             )
             assert await ingestion.add_instruction(
-                user, text_content="Other unsaved bot note",
+                user,
+                text_content="Other unsaved bot note",
                 chat_id=user.telegram_user_id,
                 message_id=506,
                 update_id=999,
