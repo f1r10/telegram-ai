@@ -147,6 +147,11 @@ class MiniAppUploadWorkflow:
             raise MiniAppUploadConflict(
                 "Başqa açıq sənəd sessiyası var. Əvvəl onu Telegram botunda tamamlayın."
             )
+        # The database check above yields to the event loop. A concurrent
+        # approve/cancel may have consumed the preview in that interval.
+        # Revalidate BEFORE touching the staged bytes or creating a DB row.
+        if self._eligible(actor, token) is not preview:
+            raise MiniAppUploadExpired("This preview was replaced")
         path = self.storage.path_for_key(preview.key)
         if not path.is_file() or sha256_file(path) != (preview.sha256, preview.size):
             self._previews.pop(token, None)

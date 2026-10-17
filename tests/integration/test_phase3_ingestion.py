@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import delete, select, update
 
-from office_assistant.application.errors import AuthorizationDenied
+from office_assistant.application.errors import AuthorizationDenied, InvalidStateTransition
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -25,6 +25,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 pytestmark = pytest.mark.integration
 
@@ -191,6 +192,98 @@ def test_ingestion_authorization_and_expiration() -> None:
                 file_row = (await session.execute(select(FileObject))).scalar_one()
                 assert session_row.status == IngestionSessionStatus.EXPIRED
                 assert file_row.state == FileObjectState.DELETED
+        finally:
+            await engine.dispose()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(_reset(settings))
+
+
+def test_web_file_preview_only_commits_after_explicit_confirmation() -> None:
+    settings = _settings_or_skip()
+    user = asyncio.run(_reset(settings))
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        factory = create_session_factory(engine)
+        storage = LocalFileStorage(Path(settings.file_storage_path) / "miniapp-web-integration")
+        ingestion = IngestionSessionService(factory, storage, max_files=10)
+        workflow = MiniAppUploadWorkflow(storage, ingestion)
+        try:
+            path, key = storage.create_staging_path(".pdf")
+            path.write_bytes(b"%PDF-1.4 sample approved by user")
+            preview = await workflow.register(
+                user,
+                key=key,
+                filename="example.pdf",
+                mime="application/pdf",
+                size=path.stat().st_size,
+            )
+            assert preview["status"] == "preview"
+            async with factory() as session:
+                assert (await session.execute(select(FileObject))).scalars().all() == []
+                assert (await session.execute(select(IngestionJob))).scalars().all() == []
+                assert (await session.execute(select(IngestionSession))).scalars().all() == []
+
+            saved = await workflow.confirm(user, str(preview["token"]))
+            assert saved["status"] == "queued"
+            assert saved["job_id"] is not None
+            async with factory() as session:
+                files = (await session.execute(select(FileObject))).scalars().all()
+                jobs = (await session.execute(select(IngestionJob))).scalars().all()
+                sessions = (await session.execute(select(IngestionSession))).scalars().all()
+                assert len(files) == 1
+                assert files[0].state == FileObjectState.ACTIVE
+                assert len(jobs) == 1
+                assert jobs[0].status == IngestionJobStatus.PENDING
+                assert len(sessions) == 1
+                assert sessions[0].status == IngestionSessionStatus.COMMITTED
+        finally:
+            await engine.dispose()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(_reset(settings))
+
+
+def test_web_commit_guard_does_not_save_extra_unreviewed_bot_notes() -> None:
+    settings = _settings_or_skip()
+    user = asyncio.run(_reset(settings))
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        factory = create_session_factory(engine)
+        storage = LocalFileStorage(Path(settings.file_storage_path) / "miniapp-guard-integration")
+        ingestion = IngestionSessionService(factory, storage)
+        try:
+            staged = await ingestion.add_file(
+                user,
+                _metadata(storage, b"unapproved concurrent bot note", 505, "note.pdf"),
+            )
+            assert await ingestion.add_instruction(
+                user,
+                text_content="Other unsaved bot note",
+                chat_id=user.telegram_user_id,
+                message_id=506,
+                update_id=999,
+            )
+            with pytest.raises(InvalidStateTransition):
+                await ingestion.commit(
+                    user,
+                    expected_session_id=staged.summary.session_id,
+                    expected_file_count=1,
+                    expected_instruction_count=0,
+                )
+            async with factory() as session:
+                files = (await session.execute(select(FileObject))).scalars().all()
+                assert len(files) == 1
+                assert files[0].state == FileObjectState.STAGED
+                assert (await session.execute(select(IngestionJob))).scalars().all() == []
+                entries = (await session.execute(select(IngestionSession))).scalars().all()
+                assert entries[0].status == IngestionSessionStatus.OPEN
         finally:
             await engine.dispose()
 

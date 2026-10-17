@@ -219,3 +219,83 @@ def test_upload_size_mime_filename_and_expiration_are_strict(tmp_path: Path) -> 
     with pytest.raises(MiniAppUploadExpired):
         asyncio.run(workflow.confirm(actor, token))
     ingestion.add_file.assert_not_awaited()
+
+
+def test_two_parallel_confirmations_can_commit_only_one_file(tmp_path: Path) -> None:
+    workflow, storage, ingestion, actor = setup(tmp_path)
+    path, key = write_staged(storage)
+    preview = asyncio.run(
+        workflow.register(
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size,
+        )
+    )
+    token = cast(str, preview["token"])
+    release = asyncio.Event()
+    arrived = 0
+
+    async def gated_open_session(_actor: User) -> bool:
+        nonlocal arrived
+        arrived += 1
+        if arrived == 2:
+            release.set()
+        await release.wait()
+        return False
+
+    ingestion.has_open_session.side_effect = gated_open_session
+
+    async def run_both() -> list[object]:
+        return list(
+            await asyncio.gather(
+                workflow.confirm(actor, token),
+                workflow.confirm(actor, token),
+                return_exceptions=True,
+            )
+        )
+
+    results = asyncio.run(run_both())
+    assert sum(isinstance(value, dict) for value in results) == 1
+    assert sum(isinstance(value, MiniAppUploadExpired) for value in results) == 1
+    ingestion.add_file.assert_awaited_once()
+    ingestion.commit.assert_awaited_once()
+
+
+def test_cancel_during_permission_check_prevents_late_commit(tmp_path: Path) -> None:
+    workflow, storage, ingestion, actor = setup(tmp_path)
+    path, key = write_staged(storage)
+    preview = asyncio.run(
+        workflow.register(
+            actor,
+            key=key,
+            filename="contract.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size,
+        )
+    )
+    token = cast(str, preview["token"])
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def paused(_actor: User) -> bool:
+        entered.set()
+        await release.wait()
+        return False
+
+    ingestion.has_open_session.side_effect = paused
+
+    async def scenario() -> object:
+        task = asyncio.create_task(workflow.confirm(actor, token))
+        await entered.wait()
+        outcome = await workflow.cancel(actor, token)
+        assert outcome["status"] == "cancelled"
+        release.set()
+        return (await asyncio.gather(task, return_exceptions=True))[0]
+
+    result = asyncio.run(scenario())
+    assert isinstance(result, MiniAppUploadExpired)
+    ingestion.add_file.assert_not_awaited()
+    ingestion.commit.assert_not_awaited()
+    assert not path.exists()
