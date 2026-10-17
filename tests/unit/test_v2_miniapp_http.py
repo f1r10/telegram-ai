@@ -4,7 +4,7 @@ import asyncio
 import http.client
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import cast
 
@@ -39,7 +39,7 @@ class DummyBackend:
 
 
 @contextmanager
-def serve() -> Iterator[tuple[int, DummyBackend]]:
+def serve() -> Generator[tuple[int, DummyBackend], None, None]:
     loop = asyncio.new_event_loop()
     running = threading.Thread(target=loop.run_forever, daemon=True)
     running.start()
