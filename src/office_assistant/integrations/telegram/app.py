@@ -31,8 +31,8 @@ from office_assistant.integrations.telegram.handlers import (
     handle_reminder_callback,
     handle_revoke_reference_callback,
     handle_sales_callback,
-    handle_stock_callback,
     handle_sales_import_callback,
+    handle_stock_callback,
     handle_user_callback,
 )
 from office_assistant.integrations.telegram.outbox import run_outbox_consumer
