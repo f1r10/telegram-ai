@@ -57,7 +57,7 @@ def test_preview_does_not_add_file_or_create_ingestion_job(tmp_path: Path) -> No
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     assert preview["status"] == "preview"
@@ -79,7 +79,7 @@ def test_explicit_confirmation_reuses_ingestion_and_fences_reviewed_session(tmp_
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     token = cast(str, preview["token"])
@@ -89,7 +89,7 @@ def test_explicit_confirmation_reuses_ingestion_and_fences_reviewed_session(tmp_
     meta = ingestion.add_file.await_args.args[1]
     assert meta.staging_key == key
     assert meta.original_filename == "contract.pdf"
-    assert meta.telegram_chat_id < -10**15
+    assert meta.telegram_chat_id < -(10**15)
     assert meta.telegram_message_id > 0
     ingestion.commit.assert_awaited_once_with(
         actor,
@@ -111,10 +111,10 @@ def test_existing_bot_session_blocks_preview_and_commit(tmp_path: Path) -> None:
         asyncio.run(
             workflow.register(
                 actor,
-            key=key,
-            filename="contract.pdf",
-            mime="application/pdf",
-            size=path.stat().st_size
+                key=key,
+                filename="contract.pdf",
+                mime="application/pdf",
+                size=path.stat().st_size,
             )
         )
     assert not path.exists()
@@ -132,7 +132,7 @@ def test_uploaded_bytes_must_match_preview_and_unauthorized_actor_cannot_confirm
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     token = cast(str, preview["token"])
@@ -155,7 +155,7 @@ def test_simultaneous_bot_upload_cannot_be_implicitly_committed(tmp_path: Path) 
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     # Existing session appears before confirmation.
@@ -175,7 +175,7 @@ def test_concurrent_addition_causes_pre_save_fence_not_auto_commit(tmp_path: Pat
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     ingestion.add_file.return_value = UploadResult(
@@ -206,7 +206,7 @@ def test_upload_size_mime_filename_and_expiration_are_strict(tmp_path: Path) -> 
             key=key,
             filename="contract.pdf",
             mime="application/pdf",
-            size=path.stat().st_size
+            size=path.stat().st_size,
         )
     )
     token = cast(str, preview["token"])
