@@ -1105,9 +1105,7 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
             if user is None or user.status != UserStatus.ACTIVE:
                 await message.reply_text(messages.NO_PERMISSION)
             else:
-                await _try_stock_turn(
-                    update, context, services, user, "Stok: " + text.strip()
-                )
+                await _try_stock_turn(update, context, services, user, "Stok: " + text.strip())
     else:
         await _handle_web_command(
             update, context, combined=(mode == "tamaxtar"), question_override=text
