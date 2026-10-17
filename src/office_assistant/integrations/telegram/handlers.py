@@ -52,6 +52,7 @@ from office_assistant.application.inventory import (
     InventoryLedgerService,
     InventoryValidationError,
     StockDraft,
+    parse_natural_stock_request,
     parse_stock_draft,
     parse_stock_request,
 )
@@ -455,9 +456,10 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
             ],
             [
-                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
+                InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
                 InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
             ],
+            [InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload")],
             [
                 InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
                 InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
@@ -638,6 +640,8 @@ async def _try_stock_turn(
     try:
         draft = parse_stock_draft(text)
         lookup = None if draft is not None else parse_stock_request(text)
+        if lookup is None and draft is None and services.inventory is not None:
+            lookup = parse_natural_stock_request(text)
     except InventoryValidationError as error:
         await update.effective_message.reply_text(str(error))
         return True
@@ -999,6 +1003,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:ask",
         "om:product",
         "om:sales",
+        "om:stock",
         "om:home",
         "om:baza",
         "om:internet",
@@ -1054,6 +1059,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "baza": messages.MENU_ASK_INTERNAL,
             "product": messages.MENU_PRODUCT_PROMPT,
             "sales": messages.MENU_SALES_PROMPT,
+            "stock": messages.MENU_STOCK_PROMPT,
             "internet": messages.MENU_ASK_INTERNET,
             "tamaxtar": messages.MENU_ASK_COMBINED,
         }[choice]
@@ -1078,7 +1084,7 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
     mode, expires_at = selection
     if (
         not isinstance(mode, str)
-        or mode not in {"baza", "internet", "tamaxtar", "sales"}
+        or mode not in {"baza", "internet", "tamaxtar", "sales", "stock"}
         or not isinstance(expires_at, (int, float))
     ):
         return False
@@ -1090,6 +1096,18 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await handle_baza(update, context, question_override=text)
     elif mode == "sales":
         await _handle_sales_report(update, context, text, from_menu=True)
+    elif mode == "stock":
+        message = update.effective_message
+        identity = _identity(update)
+        if message is not None and identity is not None:
+            services = _services(context)
+            user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+            if user is None or user.status != UserStatus.ACTIVE:
+                await message.reply_text(messages.NO_PERMISSION)
+            else:
+                await _try_stock_turn(
+                    update, context, services, user, "Stok: " + text.strip()
+                )
     else:
         await _handle_web_command(
             update, context, combined=(mode == "tamaxtar"), question_override=text
