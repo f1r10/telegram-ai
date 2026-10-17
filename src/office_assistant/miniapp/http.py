@@ -117,9 +117,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
 
     def _allowed_origin(self) -> bool:
         headers = self.headers.get_all("Origin", [])
-        return len(headers) <= 1 and (
-            not headers or headers[0] == self.server.public_origin
-        )
+        return len(headers) <= 1 and (not headers or headers[0] == self.server.public_origin)
 
     def _authenticate_header(self) -> str | None:
         values = self.headers.get_all("X-Telegram-Init-Data", [])
@@ -163,9 +161,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     200,
                     {
                         "answer": answer.answer,
-                        "sources": [
-                            {"number": n, "label": label} for n, label in answer.sources
-                        ],
+                        "sources": [{"number": n, "label": label} for n, label in answer.sources],
                         "insufficient_evidence": answer.insufficient_evidence,
                     },
                 )
