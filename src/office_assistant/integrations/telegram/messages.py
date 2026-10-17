@@ -23,6 +23,7 @@ MENU_CHAT_BUTTON = "💬 Sual ver"
 MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
+MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
 MENU_INTERNET_BUTTON = "🌐 İnternet"
 MENU_HELP_BUTTON = "❔ Kömək"
 # Retained for legacy callback compatibility and explicit slash commands.
@@ -35,6 +36,11 @@ MENU_CHAT_PROMPT = (
 MENU_PRODUCT_PROMPT = (
     "📦 MƏHSUL AXTARIŞI\n\nMəhsulun kodunu və ya adını yazın. "
     "Məsələn: «KA45 bizdə var? Qiyməti nədir?»"
+)
+MENU_STOCK_PROMPT = (
+    "🏬 ANBAR QALIĞI\\n\\nMəhsulun kodunu yazın: KA45\\n"
+    "Bu sorğu yalnız təsdiqlənmiş anbar hərəkətlərini yoxlayır. "
+    "Kataloq məlumatı avtomatik stok sayılmır."
 )
 MENU_SALES_PROMPT = (
     "📊 SATIŞ HESABATI\n\n"
