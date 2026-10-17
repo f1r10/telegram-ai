@@ -131,6 +131,28 @@ blindly erase staged files referenced by the ingestion database.
 This increment does **not** add web sales posting, stock mutations,
 picture-relation confirmation or bulk import.
 
+**Document processing progress (read-only):** the `Sənəd əlavə et`
+screen now includes `Göndərdiyim sənədlər` and an explicit
+`Vəziyyəti yenilə` control. The signed `POST /api/uploads/recent`
+lists up to six of the current ACTIVE actor's latest committed ingestion
+jobs. `POST /api/uploads/status` looks up one job ID within **that same
+actor's ownership**; an unknown or another employee's ID is returned
+as 404 with no document metadata. The view never reads a storage path
+or reveals internal exception text.
+
+Status is derived exclusively from database records:
+`queued` = ingestion pending, `reading` = worker parsing/OCR,
+`indexing` = parsing succeeded but searchable index is still pending,
+`ready` = all parse outputs succeeded and the index job succeeded with
+a positive indexed chunk record **for every parsed item**,
+`review` = deferred/partial/zero-searchable-text needing attention, and
+`failed` = ingest or indexing failure. The UI does **not** invent
+percentage completion or infer that a committed upload is already
+searchable. Manual refresh avoids excessive traffic and keeps the AI
+request rate limit available for actual questions; the screen also
+recovers these durable jobs after a browser restart without client
+storage or previously remembered approval tokens.
+
 **Before real activation:** confirm both processes see the same database,
 bot token and configured evidence projection; test Telegram iOS/Android/web
 launch; verify HTTPS/TLS, browser CSP, source text encoding, known zero/unknown

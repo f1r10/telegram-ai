@@ -31,6 +31,34 @@ class DummyBackend:
             else None
         )
 
+    async def recent_uploads(self, raw: str) -> dict[str, object]:
+        self.calls.append("jobs:" + raw)
+        return {
+            "jobs": [
+                {
+                    "job_id": 77,
+                    "filename": "contract.pdf",
+                    "stage": "indexing",
+                    "notice": "Axtarış indeksinə əlavə olunur.",
+                    "terminal": False,
+                }
+            ]
+        }
+
+    async def upload_status(self, raw: str, *, job_id: int) -> dict[str, object]:
+        self.calls.append("job:" + raw + ":" + str(job_id))
+        if job_id != 77:
+            from office_assistant.miniapp.progress import UploadJobNotFound
+
+            raise UploadJobNotFound("Not owned")
+        return {
+            "job_id": job_id,
+            "filename": "contract.pdf",
+            "stage": "ready",
+            "notice": "Sənəd axtarış üçün hazırdır.",
+            "terminal": True,
+        }
+
     async def profile(self, raw: str) -> dict[str, str]:
         self.calls.append("me:" + raw)
         return {"display_name": "Sınaq", "role": "employee"}
@@ -374,4 +402,43 @@ def test_upload_rejects_unsigned_wrong_origin_unsupported_and_large(tmp_path: Pa
         connection.close()
         assert call(port, "POST", "/api/upload/confirm", body={"token": 123})[0] == 400
         assert call(port, "POST", "/api/upload/cancel", body={"token": "x"}, signed=None)[0] == 401
+        assert backend.calls == []
+
+
+def test_own_document_progress_and_missing_job_http_contract() -> None:
+    with serve() as (port, backend):
+        code, _, body = call(port, "POST", "/api/uploads/recent", body={})
+        assert code == 200
+        rows = json.loads(body)["jobs"]
+        assert rows[0]["stage"] == "indexing"
+        assert rows[0]["terminal"] is False
+
+        code, _, body = call(port, "POST", "/api/uploads/status", body={"job_id": 77})
+        assert code == 200
+        assert json.loads(body)["stage"] == "ready"
+
+        assert call(port, "POST", "/api/uploads/status", body={"job_id": 78})[0] == 404
+        assert backend.calls == [
+            "jobs:pretend-signed-data",
+            "job:pretend-signed-data:77",
+            "job:pretend-signed-data:78",
+        ]
+
+
+def test_document_progress_rejects_unsigned_foreign_origins_and_invalid_ids() -> None:
+    with serve() as (port, backend):
+        assert call(port, "POST", "/api/uploads/recent", body={}, signed=None)[0] == 401
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/uploads/status",
+                body={"job_id": 77},
+                origin="https://attacker.example",
+            )[0]
+            == 403
+        )
+        assert call(port, "POST", "/api/uploads/status", body={"job_id": "77"})[0] == 400
+        assert call(port, "POST", "/api/uploads/status", body={"job_id": True})[0] == 400
+        assert call(port, "POST", "/api/uploads/recent", body={"user_id": 123})[0] == 400
         assert backend.calls == []

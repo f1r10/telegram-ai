@@ -36,6 +36,7 @@ from office_assistant.internal_evidence.delivery import (
 )
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
+from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ class MiniAppBackend:
         sales: SalesLedgerService | None = None,
         file_delivery: SourceFileDeliveryService | None = None,
         uploads: MiniAppUploadWorkflow | None = None,
+        progress: MiniAppDocumentProgress | None = None,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -99,6 +101,7 @@ class MiniAppBackend:
         self.sales = sales
         self.file_delivery = file_delivery
         self.uploads = uploads
+        self.progress = progress
         self._source_tickets: dict[str, SourceTicket] = {}
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
@@ -346,3 +349,21 @@ class MiniAppBackend:
         if self.uploads is None:
             raise MiniAppServiceUnavailable("Document upload is not configured")
         return await self.uploads.cancel(actor, token)
+
+    async def recent_uploads(self, init_data: str) -> dict[str, object]:
+        """Read only the authenticated actor's most recent durable jobs."""
+
+        actor = await self.actor(init_data)
+        if self.progress is None:
+            raise MiniAppServiceUnavailable("Document progress is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        return {"jobs": await self.progress.recent(actor)}
+
+    async def upload_status(self, init_data: str, *, job_id: int) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if self.progress is None:
+            raise MiniAppServiceUnavailable("Document progress is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        return await self.progress.one(actor, job_id=job_id)

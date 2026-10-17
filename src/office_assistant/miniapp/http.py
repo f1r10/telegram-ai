@@ -29,6 +29,7 @@ from office_assistant.miniapp.backend import (
     MiniAppRateLimited,
     MiniAppServiceUnavailable,
 )
+from office_assistant.miniapp.progress import UploadJobNotFound
 from office_assistant.miniapp.uploads import (
     MiniAppUploadConflict,
     MiniAppUploadExpired,
@@ -234,6 +235,21 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
+    def _api_upload_recent(self, signed: str, args: dict[str, object]) -> None:
+        if args:
+            raise ValueError("Recent uploads needs no parameters")
+        result = self._run(self._app().backend.recent_uploads(signed))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
+    def _api_upload_status(self, signed: str, args: dict[str, object]) -> None:
+        job_id = args.get("job_id")
+        if type(job_id) is not int:
+            raise ValueError("Invalid job ID")
+        result = self._run(self._app().backend.upload_status(signed, job_id=job_id))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
     def _api_upload_cancel(self, signed: str, args: dict[str, object]) -> None:
         token = args.get("token")
         if not isinstance(token, str):
@@ -256,6 +272,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             "/api/product": self._api_product,
             "/api/sales": self._api_sales,
             "/api/source": self._api_source,
+            "/api/uploads/recent": self._api_upload_recent,
+            "/api/uploads/status": self._api_upload_status,
             "/api/upload/confirm": self._api_upload_confirm,
             "/api/upload/cancel": self._api_upload_cancel,
         }
@@ -281,6 +299,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid_request"})
         except FileDeliveryError:
             self._json(404, {"error": "source_unavailable"})
+        except UploadJobNotFound:
+            self._json(404, {"error": "job_not_found"})
         except MiniAppUploadConflict:
             self._json(409, {"error": "upload_session_conflict"})
         except MiniAppUploadExpired:
@@ -416,6 +436,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 "/api/source",
                 "/api/upload/confirm",
                 "/api/upload/cancel",
+                "/api/uploads/recent",
+                "/api/uploads/status",
             }
             or path.query
         ):

@@ -48,6 +48,7 @@ from office_assistant.miniapp.backend import (
     MiniAppBackend,
     MiniAppServiceUnavailable,
 )
+from office_assistant.miniapp.progress import MiniAppDocumentProgress
 
 TOKEN = "123456:TEST-only"
 
@@ -101,6 +102,7 @@ def make_backend(
     products: object | None = None,
     sales: object | None = None,
     file_delivery: object | None = None,
+    progress: object | None = None,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -116,6 +118,7 @@ def make_backend(
         products=cast(BusinessQueryService | None, products),
         sales=cast(SalesLedgerService | None, sales),
         file_delivery=cast(SourceFileDeliveryService | None, file_delivery),
+        progress=cast(MiniAppDocumentProgress | None, progress),
     )
     return backend, factory.session
 
@@ -433,3 +436,35 @@ def test_one_tap_expiry_supersession_and_revocation(tmp_path: Path) -> None:
     with pytest.raises(MiniAppAccessDenied):
         asyncio.run(backend.source_file(signature(123), token=current_token))
     delivery.resolve_recent.assert_not_awaited()
+
+
+def test_recent_and_one_job_progress_revalidate_active_user_each_time() -> None:
+    jobs = [{"job_id": 30, "filename": "contract.pdf", "stage": "indexing"}]
+    progress = SimpleNamespace(
+        recent=AsyncMock(return_value=jobs),
+        one=AsyncMock(return_value=jobs[0]),
+    )
+    backend, session = make_backend(progress=progress)
+    recent = asyncio.run(backend.recent_uploads(signature(123)))
+    assert recent["jobs"] == jobs
+    one = asyncio.run(backend.upload_status(signature(123), job_id=30))
+    assert one["stage"] == "indexing"
+    progress.recent.assert_awaited_once_with(session.actor)
+    progress.one.assert_awaited_once_with(session.actor, job_id=30)
+    assert session.executions == 2
+
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.recent_uploads(signature(123)))
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.upload_status(signature(123), job_id=30))
+    assert progress.recent.await_count == 1
+    assert progress.one.await_count == 1
+
+
+def test_progress_is_not_guessed_when_database_service_is_unavailable() -> None:
+    backend, _ = make_backend()
+    with pytest.raises(MiniAppServiceUnavailable):
+        asyncio.run(backend.recent_uploads(signature(123)))
+    with pytest.raises(MiniAppServiceUnavailable):
+        asyncio.run(backend.upload_status(signature(123), job_id=2))
