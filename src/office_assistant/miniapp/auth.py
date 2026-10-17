@@ -11,6 +11,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from typing import cast
 from urllib.parse import parse_qsl
 
 _MAX_INIT_DATA = 8192
@@ -42,7 +43,7 @@ def verify_telegram_init_data(
     database. The database authorization check is mandatory on every request.
     """
 
-    if not isinstance(init_data, str) or not 0 < len(init_data) <= _MAX_INIT_DATA:
+    if not 0 < len(init_data) <= _MAX_INIT_DATA:
         raise MiniAppAuthenticationError("Invalid signed data")
     if not bot_token or max_age_seconds <= 0 or allowed_clock_skew_seconds < 0:
         raise ValueError("Invalid server verifier configuration")
@@ -94,8 +95,13 @@ def verify_telegram_init_data(
         raise MiniAppAuthenticationError("Invalid signed user") from error
     if not isinstance(raw, dict):
         raise MiniAppAuthenticationError("Invalid signed user")
-    claimed_user = raw.get("id")
-    if type(claimed_user) is not int or not 0 < claimed_user < 2**63:
+    fields_user = cast(dict[str, object], raw)
+    claimed_user: object = fields_user.get("id")
+    if (
+        not isinstance(claimed_user, int)
+        or isinstance(claimed_user, bool)
+        or not 0 < claimed_user < 2**63
+    ):
         raise MiniAppAuthenticationError("Invalid signed user ID")
     return VerifiedTelegramUser(
         telegram_user_id=claimed_user,
