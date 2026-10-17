@@ -27,7 +27,11 @@ from office_assistant.processing.image_similarity import (
     fingerprint,
     shortlist,
 )
-from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
+from office_assistant.processing.semantic_visual import (
+    SemanticReference,
+    SemanticVisualSearch,
+    balanced_references,
+)
 from office_assistant.scripts.benchmark_visual import (
     Prediction,
     TruthCase,
@@ -159,7 +163,7 @@ def evaluate_photos(
     if not cases or not 1 <= max_references <= 500:
         raise ValueError("Invalid evaluation size")
     root = storage_root.resolve(strict=True)
-    selected = references[:max_references]
+    selected = balanced_references(references, limit=max_references)
     valid = [
         (reference, candidate)
         for reference in selected
