@@ -10,8 +10,8 @@ import json
 import logging
 import re
 import threading
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from collections.abc import Coroutine
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from socket import socket
