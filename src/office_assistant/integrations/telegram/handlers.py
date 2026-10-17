@@ -687,9 +687,7 @@ async def _try_stock_turn(
             "Kataloqda olması anbarda olduğunu sübut etmir."
         )
         return True
-    breakdown = "\n".join(
-        f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations
-    )
+    breakdown = "\n".join(f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations)
     await update.effective_message.reply_text(
         f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
         f"{breakdown}\n\nCəmi: {snapshot.total:.3f}\n"
@@ -698,9 +696,7 @@ async def _try_stock_turn(
     return True
 
 
-async def handle_stock_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_stock_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update) or update.effective_message is None:
         return
     identity = _identity(update)
@@ -722,9 +718,7 @@ async def handle_stock_command(
     await _try_stock_turn(update, context, services, user, "Stok: " + code)
 
 
-async def handle_stock_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_stock_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """One verified, expiring admin approval; callbacks cannot directly set quantities."""
 
     query = update.callback_query
