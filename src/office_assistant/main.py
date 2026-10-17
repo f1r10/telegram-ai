@@ -8,6 +8,7 @@ from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.inventory import InventoryLedgerService
 from office_assistant.application.reference_images import ReferenceImageService
 from office_assistant.application.reminders import ReminderService
 from office_assistant.application.sales_ledger import SalesLedgerService
@@ -238,6 +239,7 @@ def main() -> None:
             reminders=ReminderService(session_factory, clock=SystemClock()),
             reference_images=ReferenceImageService(session_factory, storage),
             sales=SalesLedgerService(session_factory),
+            inventory=InventoryLedgerService(session_factory),
         )
         application = create_telegram_application(
             settings.telegram_bot_token.get_secret_value(), services
