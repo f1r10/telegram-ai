@@ -43,10 +43,12 @@ def signature(user_id: int) -> str:
     }
     canonical = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
     secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
-    return urlencode({
-        **values,
-        "hash": hmac.new(secret, canonical.encode(), hashlib.sha256).hexdigest(),
-    })
+    return urlencode(
+        {
+            **values,
+            "hash": hmac.new(secret, canonical.encode(), hashlib.sha256).hexdigest(),
+        }
+    )
 
 
 class Session:
@@ -81,8 +83,10 @@ def make_backend(
     evidence: object | None = None,
     inventory: object | None = None,
 ) -> tuple[MiniAppBackend, Session]:
-    user = actor if actor is not None else User(
-        id=1, telegram_user_id=123, status=UserStatus.ACTIVE, role=UserRole.USER
+    user = (
+        actor
+        if actor is not None
+        else User(id=1, telegram_user_id=123, status=UserStatus.ACTIVE, role=UserRole.USER)
     )
     factory = Sessions(user)
     backend = MiniAppBackend(
@@ -145,9 +149,7 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
         snapshot=AsyncMock(
             side_effect=[
                 StockSnapshot("KA45", (), None),
-                StockSnapshot(
-                    "KA45", (StockLocation("Əsas", Decimal("0")),), Decimal("0")
-                ),
+                StockSnapshot("KA45", (StockLocation("Əsas", Decimal("0")),), Decimal("0")),
             ]
         )
     )
@@ -163,9 +165,7 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
 
 def test_unauthorized_user_cannot_query_business_data() -> None:
     backend, session = make_backend(evidence=SimpleNamespace(answer=AsyncMock()))
-    session.actor = User(
-        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED
-    )
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
     with pytest.raises(MiniAppAccessDenied):
         asyncio.run(backend.answer(signature(123), question="Price of KA45", scope="chat"))
     with pytest.raises(MiniAppAccessDenied):
