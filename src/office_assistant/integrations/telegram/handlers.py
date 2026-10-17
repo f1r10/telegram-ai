@@ -1084,8 +1084,9 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if identity is None or message is None:
         return
     _discard_menu_selection(context)
+    services = _services(context)
     try:
-        user = await _services(context).users.get_by_telegram_id(identity.telegram_user_id)
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     except SQLAlchemyError:
         logger.exception("Telegram menu database lookup failed")
         await message.reply_text(messages.TEMPORARY_ERROR)
