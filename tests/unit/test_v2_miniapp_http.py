@@ -427,13 +427,17 @@ def test_own_document_progress_and_missing_job_http_contract() -> None:
 
 def test_document_progress_rejects_unsigned_foreign_origins_and_invalid_ids() -> None:
     with serve() as (port, backend):
-        assert call(
-            port, "POST", "/api/uploads/recent", body={}, signed=None
-        )[0] == 401
-        assert call(
-            port, "POST", "/api/uploads/status", body={"job_id": 77},
-            origin="https://attacker.example",
-        )[0] == 403
+        assert call(port, "POST", "/api/uploads/recent", body={}, signed=None)[0] == 401
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/uploads/status",
+                body={"job_id": 77},
+                origin="https://attacker.example",
+            )[0]
+            == 403
+        )
         assert call(port, "POST", "/api/uploads/status", body={"job_id": "77"})[0] == 400
         assert call(port, "POST", "/api/uploads/status", body={"job_id": True})[0] == 400
         assert call(port, "POST", "/api/uploads/recent", body={"user_id": 123})[0] == 400
