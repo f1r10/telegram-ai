@@ -236,15 +236,9 @@ class IngestionSessionService:
                     return None
                 items = await self._items(session, ingestion_session.id)
                 file_items = [item for item in items if item.item_type == IngestionItemType.FILE]
-                if (
-                    expected_session_id is not None
-                    and ingestion_session.id != expected_session_id
-                ):
+                if expected_session_id is not None and ingestion_session.id != expected_session_id:
                     raise InvalidStateTransition("The reviewed session was replaced")
-                if (
-                    expected_file_count is not None
-                    and len(file_items) != expected_file_count
-                ):
+                if expected_file_count is not None and len(file_items) != expected_file_count:
                     raise InvalidStateTransition("The reviewed file list changed")
                 if (
                     expected_instruction_count is not None
