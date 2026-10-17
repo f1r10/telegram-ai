@@ -48,8 +48,12 @@ def verify_telegram_init_data(
         raise ValueError("Invalid server verifier configuration")
     try:
         pairs = parse_qsl(
-            init_data, keep_blank_values=True, strict_parsing=True,
-            encoding="utf-8", errors="strict", max_num_fields=32,
+            init_data,
+            keep_blank_values=True,
+            strict_parsing=True,
+            encoding="utf-8",
+            errors="strict",
+            max_num_fields=32,
         )
     except (ValueError, UnicodeError) as error:
         raise MiniAppAuthenticationError("Invalid signed data") from error
