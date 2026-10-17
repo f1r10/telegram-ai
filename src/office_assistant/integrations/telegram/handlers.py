@@ -1081,14 +1081,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
             return
         if action == "om:help":
-            await query.edit_message_text(
-                messages.MENU_QUICK_HELP, reply_markup=_help_keyboard()
-            )
+            await query.edit_message_text(messages.MENU_QUICK_HELP, reply_markup=_help_keyboard())
             return
         if action == "om:examples":
-            await query.edit_message_text(
-                messages.MENU_EXAMPLES, reply_markup=_examples_keyboard()
-            )
+            await query.edit_message_text(messages.MENU_EXAMPLES, reply_markup=_examples_keyboard())
             return
         if action == "om:save":
             await handle_save(update, context)
@@ -1127,9 +1123,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
-async def handle_answer_navigation(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Keep the answer and citations visible when navigating back to a new turn."""
 
     if not _is_private(update):
