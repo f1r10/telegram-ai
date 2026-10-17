@@ -24,6 +24,40 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 
 The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing.
 
+## Conversation-first Telegram interface (native bot)
+
+This release introduces one home screen for an ordinary office employee:
+**Sual ver**, **Bizim baza**, **Məhsul**, **Anbar qalığı**,
+**Sənəd əlavə et**, **Satış**, **İnternet** and **Kömək**. Asking a
+question does **not** require selecting a mode or learning slash commands.
+The default conversation already uses internal business facts and
+retrieved document evidence when configured; selecting **Bizim baza**
+forces internal-only grounded retrieval. In this system, "baza" means
+the company's structured data **plus** indexed PDF/DOCX/XLSX/TXT,
+notes, image metadata and any available internal evidence—not simply
+the relational database. Explicit internet search is separate and
+warns users not to share confidential content.
+
+The small help screen explains the first action in simple Azerbaijani
+and offers examples, with `/help` retained for advanced options.
+Grounded answers attach **Yeni sual**, **Bizim baza** and **Menyu**
+buttons to their *last* Telegram message only. Those buttons create
+a **new** navigation message rather than editing the existing answer:
+the cited source identifiers and prior message remain available for
+document requests and auditing. Answer buttons re-check the Telegram
+actor's active account, and reset an older internet-only choice before
+starting another message. No button writes product, stock, sales or
+documents without that workflow's distinct confirmation.
+
+These are Telegram-native inline controls, not yet a standalone
+Telegram Web App/Mini App. A full web surface requires a separately
+authenticated web backend, Telegram signed `initData` verification,
+TLS origin/hosting and staging acceptance before it can safely be
+enabled. Never treat Telegram callback data as authorization.
+After staging deployment verify the chat flow with novice users,
+long split answers with sources, stale buttons, disabled accounts,
+old internet-search modes and touch navigation on Android and iOS.
+
 ## Explicit inventory ledger and stock accounting (migration 0020)
 
 Stock is not inferred from catalogs, price offers, sales invoices, customer
