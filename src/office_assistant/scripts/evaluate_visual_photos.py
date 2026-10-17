@@ -134,9 +134,7 @@ def read_photo_manifest(path: Path, *, photo_root: Path) -> list[PhotoCase]:
     return results
 
 
-def _validated_reference(
-    root: Path, reference: SemanticReference
-) -> VisualCandidate | None:
+def _validated_reference(root: Path, reference: SemanticReference) -> VisualCandidate | None:
     """An approved DB relation is insufficient if its underlying bytes changed."""
 
     try:
@@ -202,9 +200,7 @@ def evaluate_photos(
         if found.incomplete:
             incomplete = True
         codes = tuple(item.product_code for item in found.candidates)
-        outcomes.append(
-            Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes)
-        )
+        outcomes.append(Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes))
     totals = evaluate([case.truth for case in cases], outcomes)
     cases_by_id = {case.truth.query_id: case.truth for case in cases}
     negative_cases = [case for case in cases if case.truth.exact_code is None]
@@ -296,8 +292,11 @@ def main() -> None:
     try:
         result = asyncio.run(
             run_evaluation(
-                load_settings(), manifest=args.manifest, photo_root=args.photo_root,
-                apply=args.apply, limit=args.limit,
+                load_settings(),
+                manifest=args.manifest,
+                photo_root=args.photo_root,
+                apply=args.apply,
+                limit=args.limit,
             )
         )
     except (OSError, ValueError, RuntimeError) as error:
