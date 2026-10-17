@@ -387,7 +387,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._prepare_upload(signed)
             return
         if (
-            path.path not in {
+            path.path
+            not in {
                 "/api/ask",
                 "/api/stock",
                 "/api/product",
