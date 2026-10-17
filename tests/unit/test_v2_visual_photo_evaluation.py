@@ -11,15 +11,19 @@ import pytest
 from PIL import Image, ImageDraw
 
 from office_assistant.core.settings import Settings
-from office_assistant.processing.image_similarity import shortlist, VisualCandidate
-from office_assistant.processing.semantic_visual import CLIP_DIMENSION, SemanticReference, SemanticVisualSearch
+from office_assistant.processing.image_similarity import VisualCandidate, shortlist
+from office_assistant.processing.semantic_visual import (
+    CLIP_DIMENSION,
+    SemanticReference,
+    SemanticVisualSearch,
+)
 from office_assistant.scripts import evaluate_visual_photos
+from office_assistant.scripts.benchmark_visual import TruthCase
 from office_assistant.scripts.evaluate_visual_photos import (
     PhotoCase,
     evaluate_photos,
     read_photo_manifest,
 )
-from office_assistant.scripts.benchmark_visual import TruthCase
 
 
 def photo(color: tuple[int, int, int], *, shape: str) -> bytes:
