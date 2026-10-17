@@ -364,7 +364,19 @@ def test_upload_rejects_unsigned_wrong_origin_unsupported_and_large(tmp_path: Pa
         )[0] == 403
         assert send_binary(port, "../test.pdf", b"%PDF")[0] == 400
         assert send_binary(port, "test.exe", b"%PDF")[0] == 400
-        assert send_binary(port, "test.pdf", b"x" * (8 * 1024 * 1024 + 1))[0] == 413
+        # The server rejects the declared oversized body before streaming;
+        # transmitting >8 MiB here would race the intentional socket close.
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+        connection.putrequest("POST", "/api/upload/prepare")
+        connection.putheader("X-Telegram-Init-Data", "pretend-signed-data")
+        connection.putheader("X-Office-Filename", "test.pdf")
+        connection.putheader("Content-Type", "application/pdf")
+        connection.putheader("Content-Length", str(8 * 1024 * 1024 + 1))
+        connection.endheaders()
+        result = connection.getresponse()
+        assert result.status == 413
+        result.read()
+        connection.close()
         assert call(port, "POST", "/api/upload/confirm", body={"token": 123})[0] == 400
         assert call(port, "POST", "/api/upload/cancel", body={"token": "x"}, signed=None)[0] == 401
         assert backend.calls == []
