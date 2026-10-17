@@ -179,11 +179,13 @@ class InventoryLedgerService:
     async def record(self, actor: User, draft: StockDraft) -> StockEntry:
         if draft.kind not in {"OPENING", "RECEIPT", "ISSUE"}:
             raise InventoryValidationError("Naməlum anbar əməliyyatı.")
+        scale = draft.quantity.as_tuple().exponent
         if (
             not draft.quantity.is_finite()
             or draft.quantity < 0
             or draft.quantity > _MAX_QUANTITY
-            or draft.quantity.as_tuple().exponent < -3
+            or not isinstance(scale, int)
+            or scale < -3
             or (draft.kind != "OPENING" and draft.quantity == 0)
         ):
             raise InventoryValidationError("Miqdar düzgün deyil.")
