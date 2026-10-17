@@ -240,6 +240,11 @@ def main() -> None:
             reference_images=ReferenceImageService(session_factory, storage),
             sales=SalesLedgerService(session_factory),
             inventory=InventoryLedgerService(session_factory),
+            miniapp_url=(
+                settings.miniapp_public_origin
+                if settings.miniapp_enabled and settings.miniapp_public_origin
+                else None
+            ),
         )
         application = create_telegram_application(
             settings.telegram_bot_token.get_secret_value(), services
