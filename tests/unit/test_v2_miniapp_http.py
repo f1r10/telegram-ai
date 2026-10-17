@@ -4,14 +4,14 @@ import asyncio
 import http.client
 import json
 import threading
-from urllib.parse import quote
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from pathlib import Path
 from typing import cast
+from urllib.parse import quote
 
+from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.backend import (
     ChatResponse,
@@ -19,7 +19,6 @@ from office_assistant.miniapp.backend import (
 )
 from office_assistant.miniapp.http import MiniAppHTTPServer
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
-from office_assistant.infrastructure.storage.local import LocalFileStorage
 
 
 class DummyBackend:
