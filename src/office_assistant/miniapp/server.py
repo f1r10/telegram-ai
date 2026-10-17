@@ -33,6 +33,7 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.miniapp.backend import MiniAppBackend
 from office_assistant.miniapp.http import MiniAppHTTPServer
+from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ def main() -> None:
                 storage,
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
             ),
+            progress=MiniAppDocumentProgress(session_factory),
             uploads=MiniAppUploadWorkflow(
                 storage,
                 IngestionSessionService(
