@@ -6,15 +6,20 @@ import hmac
 import json
 import time
 from decimal import Decimal
-from uuid import uuid4
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.inventory import (
+    InventoryLedgerService,
+    StockLocation,
+    StockSnapshot,
+)
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesTotal
 from office_assistant.business_tools.models import (
     ProductLookupView,
@@ -23,11 +28,6 @@ from office_assistant.business_tools.models import (
     ToolStatus,
 )
 from office_assistant.business_tools.service import BusinessQueryService
-from office_assistant.application.inventory import (
-    InventoryLedgerService,
-    StockLocation,
-    StockSnapshot,
-)
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.internal_evidence.models import (
     InternalAnswer,
