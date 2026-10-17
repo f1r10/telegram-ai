@@ -7,7 +7,6 @@ to this local port and an approved Mini App URL on the Telegram bot.
 import asyncio
 import logging
 import threading
-from pathlib import Path
 
 from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService
