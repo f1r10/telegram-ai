@@ -268,9 +268,10 @@ class MiniAppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path)
-        if path.path not in {
-            "/api/ask", "/api/stock", "/api/product", "/api/sales", "/api/source"
-        } or path.query:
+        if (
+            path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales", "/api/source"}
+            or path.query
+        ):
             self._json(404, {"error": "not_found"})
             return
         headers = self.headers.get_all("Content-Length", [])
