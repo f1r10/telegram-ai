@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import threading
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -23,6 +23,7 @@ from office_assistant.application.inventory import InventoryValidationError
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
+    ChatResponse,
     MiniAppAccessDenied,
     MiniAppBackend,
     MiniAppRateLimited,
@@ -169,6 +170,99 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             future.cancel()
             raise MiniAppServiceUnavailable("Operation timed out") from None
 
+    def _api_ask(self, signed: str, args: dict[str, object]) -> None:
+        question = args.get("question")
+        scope = args.get("scope")
+        if not isinstance(question, str) or not isinstance(scope, str):
+            raise ValueError("Invalid question")
+        answer = self._run(self._app().backend.answer(signed, question=question, scope=scope))
+        assert isinstance(answer, ChatResponse)
+        self._json(
+            200,
+            {
+                "answer": answer.answer,
+                "sources": [
+                    {
+                        "number": number,
+                        "label": label,
+                        "download_token": dict(answer.source_actions).get(number),
+                    }
+                    for number, label in answer.sources
+                ],
+                "insufficient_evidence": answer.insufficient_evidence,
+            },
+        )
+
+    def _api_stock(self, signed: str, args: dict[str, object]) -> None:
+        code = args.get("code")
+        if not isinstance(code, str):
+            raise ValueError("Invalid stock code")
+        value = self._run(self._app().backend.stock(signed, code=code))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_product(self, signed: str, args: dict[str, object]) -> None:
+        query = args.get("query")
+        if not isinstance(query, str):
+            raise ValueError("Invalid product query")
+        value = self._run(self._app().backend.product(signed, query=query))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_sales(self, signed: str, args: dict[str, object]) -> None:
+        customer = args.get("customer")
+        year = args.get("year")
+        if not isinstance(customer, str) or type(year) is not int:
+            raise ValueError("Invalid sales report request")
+        value = self._run(self._app().backend.sales_report(signed, customer=customer, year=year))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_source(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid source ticket")
+        value = self._run(self._app().backend.source_file(signed, token=token))
+        assert isinstance(value, DeliverableFile)
+        self._original_file(value)
+
+    def _api_upload_confirm(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid upload token")
+        value = self._run(self._app().backend.confirm_upload(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_upload_cancel(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid upload token")
+        value = self._run(self._app().backend.cancel_upload(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_dispatch(self, method: str, path: str, signed: str, args: dict[str, object] | None) -> None:
+        if method == "GET" and path == "/api/me":
+            value = self._run(self._app().backend.profile(signed))
+            assert isinstance(value, dict)
+            self._json(200, cast(dict[str, object], value))
+            return
+        routes: dict[str, Callable[[str, dict[str, object]], None]] = {
+            "/api/ask": self._api_ask,
+            "/api/stock": self._api_stock,
+            "/api/product": self._api_product,
+            "/api/sales": self._api_sales,
+            "/api/source": self._api_source,
+            "/api/upload/confirm": self._api_upload_confirm,
+            "/api/upload/cancel": self._api_upload_cancel,
+        }
+        handler = routes.get(path) if method == "POST" and args is not None else None
+        if handler is None or args is None:
+            self._json(404, {"error": "not_found"})
+            return
+        handler(signed, args)
+
     def _process_api(self, method: str, path: str, args: dict[str, object] | None) -> None:
         if not self._allowed_origin():
             self._json(403, {"error": "origin_not_allowed"})
@@ -178,83 +272,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "telegram_authorization_required"})
             return
         try:
-            if method == "GET" and path == "/api/me":
-                value = self._run(self._app().backend.profile(signed))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/ask" and args is not None:
-                question = args.get("question")
-                scope = args.get("scope")
-                if not isinstance(question, str) or not isinstance(scope, str):
-                    raise ValueError("Invalid question")
-                answer = self._run(
-                    self._app().backend.answer(signed, question=question, scope=scope)
-                )
-                from office_assistant.miniapp.backend import ChatResponse
-
-                assert isinstance(answer, ChatResponse)
-                self._json(
-                    200,
-                    {
-                        "answer": answer.answer,
-                        "sources": [
-                            {
-                                "number": n,
-                                "label": label,
-                                "download_token": dict(answer.source_actions).get(n),
-                            }
-                            for n, label in answer.sources
-                        ],
-                        "insufficient_evidence": answer.insufficient_evidence,
-                    },
-                )
-            elif method == "POST" and path == "/api/stock" and args is not None:
-                code = args.get("code")
-                if not isinstance(code, str):
-                    raise ValueError("Invalid code")
-                value = self._run(self._app().backend.stock(signed, code=code))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/product" and args is not None:
-                query = args.get("query")
-                if not isinstance(query, str):
-                    raise ValueError("Invalid product query")
-                value = self._run(self._app().backend.product(signed, query=query))
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            elif method == "POST" and path == "/api/source" and args is not None:
-                token = args.get("token")
-                if not isinstance(token, str):
-                    raise ValueError("Invalid source ticket")
-                value = self._run(self._app().backend.source_file(signed, token=token))
-                assert isinstance(value, DeliverableFile)
-                self._original_file(value)
-            elif method == "POST" and path == "/api/upload/confirm" and args is not None:
-                token = args.get("token")
-                if not isinstance(token, str):
-                    raise ValueError("Invalid upload token")
-                result = self._run(self._app().backend.confirm_upload(signed, token=token))
-                assert isinstance(result, dict)
-                self._json(200, cast(dict[str, object], result))
-            elif method == "POST" and path == "/api/upload/cancel" and args is not None:
-                token = args.get("token")
-                if not isinstance(token, str):
-                    raise ValueError("Invalid upload token")
-                result = self._run(self._app().backend.cancel_upload(signed, token=token))
-                assert isinstance(result, dict)
-                self._json(200, cast(dict[str, object], result))
-            elif method == "POST" and path == "/api/sales" and args is not None:
-                customer = args.get("customer")
-                year = args.get("year")
-                if not isinstance(customer, str) or type(year) is not int:
-                    raise ValueError("Invalid sales request")
-                value = self._run(
-                    self._app().backend.sales_report(signed, customer=customer, year=year)
-                )
-                assert isinstance(value, dict)
-                self._json(200, cast(dict[str, object], value))
-            else:
-                self._json(404, {"error": "not_found"})
+            self._api_dispatch(method, path, signed, args)
         except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
             self._json(401, {"error": "unauthorized"})
         except (ValueError, InventoryValidationError):
