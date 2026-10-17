@@ -233,8 +233,13 @@ def test_product_card_only_shows_authoritative_exact_match() -> None:
 def test_product_ambiguity_does_not_invent_one_best_item() -> None:
     products = [
         ProductView(
-            product_id=uuid4(), display_code=code, canonical_code=code, name="Oxşar",
-            description=None, is_active=True, matched_by="ALIAS"
+            product_id=uuid4(),
+            display_code=code,
+            canonical_code=code,
+            name="Oxşar",
+            description=None,
+            is_active=True,
+            matched_by="ALIAS",
         )
         for code in ("KA45", "KA46")
     ]
@@ -251,9 +256,7 @@ def test_product_ambiguity_does_not_invent_one_best_item() -> None:
     assert result["status"] == "ambiguous"
     assert result["product"] is None
     assert len(result["candidates"]) == 2
-    lookup.find_product.return_value = ToolResult[ProductLookupView](
-        status=ToolStatus.NOT_FOUND
-    )
+    lookup.find_product.return_value = ToolResult[ProductLookupView](status=ToolStatus.NOT_FOUND)
     assert asyncio.run(backend.product(signature(123), query="Unknown"))["status"] == "not_found"
 
 
@@ -270,9 +273,7 @@ def test_sales_card_uses_posted_invoice_totals_without_currency_conversion() -> 
         )
     )
     backend, actor_session = make_backend(sales=sales)
-    result = asyncio.run(
-        backend.sales_report(signature(123), customer="  A   şirkəti ", year=2026)
-    )
+    result = asyncio.run(backend.sales_report(signature(123), customer="  A   şirkəti ", year=2026))
     assert result["customer"] == "A şirkəti"
     assert result["year"] == 2026
     assert result["totals"] == [
@@ -283,9 +284,12 @@ def test_sales_card_uses_posted_invoice_totals_without_currency_conversion() -> 
     assert user is actor_session.actor
     assert request.customer_name == "A şirkəti"
     assert request.year == 2026
-    assert asyncio.run(
-        backend.sales_report(signature(123), customer="A şirkəti", year=2026)
-    )["has_records"] is False
+    assert (
+        asyncio.run(backend.sales_report(signature(123), customer="A şirkəti", year=2026))[
+            "has_records"
+        ]
+        is False
+    )
 
 
 def test_product_sales_invalid_requests_and_revocation_never_run_queries() -> None:
