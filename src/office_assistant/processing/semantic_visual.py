@@ -67,6 +67,40 @@ class SemanticReference:
     content_sha256: str
 
 
+def balanced_references(
+    references: list[SemanticReference], *, limit: int
+) -> list[SemanticReference]:
+    """Fair, deterministic sample: first view of every SKU before second views.
+
+    The caller supplies references ordered newest-first. Preserve the order
+    within a product, but do not let a SKU with dozens of angles monopolize
+    the bounded offline CLIP inference window. No additional identities are
+    inferred and no unconfirmed photos enter the reference list.
+    """
+
+    if not 1 <= limit <= 500:
+        raise ValueError("Invalid balanced reference limit")
+    buckets: dict[str, list[SemanticReference]] = {}
+    for reference in references:
+        buckets.setdefault(reference.product_code, []).append(reference)
+    chosen: list[SemanticReference] = []
+    positions = {code: 0 for code in buckets}
+    while len(chosen) < limit:
+        progressed = False
+        for code, group in buckets.items():
+            index = positions[code]
+            if index >= len(group):
+                continue
+            chosen.append(group[index])
+            positions[code] += 1
+            progressed = True
+            if len(chosen) >= limit:
+                break
+        if not progressed:
+            break
+    return chosen
+
+
 @dataclass(frozen=True, slots=True)
 class SemanticCandidate:
     product_code: str
@@ -241,7 +275,7 @@ class SemanticVisualSearch:
     def warm_references(self, references: list[SemanticReference]) -> ReferenceWarmResult:
         """Explicit operator-only precomputation; no question photos are retained."""
 
-        selected = references[: self.max_references]
+        selected = balanced_references(references, limit=self.max_references)
         incomplete = len(references) > len(selected)
         if not self._lock.acquire(blocking=False):
             return ReferenceWarmResult(0, 0, 0, incomplete, unavailable=True)
@@ -288,7 +322,7 @@ class SemanticVisualSearch:
     ) -> SemanticSearchResult:
         if len(image_bytes) > MAX_IMAGE_BYTES:
             return SemanticSearchResult((), 0, False)
-        selected = references[: self.max_references]
+        selected = balanced_references(references, limit=self.max_references)
         incomplete = len(references) > len(selected)
         inspected = 0
         try:

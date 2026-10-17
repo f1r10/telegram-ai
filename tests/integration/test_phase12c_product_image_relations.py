@@ -50,6 +50,7 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
+from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 
 pytestmark = pytest.mark.integration
 
@@ -489,6 +490,48 @@ def test_a_naming_caption_queues_the_claim_and_saxla_links_it() -> None:
                 "code": "KA45",
                 "ingestion_session_id": str(summary.session_id),
             }
+
+    _scenario(behavior)
+
+
+def test_deactivated_product_photo_is_not_returned_as_active_identity() -> None:
+    async def behavior(
+        factory: async_sessionmaker[AsyncSession],
+        storage: LocalFileStorage,
+        service: ReferenceImageService,
+    ) -> None:
+        user_id = await _actors(factory)
+        await _seed_upload(factory, storage, user_id=user_id, data=PNG_BYTES)
+        product_id = await _seed_product(factory, user_id=user_id, code="KA45")
+        assert (await _queue(service, "KA45")).status is ReferenceImageStatus.QUEUED
+        await _save(factory, storage)
+        async with factory() as session:
+            relation = ProductImageRelationRepository(session)
+            assert (
+                await relation.active_confirmation_holder_by_content(
+                    _digest(PNG_BYTES), active_product_only=True
+                )
+            ) == (product_id, "KA45")
+        async with factory.begin() as session:
+            product = await session.get(Product, product_id, with_for_update=True)
+            assert product is not None
+            product.is_active = False
+        async with factory() as session:
+            relation = ProductImageRelationRepository(session)
+            # The photo-question lookup must NOT describe a retired SKU
+            # as presently active, even with a byte-exact identical picture.
+            assert (
+                await relation.active_confirmation_holder_by_content(
+                    _digest(PNG_BYTES), active_product_only=True
+                )
+                is None
+            )
+            # The historical ownership rule still blocks silently
+            # reassigning this picture to a different company product.
+            assert (await relation.active_confirmation_holder_by_content(_digest(PNG_BYTES))) == (
+                product_id,
+                "KA45",
+            )
 
     _scenario(behavior)
 

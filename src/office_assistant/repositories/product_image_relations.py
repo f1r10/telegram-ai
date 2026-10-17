@@ -35,7 +35,7 @@ class ProductImageRelationRepository:
         await self.session.execute(text("SELECT pg_advisory_xact_lock(71002)"))
 
     async def active_confirmation_holder_by_content(
-        self, content_sha256: str
+        self, content_sha256: str, *, active_product_only: bool = False
     ) -> tuple[UUID, str] | None:
         """Who already holds the explicit claim on these exact bytes, named by the code to say back.
 
@@ -56,6 +56,11 @@ class ProductImageRelationRepository:
                 ProductImageRelation.superseded_at.is_(None),
             )
         )
+        # A user-facing photo lookup must never reveal a retired catalog entry
+        # as currently available. Confirmation conflicts still include retired
+        # products: a picture cannot silently be reassigned to another SKU.
+        if active_product_only:
+            statement = statement.where(Product.is_active.is_(True))
         row = (await self.session.execute(statement)).first()
         return None if row is None else (row[0], row[1])
 
