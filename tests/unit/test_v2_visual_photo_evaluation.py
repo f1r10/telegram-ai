@@ -49,7 +49,7 @@ class ColorEncoder:
     """Test-only stand-in: use the uniform upper-left background color."""
 
     def embed(self, paths: list[Path]) -> list[list[float]]:
-        vectors = []
+        vectors: list[list[float]] = []
         for path in paths:
             with Image.open(path) as image:
                 pixel = image.getpixel((0, 0))
@@ -70,17 +70,17 @@ def scenario(tmp_path: Path) -> tuple[list[PhotoCase], list[SemanticReference], 
     query_root = tmp_path / "phone-photos"
     root.mkdir()
     query_root.mkdir()
-    approved = [
+    approved: list[tuple[str, str, bytes]] = [
         ("KA45", "a-front.png", photo((228, 20, 20), shape="front")),
         ("KA45", "a-side.png", photo((228, 20, 20), shape="side")),
         ("KA46", "b-front.png", photo((20, 20, 228), shape="front")),
     ]
-    references = []
+    references: list[SemanticReference] = []
     for code, filename, bytes_value in approved:
         (root / filename).write_bytes(bytes_value)
         references.append(SemanticReference(code, filename, sha256(bytes_value).hexdigest()))
-    cases = []
-    inputs = [
+    cases: list[PhotoCase] = []
+    inputs: list[tuple[str, str, str | None, str, bytes]] = [
         ("same", "same_bytes", "KA45", "a-front", approved[0][2]),
         ("side", "different_angle", "KA45", "a-side", photo((228, 20, 20), shape="other")),
         ("negative", "unrelated", None, "unknown", photo((20, 228, 20), shape="other")),
