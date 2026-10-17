@@ -18,7 +18,7 @@ NOW = 1_800_000_000
 
 
 def signed_data(fields: dict[str, str], *, token: str = TOKEN) -> str:
-    canonical = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+    canonical = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()) if key != "signature")
     secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, canonical.encode(), hashlib.sha256).hexdigest()
     return urlencode({**fields, "hash": digest})
@@ -68,6 +68,12 @@ def test_changing_id_date_query_id_or_bot_invalidates_hmac() -> None:
                 verify_telegram_init_data(changed, TOKEN, now=NOW)
     with pytest.raises(MiniAppAuthenticationError):
         verify_telegram_init_data(value, TOKEN + "wrong", now=NOW)
+
+
+def test_bot_hmac_validates_new_telegram_signed_signature_field() -> None:
+    assert verify_telegram_init_data(
+        fixture(signature="ed25519-base64-value"), TOKEN, now=NOW
+    ).telegram_user_id == 92183
 
 
 def test_expired_and_future_authentication_are_rejected() -> None:
