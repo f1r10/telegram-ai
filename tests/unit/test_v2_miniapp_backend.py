@@ -14,9 +14,17 @@ from urllib.parse import urlencode
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from office_assistant.application.inventory import InventoryLedgerService, StockLocation, StockSnapshot
+from office_assistant.application.inventory import (
+    InventoryLedgerService,
+    StockLocation,
+    StockSnapshot,
+)
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
-from office_assistant.internal_evidence.models import InternalAnswer, RoutingCategory, UnifiedCitation
+from office_assistant.internal_evidence.models import (
+    InternalAnswer,
+    RoutingCategory,
+    UnifiedCitation,
+)
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
