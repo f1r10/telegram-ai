@@ -77,10 +77,7 @@ async def approved_references(settings: Settings, *, limit: int) -> list[Semanti
             selected = balanced_references(approved, limit=limit)
             if len(approved) > len(selected):
                 # One sentinel retains the "truncated" signal after sampling.
-                omitted = next(
-                    ref for ref in approved
-                    if ref not in selected
-                )
+                omitted = next(ref for ref in approved if ref not in selected)
                 selected.append(omitted)
             return selected
     finally:
