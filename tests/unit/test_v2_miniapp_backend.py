@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 from decimal import Decimal
+from uuid import uuid4
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -14,6 +15,14 @@ from urllib.parse import urlencode
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.sales_ledger import SalesLedgerService, SalesTotal
+from office_assistant.business_tools.models import (
+    ProductLookupView,
+    ProductView,
+    ToolResult,
+    ToolStatus,
+)
+from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.application.inventory import (
     InventoryLedgerService,
     StockLocation,
@@ -82,6 +91,8 @@ def make_backend(
     actor: User | None = None,
     evidence: object | None = None,
     inventory: object | None = None,
+    products: object | None = None,
+    sales: object | None = None,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -94,6 +105,8 @@ def make_backend(
         bot_token=TOKEN,
         evidence=cast(InternalEvidenceService | None, evidence),
         inventory=cast(InventoryLedgerService | None, inventory),
+        products=cast(BusinessQueryService | None, products),
+        sales=cast(SalesLedgerService | None, sales),
     )
     return backend, factory.session
 
@@ -178,3 +191,117 @@ def test_missing_ai_rejects_open_loop_model_invention() -> None:
         asyncio.run(backend.answer(signature(123), question="Answer", scope="baza"))
     with pytest.raises(ValueError):
         asyncio.run(backend.answer(signature(123), question=" " * 4, scope="chat"))
+
+
+def test_product_card_only_shows_authoritative_exact_match() -> None:
+    product = ProductView(
+        product_id=uuid4(),
+        display_code="KA45",
+        canonical_code="KA45",
+        name="Təsdiqli məhsul",
+        description="Daxili kataloq təsviri",
+        is_active=True,
+        matched_by="CANONICAL_CODE",
+    )
+    lookup = SimpleNamespace(
+        find_product=AsyncMock(
+            return_value=ToolResult[ProductLookupView](
+                status=ToolStatus.OK,
+                data=ProductLookupView(product=product),
+            )
+        )
+    )
+    backend, actor_session = make_backend(products=lookup)
+    result = asyncio.run(backend.product(signature(123), query="  KA45  "))
+    assert result == {
+        "status": "found",
+        "product": {
+            "code": "KA45",
+            "name": "Təsdiqli məhsul",
+            "description": "Daxili kataloq təsviri",
+        },
+        "candidates": [],
+    }
+    context, request = lookup.find_product.await_args.args
+    assert context.user_id == actor_session.actor.id
+    assert request.code_or_alias == "KA45"
+    assert request.include_inactive is False
+    assert "price" not in result
+    assert "stock" not in result
+
+
+def test_product_ambiguity_does_not_invent_one_best_item() -> None:
+    products = [
+        ProductView(
+            product_id=uuid4(), display_code=code, canonical_code=code, name="Oxşar",
+            description=None, is_active=True, matched_by="ALIAS"
+        )
+        for code in ("KA45", "KA46")
+    ]
+    lookup = SimpleNamespace(
+        find_product=AsyncMock(
+            return_value=ToolResult[ProductLookupView](
+                status=ToolStatus.AMBIGUOUS,
+                data=ProductLookupView(candidates=products),
+            )
+        )
+    )
+    backend, _ = make_backend(products=lookup)
+    result = asyncio.run(backend.product(signature(123), query="Oxşar"))
+    assert result["status"] == "ambiguous"
+    assert result["product"] is None
+    assert len(result["candidates"]) == 2
+    lookup.find_product.return_value = ToolResult[ProductLookupView](
+        status=ToolStatus.NOT_FOUND
+    )
+    assert asyncio.run(backend.product(signature(123), query="Unknown"))["status"] == "not_found"
+
+
+def test_sales_card_uses_posted_invoice_totals_without_currency_conversion() -> None:
+    sales = SimpleNamespace(
+        totals=AsyncMock(
+            side_effect=[
+                (
+                    SalesTotal("AZN", 3, Decimal("135.50")),
+                    SalesTotal("USD", 1, Decimal("20.00")),
+                ),
+                (),
+            ]
+        )
+    )
+    backend, actor_session = make_backend(sales=sales)
+    result = asyncio.run(
+        backend.sales_report(signature(123), customer="  A   şirkəti ", year=2026)
+    )
+    assert result["customer"] == "A şirkəti"
+    assert result["year"] == 2026
+    assert result["totals"] == [
+        {"currency": "AZN", "invoice_count": 3, "amount": "135.50"},
+        {"currency": "USD", "invoice_count": 1, "amount": "20.00"},
+    ]
+    user, request = sales.totals.await_args_list[0].args
+    assert user is actor_session.actor
+    assert request.customer_name == "A şirkəti"
+    assert request.year == 2026
+    assert asyncio.run(
+        backend.sales_report(signature(123), customer="A şirkəti", year=2026)
+    )["has_records"] is False
+
+
+def test_product_sales_invalid_requests_and_revocation_never_run_queries() -> None:
+    lookup = SimpleNamespace(find_product=AsyncMock())
+    sales = SimpleNamespace(totals=AsyncMock())
+    backend, session = make_backend(products=lookup, sales=sales)
+    with pytest.raises(ValueError):
+        asyncio.run(backend.product(signature(123), query=" " * 5))
+    with pytest.raises(ValueError):
+        asyncio.run(backend.sales_report(signature(123), customer="A", year=2099))
+    assert lookup.find_product.await_count == 0
+    assert sales.totals.await_count == 0
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.product(signature(123), query="KA45"))
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.sales_report(signature(123), customer="A", year=2026))
+    lookup.find_product.assert_not_awaited()
+    sales.totals.assert_not_awaited()
