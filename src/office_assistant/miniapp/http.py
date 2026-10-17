@@ -14,7 +14,6 @@ from collections.abc import Coroutine
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from socket import socket
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -72,26 +71,28 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
         self.limiter = threading.BoundedSemaphore(16)
         super().__init__(("127.0.0.1", port), MiniAppHandler)
 
-    def process_request(self, request: socket, client_address: tuple[str, int]) -> None:
+    def process_request(self, request: object, client_address: tuple[str, int]) -> None:
         if not self.limiter.acquire(blocking=False):
-            request.close()
+            cast(Any, request).close()
             return
         try:
-            super().process_request(request, client_address)
+            super().process_request(cast(Any, request), client_address)
         except BaseException:
             self.limiter.release()
             raise
 
-    def process_request_thread(self, request: socket, client_address: tuple[str, int]) -> None:
+    def process_request_thread(self, request: object, client_address: tuple[str, int]) -> None:
         try:
-            super().process_request_thread(request, client_address)
+            super().process_request_thread(cast(Any, request), client_address)
         finally:
             self.limiter.release()
 
 
 class MiniAppHandler(BaseHTTPRequestHandler):
-    server: MiniAppHTTPServer
     protocol_version = "HTTP/1.0"
+
+    def _app(self) -> MiniAppHTTPServer:
+        return cast(MiniAppHTTPServer, self.server)
 
     def log_message(self, format: str, *args: object) -> None:
         # Do NOT log auth headers, bodies, Telegram query IDs, or company questions.
@@ -117,7 +118,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
 
     def _allowed_origin(self) -> bool:
         headers = self.headers.get_all("Origin", [])
-        return len(headers) <= 1 and (not headers or headers[0] == self.server.public_origin)
+        return len(headers) <= 1 and (not headers or headers[0] == self._app().public_origin)
 
     def _authenticate_header(self) -> str | None:
         values = self.headers.get_all("X-Telegram-Init-Data", [])
@@ -126,7 +127,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         return values[0]
 
     def _run(self, coroutine: Coroutine[Any, Any, object]) -> object:
-        future = asyncio.run_coroutine_threadsafe(coroutine, self.server.loop)
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._app().loop)
         try:
             return future.result(timeout=80)
         except FutureTimeoutError:
@@ -143,7 +144,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             return
         try:
             if method == "GET" and path == "/api/me":
-                value = self._run(self.server.backend.profile(signed))
+                value = self._run(self._app().backend.profile(signed))
                 assert isinstance(value, dict)
                 self._json(200, cast(dict[str, object], value))
             elif method == "POST" and path == "/api/ask" and args is not None:
@@ -152,7 +153,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 if not isinstance(question, str) or not isinstance(scope, str):
                     raise ValueError("Invalid question")
                 answer = self._run(
-                    self.server.backend.answer(signed, question=question, scope=scope)
+                    self._app().backend.answer(signed, question=question, scope=scope)
                 )
                 from office_assistant.miniapp.backend import ChatResponse
 
@@ -169,7 +170,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 code = args.get("code")
                 if not isinstance(code, str):
                     raise ValueError("Invalid code")
-                value = self._run(self.server.backend.stock(signed, code=code))
+                value = self._run(self._app().backend.stock(signed, code=code))
                 assert isinstance(value, dict)
                 self._json(200, cast(dict[str, object], value))
             else:
