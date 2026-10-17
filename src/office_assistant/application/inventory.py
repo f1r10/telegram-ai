@@ -275,7 +275,13 @@ class InventoryLedgerService:
                         },
                     )
                 )
-                return StockEntry(product.display_code, draft.warehouse, draft.kind,
-                                  draft.quantity, after, draft.reference)
+                return StockEntry(
+                    product.display_code,
+                    draft.warehouse,
+                    draft.kind,
+                    draft.quantity,
+                    after,
+                    draft.reference,
+                )
         except IntegrityError as error:
             raise InventoryConflict("Təkrar stok əməliyyatı; heç nə iki dəfə yazılmadı.") from error
