@@ -73,9 +73,12 @@ def test_changing_id_date_query_id_or_bot_invalidates_hmac() -> None:
 
 
 def test_bot_hmac_validates_new_telegram_signed_signature_field() -> None:
-    assert verify_telegram_init_data(
-        fixture(signature="ed25519-base64-value"), TOKEN, now=NOW
-    ).telegram_user_id == 92183
+    assert (
+        verify_telegram_init_data(
+            fixture(signature="ed25519-base64-value"), TOKEN, now=NOW
+        ).telegram_user_id
+        == 92183
+    )
 
 
 def test_expired_and_future_authentication_are_rejected() -> None:
@@ -83,9 +86,12 @@ def test_expired_and_future_authentication_are_rejected() -> None:
         verify_telegram_init_data(fixture(auth_date=str(NOW - 3601)), TOKEN, now=NOW)
     with pytest.raises(MiniAppAuthenticationError):
         verify_telegram_init_data(fixture(auth_date=str(NOW + 31)), TOKEN, now=NOW)
-    assert verify_telegram_init_data(
-        fixture(auth_date=str(NOW - 3600)), TOKEN, now=NOW
-    ).telegram_user_id == 92183
+    assert (
+        verify_telegram_init_data(
+            fixture(auth_date=str(NOW - 3600)), TOKEN, now=NOW
+        ).telegram_user_id
+        == 92183
+    )
 
 
 @pytest.mark.parametrize(
