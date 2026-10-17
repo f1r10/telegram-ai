@@ -157,7 +157,6 @@ class MiniAppBackend:
             ),
         }
 
-
     async def product(self, init_data: str, *, query: str) -> dict[str, object]:
         """Only exact, active and authorized company product identities are shown."""
 
@@ -201,9 +200,7 @@ class MiniAppBackend:
             "candidates": [],
         }
 
-    async def sales_report(
-        self, init_data: str, *, customer: str, year: int
-    ) -> dict[str, object]:
+    async def sales_report(self, init_data: str, *, customer: str, year: int) -> dict[str, object]:
         """Read immutable posted invoice totals; never merge currencies or infer sales."""
 
         actor = await self.actor(init_data)
