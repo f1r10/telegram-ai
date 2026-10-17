@@ -26,6 +26,7 @@ from office_assistant.processing.semantic_visual import (
     ReferenceWarmResult,
     SemanticReference,
     SemanticVisualSearch,
+    balanced_references,
 )
 
 
@@ -64,12 +65,24 @@ async def approved_references(settings: Settings, *, limit: int) -> list[Semanti
                         ProductImageRelation.created_at.desc(),
                         ProductImageRelation.id,
                     )
-                    .limit(limit + 1)
+                    # Fetch a bounded cross-product window before the
+                    # per-product round-robin. Otherwise the most recently
+                    # photographed SKU can occupy every one of 80 slots.
+                    .limit(501)
                 )
             ).all()
-            return [
+            approved = [
                 SemanticReference(code, storage_key, digest) for code, storage_key, digest in rows
             ]
+            selected = balanced_references(approved, limit=limit)
+            if len(approved) > len(selected):
+                # One sentinel retains the "truncated" signal after sampling.
+                omitted = next(
+                    ref for ref in approved
+                    if ref not in selected
+                )
+                selected.append(omitted)
+            return selected
     finally:
         await engine.dispose()
 
