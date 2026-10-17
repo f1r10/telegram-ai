@@ -12,30 +12,59 @@ AUTH_REJECTED_BY_ADMIN = "Giriş müraciətiniz administrator tərəfindən rəd
 PRIVATE_ONLY = "Bu bot yalnız şəxsi söhbətdə istifadə edilə bilər."
 UNKNOWN_USER = "Əvvəlcə /start əmrini göndərin və giriş prosesini tamamlayın."
 NO_PERMISSION = "Bu əməliyyat üçün icazəniz yoxdur."
-WELCOME = "Xoş gəlmisiniz! Ofis köməkçiniz hazırdır. Aşağıdan seçim edin və ya birbaşa yazın."
+WELCOME = "Xoş gəlmisiniz! Sualınızı birbaşa yazın və ya aşağıdan seçim edin."
 MENU_TITLE = (
-    "🏢 OFİS KÖMƏKÇİNİZ\n\n"
-    "Salam! Məhsul, sənəd və satış barədə adi dildə soruşa bilərsiniz. "
-    "PDF, Word, Excel və ya şəkli birbaşa söhbətə göndərin.\n\n"
-    "Nədən başlayaq?"
+    "🏢 OFİS KÖMƏKÇİSİ\n\n"
+    "Sadəcə sualınızı yazın — adi çat kimi. "
+    "Məhsul, sənəd, qiymət və şirkət məlumatlarını mövcud mənbələrdən yoxlayacağam.\n\n"
+    "📚 «Bizim baza» — şirkətə aid sənədlər, qeydlər, məhsullar və digər daxili məlumatlar.\n"
+    "📎 PDF, Word, Excel və şəkli birbaşa göndərə bilərsiniz. "
+    "Məlumat təsdiqlənməyibsə, bunu açıq bildirəcəyəm.\n\n"
+    "Aşağıdan seçim edin və ya elə indi sualınızı yazın."
 )
 MENU_CHAT_BUTTON = "💬 Sual ver"
+MENU_BAZA_BUTTON = "🏢 Bizim baza"
 MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
 MENU_INTERNET_BUTTON = "🌐 İnternet"
 MENU_HELP_BUTTON = "❔ Kömək"
+MENU_EXAMPLES_BUTTON = "✨ Nümunələr"
+MENU_NAV_ASK = "💬 Yeni sual"
+MENU_NAV_BAZA = "🏢 Bizim baza"
+MENU_NAV_HOME = "🏠 Menyu"
+MENU_QUICK_HELP = (
+    "❔ NECƏ İSTİFADƏ ETMƏLİ?\n\n"
+    "1. Mesaj yerinə istədiyiniz sualı yazın; əmrləri əzbərləməyə ehtiyac yoxdur.\n"
+    "2. Yalnız şirkət məlumatını istəsəniz, «Bizim baza» seçin.\n"
+    "3. Fayl və ya şəkil göndərin; yadda saxlamaq istəyəndə ayrıca təsdiqləyin.\n"
+    "4. «Anbar qalığı» yalnız təsdiqlənmiş stok hərəkətlərini göstərir.\n\n"
+    "Ətraflı əmrlər üçün /help. Baza sualları öz-özünə internetə göndərilmir."
+)
+MENU_EXAMPLES = (
+    "✨ NÜMUNƏ SUALLAR\n\n"
+    "💬 «Bu təklifin əsas şərtlərini izah et.»\n"
+    "🏢 «KA45 haqqında daxili sənədlərimiz nə deyir?»\n"
+    "📦 «Bu məhsulun hansı təsdiqlənmiş şəkilləri var?»\n"
+    "🏬 «KA45 stokda varmı?»\n"
+    "📊 «Bu il A şirkətinə nə qədər satmışıq?»\n"
+    "📄 «Göndərdiyim sənədin 2-ci mənbəsini paylaş.»\n\n"
+    "Sualı mətn yerinə yazın. Mənbə tapılmasa, cavabda bildiriləcək."
+)
 # Retained for legacy callback compatibility and explicit slash commands.
 MENU_INTERNAL_BUTTON = "Daxili bazada axtar"
 MENU_COMBINED_BUTTON = "Bizdə və internetdə axtar"
 MENU_CHAT_PROMPT = (
-    "💬 SUALINIZ\n\nSualınızı sadəcə yazın. Sənəd göndərmisinizsə, "
-    "onun haqqında da soruşa bilərsiniz."
+    "💬 SUAL VER\n\nAdətən necə yazırsınızsa, elə yazın. "
+    "Məsələn: «KA45 barədə nə bilirik?» və ya «Son göndərdiyim sənədi izah et».\n\n"
+    "Məlumatın mənbəyi varsa göstərəcəyəm. "
+    "Sualı vermək üçün başqa düyməyə ehtiyac yoxdur."
 )
 MENU_PRODUCT_PROMPT = (
-    "📦 MƏHSUL AXTARIŞI\n\nMəhsulun kodunu və ya adını yazın. "
-    "Məsələn: «KA45 bizdə var? Qiyməti nədir?»"
+    "📦 MƏHSUL TAP\n\nKodu, adını və ya sualınızı yazın. "
+    "Məsələn: «KA45 haqqında hansı sənədlərimiz var?»\n"
+    "Məhsulun bazada olması anbarda mövcud olduğu anlamına gəlmir."
 )
 MENU_STOCK_PROMPT = (
     "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
@@ -54,7 +83,12 @@ MENU_SALES_PROMPT = (
     "Qeyd: yalnız təsdiqlənmiş satış fakturaları hesablanır; "
     "təkliflər və ödənişlər satış kimi göstərilmir."
 )
-MENU_ASK_INTERNAL = "Daxili bazada nə axtarım? Məhsul kodunu və ya sualı yazın."
+MENU_ASK_INTERNAL = (
+    "🏢 BİZİM BAZA\n\nŞirkətin məhsulları, qiymət qeydləri, "
+    "PDF, Word, Excel, şəkillər və saxlanmış qeydlər üzrə sualınızı yazın.\n"
+    "Məsələn: «KA45 üçün son təklif nədir?» və ya «Bu sənəd hansı məhsula aiddir?»\n\n"
+    "Bu seçim yalnız daxili mənbələrdə axtarır, internetə çıxmır."
+)
 MENU_ASK_INTERNET = (
     "🌐 İNTERNET AXTARIŞI\n\nAçıq internetdə nə axtarım? Sualınızı yazın. "
     "Bu rejim daxili bazadan istifadə etmir. Məxfi şirkət məlumatı göndərməyin."

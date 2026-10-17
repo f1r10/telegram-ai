@@ -267,11 +267,23 @@ def _user_label(user: User) -> str:
     )
 
 
-async def _reply_long(message: object, text: str, limit: int) -> None:
-    for part in split_telegram_text(text, limit=limit):
+async def _reply_long(
+    message: object,
+    text: str,
+    limit: int,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    parts = split_telegram_text(text, limit=limit)
+    for index, part in enumerate(parts):
         for attempt in range(3):
             try:
-                await message.reply_text(part)  # type: ignore[attr-defined]
+                if reply_markup is not None and index == len(parts) - 1:
+                    await message.reply_text(  # type: ignore[attr-defined]
+                        part, reply_markup=reply_markup
+                    )
+                else:
+                    await message.reply_text(part)  # type: ignore[attr-defined]
                 break
             except NetworkError:
                 if attempt == 2:
@@ -453,17 +465,55 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
-                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
+                InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
             ],
             [
+                InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
                 InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
+            ],
+            [
+                InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
                 InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
             ],
-            [InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload")],
             [
                 InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
                 InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
             ],
+        ]
+    )
+
+
+def _answer_keyboard() -> InlineKeyboardMarkup:
+    """Answer actions send *new* messages; previous evidence is never replaced."""
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.MENU_NAV_ASK, callback_data="nav:ask"),
+                InlineKeyboardButton(messages.MENU_NAV_BAZA, callback_data="nav:baza"),
+            ],
+            [InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="nav:home")],
+        ]
+    )
+
+
+def _help_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(messages.MENU_EXAMPLES_BUTTON, callback_data="om:examples")],
+            [InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="om:home")],
+        ]
+    )
+
+
+def _examples_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
+                InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
+            ],
+            [InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="om:home")],
         ]
     )
 
@@ -1010,6 +1060,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:tamaxtar",
         "om:upload",
         "om:help",
+        "om:examples",
         "om:save",
         "om:cancel",
     }:
@@ -1030,7 +1081,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(messages.MENU_TITLE, reply_markup=_menu_keyboard())
             return
         if action == "om:help":
-            await query.edit_message_text(messages.HELP_TEXT, reply_markup=_menu_keyboard())
+            await query.edit_message_text(messages.MENU_QUICK_HELP, reply_markup=_help_keyboard())
+            return
+        if action == "om:examples":
+            await query.edit_message_text(messages.MENU_EXAMPLES, reply_markup=_examples_keyboard())
             return
         if action == "om:save":
             await handle_save(update, context)
@@ -1067,6 +1121,55 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     except SQLAlchemyError:
         logger.exception("Telegram menu callback database lookup failed")
         await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Keep the answer and citations visible when navigating back to a new turn."""
+
+    if not _is_private(update):
+        return
+    query = update.callback_query
+    identity = _identity(update)
+    if query is None or identity is None:
+        return
+    await query.answer()
+    action = query.data or ""
+    if action not in {"nav:ask", "nav:baza", "nav:home"}:
+        return
+    services = _services(context)
+    try:
+        actor = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if actor is None or actor.status != UserStatus.ACTIVE:
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id, text=messages.NO_PERMISSION
+            )
+            return
+        _discard_menu_selection(context)
+        if action == "nav:baza":
+            data = getattr(context, "user_data", None)
+            if data is None:
+                await context.bot.send_message(
+                    chat_id=identity.telegram_user_id,
+                    text=messages.MENU_TEMPORARY_UNAVAILABLE,
+                )
+                return
+            data[MENU_SELECTION_KEY] = ("baza", monotonic() + MENU_SELECTION_TTL_SECONDS)
+            content = messages.MENU_ASK_INTERNAL
+            keyboard = _examples_keyboard()
+        elif action == "nav:ask":
+            content = messages.MENU_CHAT_PROMPT
+            keyboard = _examples_keyboard()
+        else:
+            content = messages.MENU_TITLE
+            keyboard = _menu_keyboard()
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id, text=content, reply_markup=keyboard
+        )
+    except SQLAlchemyError:
+        logger.exception("Answer navigation database lookup failed")
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id, text=messages.TEMPORARY_ERROR
+        )
 
 
 async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -1215,6 +1318,7 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     message,
                     _with_image_notice(_format_internal(result), images, readings),
                     services.telegram_message_limit,
+                    reply_markup=_answer_keyboard(),
                 )
             elif services.ai is not None and services.rate_guard is not None:
                 if not services.rate_guard.allow(user.id):
@@ -1734,6 +1838,7 @@ async def handle_baza(
             message,
             _with_image_notice(_format_internal(result), images, readings),
             services.telegram_message_limit,
+            reply_markup=_answer_keyboard(),
         )
     except TimeoutError:
         logger.warning("Baza answer exceeded bounded deadline")
