@@ -18,7 +18,9 @@ NOW = 1_800_000_000
 
 
 def signed_data(fields: dict[str, str], *, token: str = TOKEN) -> str:
-    canonical = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()) if key != "signature")
+    canonical = "\n".join(
+        f"{key}={value}" for key, value in sorted(fields.items()) if key != "signature"
+    )
     secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, canonical.encode(), hashlib.sha256).hexdigest()
     return urlencode({**fields, "hash": digest})
