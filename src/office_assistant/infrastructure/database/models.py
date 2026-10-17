@@ -1487,6 +1487,64 @@ class PendingProductImageConfirmation(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class InventoryBalance(Base):
+    """Authoritative known balance per product/location; no row means UNKNOWN, not zero."""
+
+    __tablename__ = "inventory_balances"
+    __table_args__ = (
+        UniqueConstraint("product_id", "location_key", name="uq_inventory_product_location"),
+        CheckConstraint("quantity >= 0", name="ck_inventory_balance_nonnegative"),
+        Index("ix_inventory_balances_product", "product_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    location_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    location_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class InventoryMovement(Base):
+    """Append-only signed stock mutation with operator approval and deduplication."""
+
+    __tablename__ = "inventory_movements"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id", "location_key", "reference_key", name="uq_inventory_reference"
+        ),
+        CheckConstraint(
+            "kind IN ('OPENING', 'RECEIPT', 'ISSUE')", name="ck_inventory_movement_kind"
+        ),
+        CheckConstraint("quantity > 0 OR kind = 'OPENING'", name="ck_inventory_movement_positive"),
+        CheckConstraint("quantity >= 0", name="ck_inventory_movement_nonnegative"),
+        CheckConstraint("balance_after >= 0", name="ck_inventory_movement_balance_nonnegative"),
+        Index("ix_inventory_movement_product_created", "product_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    location_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    location_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    balance_after: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    reference_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    reference_label: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class SalesEntry(Base):
     """One explicitly confirmed completed sale, not a quotation or a customer payment.
 
