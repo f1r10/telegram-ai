@@ -22,16 +22,16 @@ from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import InventoryValidationError
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
-from office_assistant.miniapp.uploads import (
-    MiniAppUploadConflict,
-    MiniAppUploadExpired,
-    MiniAppUploadWorkflow,
-)
 from office_assistant.miniapp.backend import (
     MiniAppAccessDenied,
     MiniAppBackend,
     MiniAppRateLimited,
     MiniAppServiceUnavailable,
+)
+from office_assistant.miniapp.uploads import (
+    MiniAppUploadConflict,
+    MiniAppUploadExpired,
+    MiniAppUploadWorkflow,
 )
 
 logger = logging.getLogger(__name__)
