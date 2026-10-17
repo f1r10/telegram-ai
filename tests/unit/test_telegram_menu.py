@@ -119,7 +119,8 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     keyboard = args.kwargs["reply_markup"]
     assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
         ["om:ask", "om:product"],
-        ["om:upload", "om:sales"],
+        ["om:stock", "om:sales"],
+        ["om:upload"],
         ["om:internet", "om:help"],
     ]
 
