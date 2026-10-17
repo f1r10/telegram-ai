@@ -64,7 +64,7 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
             or origin.fragment
         ):
             raise ValueError("Mini App requires a canonical HTTPS public origin")
-        if port < 1024 or port > 65535:
+        if port != 0 and (port < 1024 or port > 65535):
             raise ValueError("Choose an unprivileged loopback listen port")
         self.public_origin = public_origin.rstrip("/")
         self.backend = backend
