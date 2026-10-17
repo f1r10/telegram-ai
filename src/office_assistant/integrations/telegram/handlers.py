@@ -131,6 +131,8 @@ from office_assistant.web_evidence.service import WebEvidenceService
 
 SERVICES_KEY = "phase2_services"
 MENU_SELECTION_KEY = "office_menu_selection"
+SOURCE_BUTTONS_KEY = "office_source_buttons"
+SOURCE_BUTTON_TTL_SECONDS = 600
 MENU_SELECTION_TTL_SECONDS = 600
 SALES_DRAFT_KEY = "office_sales_draft"
 STOCK_DRAFT_KEY = "office_stock_draft"
@@ -483,10 +485,24 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def _answer_keyboard() -> InlineKeyboardMarkup:
-    """Answer actions send *new* messages; previous evidence is never replaced."""
+def _answer_keyboard(
+    source_token: str | None = None,
+    source_numbers: tuple[int, ...] = (),
+) -> InlineKeyboardMarkup:
+    """Read-only original-source actions plus non-destructive navigation."""
 
-    return InlineKeyboardMarkup(
+    rows: list[list[InlineKeyboardButton]] = []
+    if source_token is not None and source_numbers:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    messages.MENU_SOURCE_FILE_BUTTON.format(number=number),
+                    callback_data=f"src:{source_token}:{number}",
+                )
+                for number in source_numbers
+            ]
+        )
+    rows.extend(
         [
             [
                 InlineKeyboardButton(messages.MENU_NAV_ASK, callback_data="nav:ask"),
@@ -495,6 +511,40 @@ def _answer_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="nav:home")],
         ]
     )
+    return InlineKeyboardMarkup(rows)
+
+
+def _answer_markup(
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    answer: InternalAnswer,
+) -> InlineKeyboardMarkup:
+    """Bind source buttons to the latest grounded answer, never to a stale index."""
+
+    data = getattr(context, "user_data", None)
+    if data is None:
+        return _answer_keyboard()
+    data.pop(SOURCE_BUTTONS_KEY, None)
+    if services.file_delivery is None:
+        return _answer_keyboard()
+    numbers = tuple(
+        sorted(
+            {
+                item.number
+                for item in answer.citations
+                if item.file_id is not None and 1 <= item.number <= 99
+            }
+        )[:3]
+    )
+    if not numbers:
+        return _answer_keyboard()
+    token = secrets.token_urlsafe(8)
+    data[SOURCE_BUTTONS_KEY] = (
+        token,
+        monotonic() + SOURCE_BUTTON_TTL_SECONDS,
+        numbers,
+    )
+    return _answer_keyboard(token, numbers)
 
 
 def _help_keyboard() -> InlineKeyboardMarkup:
@@ -1123,6 +1173,60 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
+async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Deliver only a still-authorized source for this user's latest grounded answer."""
+
+    if not _is_private(update):
+        return
+    query = update.callback_query
+    identity = _identity(update)
+    if query is None or identity is None:
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[0] != "src" or not parts[2].isdigit():
+        return
+    citation_index = int(parts[2])
+    data = getattr(context, "user_data", None)
+    state: object = data.get(SOURCE_BUTTONS_KEY) if data is not None else None
+    selected = cast(tuple[object, ...], state) if isinstance(state, tuple) else ()
+    if (
+        len(selected) != 3
+        or selected[0] != parts[1]
+        or not isinstance(selected[1], (int, float))
+        or monotonic() > selected[1]
+        or not isinstance(selected[2], tuple)
+        or citation_index not in selected[2]
+    ):
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_BUTTON_EXPIRED,
+        )
+        return
+    service = _services(context).file_delivery
+    if service is None:
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_NO_FILE,
+        )
+        return
+    try:
+        file = await service.resolve_recent(identity.telegram_user_id, citation_index)
+        with file.path.open("rb") as stream:
+            await context.bot.send_document(
+                chat_id=identity.telegram_user_id,
+                document=stream,
+                filename=file.filename,
+                read_timeout=60,
+                write_timeout=60,
+            )
+    except (AuthorizationDenied, FileDeliveryError, StorageError, SQLAlchemyError, OSError):
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_NO_FILE,
+        )
+
+
 async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Keep the answer and citations visible when navigating back to a new turn."""
 
@@ -1318,7 +1422,7 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     message,
                     _with_image_notice(_format_internal(result), images, readings),
                     services.telegram_message_limit,
-                    reply_markup=_answer_keyboard(),
+                    reply_markup=_answer_markup(context, services, result),
                 )
             elif services.ai is not None and services.rate_guard is not None:
                 if not services.rate_guard.allow(user.id):
@@ -1838,7 +1942,7 @@ async def handle_baza(
             message,
             _with_image_notice(_format_internal(result), images, readings),
             services.telegram_message_limit,
-            reply_markup=_answer_keyboard(),
+            reply_markup=_answer_markup(context, services, result),
         )
     except TimeoutError:
         logger.warning("Baza answer exceeded bounded deadline")
