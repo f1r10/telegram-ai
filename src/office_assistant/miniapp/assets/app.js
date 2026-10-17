@@ -13,7 +13,8 @@
     uploadPrepare: $("upload-prepare"), uploadPreview: $("upload-preview"),
     uploadName: $("upload-name"), uploadSize: $("upload-size"),
     uploadConfirm: $("upload-confirm"), uploadCancel: $("upload-cancel"),
-    uploadFeedback: $("upload-feedback")
+    uploadFeedback: $("upload-feedback"),
+    jobsRefresh: $("jobs-refresh"), jobList: $("job-list")
   };
   let scope = "chat";
   let busy = false;
@@ -218,6 +219,7 @@
     ui.question.value = "";
     ui.salesFields.hidden = scope !== "sales";
     ui.uploadPanel.hidden = scope !== "upload";
+    if (scope === "upload" && active) void refreshUploadJobs();
     ui.composer.hidden = scope === "upload";
     ui.suggestions.hidden = scope === "upload";
     if (scope === "sales" && !ui.salesYear.value) {
@@ -233,6 +235,63 @@
     }
     ui.question.focus();
   }
+
+  const jobStages = {
+    queued: "Emal növbəsində",
+    reading: "Sənəd oxunur / OCR",
+    indexing: "Axtarış bazasına əlavə olunur",
+    ready: "Axtarış üçün hazırdır",
+    review: "Yoxlama tələb olunur",
+    failed: "Emal alınmadı"
+  };
+
+  function renderJobs(jobs) {
+    ui.jobList.replaceChildren();
+    if (!Array.isArray(jobs) || !jobs.length) {
+      const message = document.createElement("p");
+      message.className = "muted";
+      message.textContent = "Hələ təsdiqlənmiş sənəd tapılmadı.";
+      ui.jobList.append(message);
+      return;
+    }
+    for (const job of jobs) {
+      if (!Number.isInteger(job.job_id) || typeof job.stage !== "string") continue;
+      const card = document.createElement("article");
+      card.className = "job-card";
+      const title = document.createElement("strong");
+      title.textContent = typeof job.filename === "string" ? job.filename : "Sənəd";
+      const status = document.createElement("span");
+      status.className = "job-stage " + (
+        job.stage === "ready" ? "completed" :
+        ["failed", "review"].includes(job.stage) ? "requires-review" : ""
+      );
+      status.textContent = jobStages[job.stage] || "Vəziyyət məlum deyil";
+      const note = document.createElement("p");
+      note.textContent = typeof job.notice === "string" ? job.notice : "";
+      const detail = document.createElement("small");
+      detail.textContent = "Emal №" + job.job_id;
+      card.append(title, status, note, detail);
+      ui.jobList.append(card);
+    }
+  }
+
+  async function refreshUploadJobs() {
+    if (!active || ui.uploadPanel.hidden) return;
+    ui.jobsRefresh.disabled = true;
+    try {
+      const result = await request("/api/uploads/recent", {});
+      renderJobs(result.jobs);
+    } catch (error) {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = error?.message || "Vəziyyəti yeniləmək mümkün olmadı.";
+      ui.jobList.replaceChildren(note);
+    } finally {
+      ui.jobsRefresh.disabled = !active;
+    }
+  }
+
+  ui.jobsRefresh.addEventListener("click", () => { void refreshUploadJobs(); });
 
   function uploadStatus(message, failed = false) {
     ui.uploadFeedback.textContent = message;
@@ -316,6 +375,7 @@
           " yaradıldı. Sənədin oxunması və axtarışa daxil edilməsi ayrıca davam edir.",
           "assistant"
         );
+        await refreshUploadJobs();
       }
     } catch (error) {
       const message = error?.message || "Əməliyyat tamamlanmadı.";
