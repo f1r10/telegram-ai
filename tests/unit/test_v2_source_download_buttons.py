@@ -167,6 +167,29 @@ def test_source_index_tampering_and_expired_button_are_rejected(tmp_path: Path) 
     assert context.bot.send_message.await_count == 2
 
 
+def test_newer_message_cannot_swap_the_button_target_file(tmp_path: Path) -> None:
+    path = tmp_path / "source.pdf"
+    path.write_bytes(b"fixture")
+    context, service = _context(path)
+    services = context.bot_data["phase2_services"]
+    keyboard = _answer_markup(cast(ContextTypes.DEFAULT_TYPE, context), services, _answer())
+    callback = keyboard.inline_keyboard[0][0].callback_data or ""
+    service.resolve_recent.return_value = DeliverableFile(
+        path, "different.pdf", "application/pdf", 99
+    )
+    asyncio.run(
+        handle_source_button(
+            _update(_query(callback)), cast(ContextTypes.DEFAULT_TYPE, context)
+        )
+    )
+    service.resolve_recent.assert_awaited_once_with(123, 1)
+    context.bot.send_document.assert_not_awaited()
+    assert (
+        context.bot.send_message.await_args.kwargs["text"]
+        == messages.MENU_SOURCE_BUTTON_EXPIRED
+    )
+
+
 def test_group_chat_button_never_exposes_a_document(tmp_path: Path) -> None:
     path = tmp_path / "source.pdf"
     path.write_bytes(b"fixture")
