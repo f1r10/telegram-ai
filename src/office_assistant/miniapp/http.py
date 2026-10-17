@@ -242,7 +242,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
-    def _api_dispatch(self, method: str, path: str, signed: str, args: dict[str, object] | None) -> None:
+    def _api_dispatch(
+        self, method: str, path: str, signed: str, args: dict[str, object] | None
+    ) -> None:
         if method == "GET" and path == "/api/me":
             value = self._run(self._app().backend.profile(signed))
             assert isinstance(value, dict)
