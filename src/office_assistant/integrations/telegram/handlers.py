@@ -1204,13 +1204,15 @@ async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     authorized_file_id: int | None = None
     for entry in cast(tuple[object, ...], selected[2]):
+        if not isinstance(entry, tuple):
+            continue
+        pair = cast(tuple[object, ...], entry)
         if (
-            isinstance(entry, tuple)
-            and len(entry) == 2
-            and entry[0] == citation_index
-            and isinstance(entry[1], int)
+            len(pair) == 2
+            and pair[0] == citation_index
+            and isinstance(pair[1], int)
         ):
-            authorized_file_id = entry[1]
+            authorized_file_id = pair[1]
             break
     if authorized_file_id is None:
         await context.bot.send_message(
