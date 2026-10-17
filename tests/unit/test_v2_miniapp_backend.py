@@ -5,7 +5,9 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import replace
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -29,6 +31,11 @@ from office_assistant.business_tools.models import (
 )
 from office_assistant.business_tools.service import BusinessQueryService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+from office_assistant.internal_evidence.delivery import (
+    DeliverableFile,
+    FileDeliveryError,
+    SourceFileDeliveryService,
+)
 from office_assistant.internal_evidence.models import (
     InternalAnswer,
     RoutingCategory,
@@ -93,6 +100,7 @@ def make_backend(
     inventory: object | None = None,
     products: object | None = None,
     sales: object | None = None,
+    file_delivery: object | None = None,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -107,6 +115,7 @@ def make_backend(
         inventory=cast(InventoryLedgerService | None, inventory),
         products=cast(BusinessQueryService | None, products),
         sales=cast(SalesLedgerService | None, sales),
+        file_delivery=cast(SourceFileDeliveryService | None, file_delivery),
     )
     return backend, factory.session
 
@@ -310,3 +319,117 @@ def test_product_sales_invalid_requests_and_revocation_never_run_queries() -> No
         asyncio.run(backend.sales_report(signature(123), customer="A", year=2026))
     lookup.find_product.assert_not_awaited()
     sales.totals.assert_not_awaited()
+
+
+def test_one_tap_original_source_binds_actor_index_and_file_id(tmp_path: Path) -> None:
+    original = tmp_path / "contract.pdf"
+    original.write_bytes(b"%PDF-sample")
+    delivery = SimpleNamespace(
+        resolve_recent=AsyncMock(
+            return_value=DeliverableFile(original, "contract.pdf", "application/pdf", 9)
+        )
+    )
+    evidence = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=InternalAnswer(
+                answer="Source-backed answer",
+                route=RoutingCategory.INTERNAL_DOCUMENT,
+                citations=(
+                    UnifiedCitation(
+                        evidence_id="file:9",
+                        number=1,
+                        source_class="INTERNAL_DOCUMENT",
+                        file_id=9,
+                        filename="contract.pdf",
+                        label="Sənəd: contract.pdf",
+                    ),
+                ),
+            )
+        )
+    )
+    backend, session = make_backend(evidence=evidence, file_delivery=delivery)
+    answer = asyncio.run(backend.answer(signature(123), question="Müqavilə?", scope="baza"))
+    assert answer.sources == ((1, "Sənəd: contract.pdf"),)
+    assert len(answer.source_actions) == 1
+    number, token = answer.source_actions[0]
+    assert number == 1 and len(token) >= 20
+    result = asyncio.run(backend.source_file(signature(123), token=token))
+    assert result.file_id == 9
+    delivery.resolve_recent.assert_awaited_once_with(123, 1)
+
+    # A newer answer may reuse source number 1 for a different file;
+    # no old token may deliver that newer original.
+    delivery.resolve_recent.return_value = DeliverableFile(
+        original, "other.pdf", "application/pdf", 10
+    )
+    with pytest.raises(FileDeliveryError):
+        asyncio.run(backend.source_file(signature(123), token=token))
+    assert session.actor is not None
+
+
+def test_one_tap_expiry_supersession_and_revocation(tmp_path: Path) -> None:
+    original = tmp_path / "source.pdf"
+    original.write_bytes(b"sample")
+    evidence = SimpleNamespace(
+        answer=AsyncMock(
+            return_value=InternalAnswer(
+                answer="Answer",
+                route=RoutingCategory.INTERNAL_DOCUMENT,
+                citations=(
+                    UnifiedCitation(
+                        evidence_id="file:1",
+                        number=1,
+                        source_class="INTERNAL_DOCUMENT",
+                        file_id=42,
+                        filename="source.pdf",
+                        label="source.pdf",
+                    ),
+                ),
+            )
+        )
+    )
+    delivery = SimpleNamespace(
+        resolve_recent=AsyncMock(
+            return_value=DeliverableFile(original, "source.pdf", "application/pdf", 42)
+        )
+    )
+    backend, session = make_backend(evidence=evidence, file_delivery=delivery)
+    first = asyncio.run(backend.answer(signature(123), question="First", scope="baza"))
+    token = first.source_actions[0][1]
+    with pytest.raises(FileDeliveryError):
+        asyncio.run(backend.source_file(signature(123), token="forged-token-of-adequate-length"))
+    ticket = backend._source_tickets[token]  # pyright: ignore[reportPrivateUsage]
+    backend._source_tickets[token] = replace(  # pyright: ignore[reportPrivateUsage]
+        ticket, expires_at=-1
+    )
+    with pytest.raises(FileDeliveryError):
+        asyncio.run(backend.source_file(signature(123), token=token))
+    # A newer answer clears every previous token even if it has no file citations.
+    backend._source_tickets[token] = ticket  # pyright: ignore[reportPrivateUsage]
+    evidence.answer.return_value = InternalAnswer("No sources", RoutingCategory.INTERNAL_DOCUMENT)
+    second = asyncio.run(backend.answer(signature(123), question="Next", scope="baza"))
+    assert second.source_actions == ()
+    with pytest.raises(FileDeliveryError):
+        asyncio.run(backend.source_file(signature(123), token=token))
+    delivery.resolve_recent.assert_not_awaited()
+
+    evidence.answer.return_value = InternalAnswer(
+        answer="Answer",
+        route=RoutingCategory.INTERNAL_DOCUMENT,
+        citations=(
+            UnifiedCitation(
+                evidence_id="file:1",
+                number=1,
+                source_class="INTERNAL_DOCUMENT",
+                file_id=42,
+                filename="source.pdf",
+                label="source.pdf",
+            ),
+        ),
+    )
+    next_answer = asyncio.run(backend.answer(signature(123), question="Next source", scope="baza"))
+    current_token = next_answer.source_actions[0][1]
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.source_file(signature(123), token=current_token))
+    delivery.resolve_recent.assert_not_awaited()

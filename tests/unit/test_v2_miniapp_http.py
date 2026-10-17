@@ -6,8 +6,10 @@ import json
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import cast
 
+from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.backend import (
     ChatResponse,
     MiniAppBackend,
@@ -16,8 +18,9 @@ from office_assistant.miniapp.http import MiniAppHTTPServer
 
 
 class DummyBackend:
-    def __init__(self) -> None:
+    def __init__(self, original: Path | None = None) -> None:
         self.calls: list[str] = []
+        self.original = original
 
     async def profile(self, raw: str) -> dict[str, str]:
         self.calls.append("me:" + raw)
@@ -45,6 +48,12 @@ class DummyBackend:
             "notice": "Təsdiqlənmiş fakturalar.",
         }
 
+    async def source_file(self, raw: str, *, token: str) -> DeliverableFile:
+        self.calls.append("source:" + raw + ":" + token)
+        if self.original is None:
+            raise FileDeliveryError("No file selected")
+        return DeliverableFile(self.original, "sənəd nümunəsi.pdf", "application/pdf", 9)
+
     async def stock(self, raw: str, *, code: str) -> dict[str, object]:
         self.calls.append("stock:" + raw + ":" + code)
         return {
@@ -57,11 +66,11 @@ class DummyBackend:
 
 
 @contextmanager
-def serve() -> Generator[tuple[int, DummyBackend], None, None]:
+def serve(original: Path | None = None) -> Generator[tuple[int, DummyBackend], None, None]:
     loop = asyncio.new_event_loop()
     running = threading.Thread(target=loop.run_forever, daemon=True)
     running.start()
-    backend = DummyBackend()
+    backend = DummyBackend(original)
     server = MiniAppHTTPServer(
         port=0,
         public_origin="https://assistant.example.org",
@@ -155,7 +164,7 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert code == 200
         result = json.loads(body)
         assert result["answer"] == "Mənbəli cavab"
-        assert result["sources"] == [{"number": 1, "label": "sənəd.pdf"}]
+        assert result["sources"] == [{"number": 1, "label": "sənəd.pdf", "download_token": None}]
         code, _, body = call(
             port,
             "POST",
@@ -220,6 +229,41 @@ def test_product_sales_invalid_payloads_and_origins_fail_without_dispatch() -> N
                 "/api/sales",
                 body={"customer": "A", "year": 2026},
                 origin="https://evil.example",
+            )[0]
+            == 403
+        )
+        assert backend.calls == []
+
+
+def test_source_is_downloaded_by_private_authenticated_post_only(tmp_path: Path) -> None:
+    original = tmp_path / "original.pdf"
+    bytes_value = b"%PDF-original-binary-test"
+    original.write_bytes(bytes_value)
+    with serve(original) as (port, backend):
+        response, headers, body = call(port, "POST", "/api/source", body={"token": "opaque-test"})
+        assert response == 200
+        assert body == bytes_value
+        assert headers["Content-Type"] == "application/octet-stream"
+        assert headers["Cache-Control"] == "private, no-store"
+        assert "attachment;" in headers["Content-Disposition"]
+        assert "s%C9%99n%C9%99d" in headers["Content-Disposition"]
+        assert backend.calls == ["source:pretend-signed-data:opaque-test"]
+
+
+def test_source_routes_reject_unsigned_and_forged_file_requests(tmp_path: Path) -> None:
+    original = tmp_path / "original.pdf"
+    original.write_bytes(b"fixture")
+    with serve(original) as (port, backend):
+        assert call(port, "GET", "/api/source")[0] == 404
+        assert call(port, "POST", "/api/source", body={"token": "any"}, signed=None)[0] == 401
+        assert call(port, "POST", "/api/source", body={"token": 123})[0] == 400
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/source",
+                body={"token": "source-token"},
+                origin="https://malicious.example",
             )[0]
             == 403
         )

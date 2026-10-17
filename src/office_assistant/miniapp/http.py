@@ -15,9 +15,11 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
+from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import InventoryValidationError
+from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
     MiniAppAccessDenied,
@@ -116,6 +118,32 @@ class MiniAppHandler(BaseHTTPRequestHandler):
     def _json(self, code: int, payload: dict[str, object]) -> None:
         self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
+    def _original_file(self, file: DeliverableFile) -> None:
+        """Stream original bytes only after signed actor and DB source authorization."""
+
+        with file.path.open("rb") as stream:
+            stream.seek(0, 2)
+            length = stream.tell()
+            stream.seek(0)
+            # Reject unexpected growth between delivery authorization and open().
+            if length < 0 or length > 25 * 1024 * 1024:
+                raise FileDeliveryError("Source file changed size")
+            filename = quote(file.filename, safe="")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{filename}")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Cache-Control", "private, no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", _CSP)
+            self.end_headers()
+            try:
+                while chunk := stream.read(64 * 1024):
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
     def _allowed_origin(self) -> bool:
         headers = self.headers.get_all("Origin", [])
         return len(headers) <= 1 and (not headers or headers[0] == self._app().public_origin)
@@ -162,7 +190,14 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     200,
                     {
                         "answer": answer.answer,
-                        "sources": [{"number": n, "label": label} for n, label in answer.sources],
+                        "sources": [
+                            {
+                                "number": n,
+                                "label": label,
+                                "download_token": dict(answer.source_actions).get(n),
+                            }
+                            for n, label in answer.sources
+                        ],
                         "insufficient_evidence": answer.insufficient_evidence,
                     },
                 )
@@ -180,6 +215,13 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 value = self._run(self._app().backend.product(signed, query=query))
                 assert isinstance(value, dict)
                 self._json(200, cast(dict[str, object], value))
+            elif method == "POST" and path == "/api/source" and args is not None:
+                token = args.get("token")
+                if not isinstance(token, str):
+                    raise ValueError("Invalid source ticket")
+                value = self._run(self._app().backend.source_file(signed, token=token))
+                assert isinstance(value, DeliverableFile)
+                self._original_file(value)
             elif method == "POST" and path == "/api/sales" and args is not None:
                 customer = args.get("customer")
                 year = args.get("year")
@@ -192,10 +234,12 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 self._json(200, cast(dict[str, object], value))
             else:
                 self._json(404, {"error": "not_found"})
-        except (MiniAppAuthenticationError, MiniAppAccessDenied):
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
             self._json(401, {"error": "unauthorized"})
         except (ValueError, InventoryValidationError):
             self._json(400, {"error": "invalid_request"})
+        except FileDeliveryError:
+            self._json(404, {"error": "source_unavailable"})
         except MiniAppRateLimited:
             self._json(429, {"error": "too_many_requests"})
         except MiniAppServiceUnavailable:
@@ -224,7 +268,10 @@ class MiniAppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path)
-        if path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales"} or path.query:
+        if (
+            path.path not in {"/api/ask", "/api/stock", "/api/product", "/api/sales", "/api/source"}
+            or path.query
+        ):
             self._json(404, {"error": "not_found"})
             return
         headers = self.headers.get_all("Content-Length", [])

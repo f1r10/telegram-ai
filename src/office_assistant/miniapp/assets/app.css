@@ -9,3 +9,10 @@
 .bubble .candidate{display:block;width:100%;margin-top:10px;padding:11px 12px;text-align:left;font:inherit;font-size:13px;line-height:1.4;color:var(--accent);background:var(--card);border:1px solid var(--line);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
 .bubble .candidate:hover{border-color:var(--accent)}
 @media(max-width:620px){.modes{grid-template-columns:repeat(3,minmax(0,1fr))}.mode{min-height:95px}.sales-fields{align-items:flex-start}}
+
+/* Original sources are optional, private, explicitly user-initiated actions. */
+.source{align-items:center;flex-wrap:wrap;line-height:1.5}
+.source>span{flex:1;min-width:130px;overflow-wrap:anywhere}
+.source-download{margin-left:auto;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--accent);padding:8px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.source-download:hover{border-color:var(--accent)}
+.source-download:disabled{opacity:.55;cursor:wait}

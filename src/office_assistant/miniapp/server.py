@@ -18,6 +18,8 @@ from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.session import create_session_factory
+from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.internal_evidence.delivery import SourceFileDeliveryService
 from office_assistant.internal_evidence.document_search import (
     DocumentRelevancePolicy,
     InternalDocumentSearch,
@@ -119,6 +121,11 @@ def main() -> None:
             inventory=InventoryLedgerService(session_factory),
             products=BusinessQueryService(session_factory),
             sales=SalesLedgerService(session_factory),
+            file_delivery=SourceFileDeliveryService(
+                session_factory,
+                LocalFileStorage(settings.file_storage_path),
+                max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
+            ),
             rate_limit_per_minute=settings.ai_rate_limit_per_minute,
             request_timeout_seconds=min(75.0, settings.miniapp_request_timeout_seconds),
         )

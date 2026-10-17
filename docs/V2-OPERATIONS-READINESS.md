@@ -34,9 +34,10 @@ All these screens call existing `InternalEvidenceService`,
 `SalesLedgerService` read paths. It shows cited source
 labels, unknown stock distinctly from confirmed zero, error states, long
 answers, mobile safe-area spacing, and dark/light layouts. File ingestion,
-original-source download, financial writes and stock changes **stay in the
-native bot** in this first read-only increment; none of those operations
-can be performed via the web endpoints.
+financial writes and stock changes **stay in the native bot** in this
+read-only increment. The only browser file operation is explicit,
+authorized one-tap download of an original cited document; the user cannot
+upload, alter or delete any company file through the web endpoints.
 
 **Critical authentication:** the web API verifies the raw
 `Telegram.WebApp.initData` HMAC using the bot-token-derived `WebAppData`
@@ -61,8 +62,21 @@ stay separate by currency and missing entries are **not** declared zero sales.
 Both APIs revalidate signed actor identity and DB authorization and never
 create products, sales, inventory movements or source documents. The sales
 year field is shown only inside the sales mode; default chat remains a free
-question box. Files and source downloads still use the native Telegram bot,
-not browser access to private storage.
+question box. New documents and write operations still use the native Telegram bot.
+
+**Original citation files:** grounded chat answers expose up to three optional
+"Faylı endir" buttons for their actual file-backed sources. Each button uses
+an opaque ten-minute, per-actor in-memory ticket bound to **the original
+file ID and citation number**. The dedicated `POST /api/source` rechecks
+Telegram `initData`, active DB actor, ticket identity/expiry and the latest
+eligible source through the existing `SourceFileDeliveryService`. A newer
+answer invalidates old tickets; a changed source number/file ID cannot
+substitute a newer document. The HTTP server streams the committed bytes
+with `Content-Disposition: attachment`, `nosniff`, `no-store` and a
+bounded maximum size, without exposing storage paths or permanent URLs.
+Ordinary browser links, unsolicited file retrieval and group-chat export
+are not enabled. A reboot invalidates all temporary tickets, fail-closed.
+Test actual file downloads in Telegram Android/iOS before enabling staging.
 
 The HTTP server binds **127.0.0.1 only**, in its own process, independently
 of Telegram polling. It is not automatically exposed by Docker Compose.
