@@ -11,7 +11,7 @@ from office_assistant.application.inventory import (
     InventoryConflict,
     InventoryLedgerService,
     InventoryValidationError,
-    parse_stock_draft,
+    StockDraft,
 )
 from office_assistant.application.products import ProductService
 from office_assistant.core.settings import load_settings
@@ -158,7 +158,5 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
     asyncio.run(scenario())
 
 
-def _draft(code: str, warehouse: str, kind: str, amount: str, reference: str):
-    from office_assistant.application.inventory import StockDraft
-
+def _draft(code: str, warehouse: str, kind: str, amount: str, reference: str) -> StockDraft:
     return StockDraft(code, warehouse, kind, Decimal(amount), reference)
