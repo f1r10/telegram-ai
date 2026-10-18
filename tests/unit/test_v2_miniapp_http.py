@@ -6,10 +6,13 @@ import json
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from urllib.parse import quote
+
+from PIL import Image, ImageDraw
 
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
@@ -66,6 +69,20 @@ class DummyBackend:
     async def answer(self, raw: str, *, question: str, scope: str) -> ChatResponse:
         self.calls.append("ask:" + raw + ":" + scope + ":" + question)
         return ChatResponse("Mənbəli cavab", ((1, "sənəd.pdf"),), False)
+
+    async def actor(self, raw: str) -> object:
+        self.calls.append("actor:" + raw)
+        return object()
+
+    async def photo(self, raw: str, *, image_bytes: bytes) -> dict[str, object]:
+        self.calls.append("photo:" + raw + ":" + str(len(image_bytes)))
+        return {
+            "status": "candidates",
+            "codes": ["KA45"],
+            "method": "cross_angle",
+            "incomplete": False,
+            "notice": "Məhsul kodunu yoxlayın.",
+        }
 
     async def product(self, raw: str, *, query: str) -> dict[str, object]:
         self.calls.append("product:" + raw + ":" + query)
@@ -441,4 +458,77 @@ def test_document_progress_rejects_unsigned_foreign_origins_and_invalid_ids() ->
         assert call(port, "POST", "/api/uploads/status", body={"job_id": "77"})[0] == 400
         assert call(port, "POST", "/api/uploads/status", body={"job_id": True})[0] == 400
         assert call(port, "POST", "/api/uploads/recent", body={"user_id": 123})[0] == 400
+        assert backend.calls == []
+
+
+def send_photo(
+    port: int,
+    data: bytes,
+    *,
+    signed: str | None = "pretend-signed-data",
+    origin: str | None = None,
+    mime: str = "image/png",
+) -> tuple[int, dict[str, str], bytes]:
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+    headers: dict[str, str] = {"Content-Type": mime}
+    if signed is not None:
+        headers["X-Telegram-Init-Data"] = signed
+    if origin is not None:
+        headers["Origin"] = origin
+    connection.request("POST", "/api/photo/lookup", body=data, headers=headers)
+    response = connection.getresponse()
+    result = response.status, dict(response.getheaders()), response.read()
+    connection.close()
+    return result
+
+
+def test_signed_binary_photo_returns_candidates_without_uploading() -> None:
+    with serve() as (port, backend):
+        image = Image.new("RGB", (64, 64), "white")
+        ImageDraw.Draw(image).rectangle((10, 10, 50, 50), fill="navy")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        picture = stream.getvalue()
+        status, headers, body = send_photo(port, picture, origin="https://assistant.example.org")
+        assert status == 200
+        assert headers["Cache-Control"] == "no-store"
+        payload = json.loads(body)
+        assert payload == {
+            "status": "candidates",
+            "codes": ["KA45"],
+            "method": "cross_angle",
+            "incomplete": False,
+            "notice": "Məhsul kodunu yoxlayın.",
+        }
+        assert backend.calls == [
+            "actor:pretend-signed-data",
+            "photo:pretend-signed-data:" + str(len(picture)),
+        ]
+
+
+def test_unsigned_wrong_origin_and_invalid_photo_headers_never_dispatch() -> None:
+    with serve() as (port, backend):
+        assert send_photo(port, b"photo", signed=None)[0] == 401
+        assert send_photo(port, b"photo", origin="https://evil.example")[0] == 403
+        assert send_photo(port, b"photo", mime="application/octet-stream")[0] == 400
+        assert send_photo(port, b"not-an-image", mime="image/png")[0] == 400
+        assert send_photo(port, b"")[0] == 413
+        assert call(port, "GET", "/api/photo/lookup")[0] == 404
+        # Valid-length but forged bytes still require a current actor
+        # check first; they never reach the recognition model.
+        assert backend.calls == ["actor:pretend-signed-data"]
+
+
+def test_photo_content_length_is_rejected_before_reading_oversized_payload() -> None:
+    with serve() as (port, backend):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=8)
+        connection.putrequest("POST", "/api/photo/lookup")
+        connection.putheader("Content-Type", "image/png")
+        connection.putheader("X-Telegram-Init-Data", "pretend-signed-data")
+        connection.putheader("Content-Length", str(4 * 1024 * 1024 + 1))
+        connection.endheaders()
+        result = connection.getresponse()
+        assert result.status == 413
+        result.read()
+        connection.close()
         assert backend.calls == []

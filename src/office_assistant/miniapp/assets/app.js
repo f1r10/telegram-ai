@@ -14,7 +14,10 @@
     uploadName: $("upload-name"), uploadSize: $("upload-size"),
     uploadConfirm: $("upload-confirm"), uploadCancel: $("upload-cancel"),
     uploadFeedback: $("upload-feedback"),
-    jobsRefresh: $("jobs-refresh"), jobList: $("job-list")
+    jobsRefresh: $("jobs-refresh"), jobList: $("job-list"),
+    photoPanel: $("photo-panel"), photoFile: $("photo-file"),
+    photoSearch: $("photo-search"), photoFeedback: $("photo-feedback"),
+    photoResults: $("photo-results")
   };
   let scope = "chat";
   let busy = false;
@@ -173,6 +176,12 @@
       note: "Yalnız şirkətin daxili məlumatları. Mənbə tapılmazsa bunu açıq bildirəcəyəm.",
       samples: ["KA45 barədə hansı sənədlərimiz var?", "Son qiymət qeydləri nə deyir?"]
     },
+    photo: {
+      kicker: "ŞƏKİLLƏ MƏHSUL AXTARIŞI", title: "Məhsulun şəklini göndərin",
+      placeholder: "",
+      note: "Yalnız təsdiqli aktiv fotolarla müqayisə edilir. Oxşarlıq məhsulun, qiymətin və stokun təsdiqi deyil.",
+      samples: []
+    },
     product: {
       kicker: "ŞİRKƏTİN MƏHSUL KATALOQU", title: "Hansı məhsulu axtarırsınız?",
       placeholder: "Məhsul kodu və ya təsdiqlənmiş adı...",
@@ -218,10 +227,11 @@
     ui.question.placeholder = config.placeholder;
     ui.question.value = "";
     ui.salesFields.hidden = scope !== "sales";
+    ui.photoPanel.hidden = scope !== "photo";
     ui.uploadPanel.hidden = scope !== "upload";
     if (scope === "upload" && active) void refreshUploadJobs();
-    ui.composer.hidden = scope === "upload";
-    ui.suggestions.hidden = scope === "upload";
+    ui.composer.hidden = scope === "upload" || scope === "photo";
+    ui.suggestions.hidden = scope === "upload" || scope === "photo";
     if (scope === "sales" && !ui.salesYear.value) {
       ui.salesYear.value = String(new Date().getFullYear());
     }
@@ -235,6 +245,86 @@
     }
     ui.question.focus();
   }
+
+  function photoMessage(message, error = false) {
+    ui.photoFeedback.textContent = message;
+    ui.photoFeedback.classList.toggle("error", error);
+  }
+
+  async function lookupPhoto() {
+    if (!active || busy || scope !== "photo") return;
+    const file = ui.photoFile.files?.[0];
+    if (!file) { photoMessage("Əvvəlcə məhsul şəklini seçin.", true); return; }
+    if (!["image/jpeg", "image/png"].includes(file.type) ||
+        file.size < 1 || file.size > 4 * 1024 * 1024) {
+      photoMessage("Yalnız 4 MB-dan kiçik JPG və ya PNG şəklini seçin.", true);
+      return;
+    }
+    busy = true;
+    ui.photoSearch.disabled = true;
+    ui.photoResults.replaceChildren();
+    photoMessage("Təsdiqlənmiş məhsul fotoları yoxlanılır…");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    try {
+      const response = await fetch("/api/photo/lookup", {
+        method: "POST", cache: "no-store", credentials: "omit",
+        headers: {
+          "X-Telegram-Init-Data": signed,
+          "Content-Type": file.type
+        },
+        body: file, signal: controller.signal
+      });
+      if (response.status === 401) {
+        lock("Giriş müddəti bitib. Telegram botundan yenidən daxil olun.");
+        return;
+      }
+      if (response.status === 400) throw new Error("Şəkil oxuna bilmədi. Başqa JPG/PNG foto seçin.");
+      if (response.status === 413) throw new Error("Şəklin ölçüsü 4 MB-dan böyükdür.");
+      if (response.status === 429) throw new Error("Çox sayda sorğu göndərilib. Bir qədər sonra sınayın.");
+      if (!response.ok) throw new Error("Şəkil axtarışı mümkün olmadı. Telegram botundan istifadə edin.");
+      const result = await response.json();
+      if (!["exact", "candidates", "not_found", "unavailable", "unconfirmed"].includes(result.status)) {
+        throw new Error("Məhsul yoxlaması etibarlı nəticə qaytarmadı.");
+      }
+      if (result.status === "exact") {
+        photoMessage("Təsdiqlənmiş eyni şəkil tapıldı.");
+      } else if (result.status === "candidates") {
+        photoMessage("Oxşar fotolar tapıldı. Məhsul kodunu mütləq yoxlayın.");
+      } else {
+        photoMessage("Təsdiqlənmiş məhsul müəyyən edilmədi.");
+      }
+      const notice = document.createElement("p");
+      notice.textContent = result.notice || "Məhsulu kodla yoxlayın.";
+      ui.photoResults.append(notice);
+      if (result.incomplete) {
+        const limit = document.createElement("p");
+        limit.textContent = "Arxivin yalnız bir hissəsi yoxlanılıb.";
+        ui.photoResults.append(limit);
+      }
+      for (const code of Array.isArray(result.codes) ? result.codes.slice(0, 3) : []) {
+        if (typeof code !== "string" || code.length > 70) continue;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "candidate";
+        button.textContent = code + " — Kataloqda yoxla →";
+        button.addEventListener("click", () => {
+          selectScope("product");
+          ui.question.value = code;
+          ui.question.focus();
+        });
+        ui.photoResults.append(button);
+      }
+    } catch (error) {
+      photoMessage(error?.message || "Foto yoxlanılmadı.", true);
+    } finally {
+      clearTimeout(timeout);
+      busy = false;
+      ui.photoSearch.disabled = !active;
+    }
+  }
+
+  ui.photoSearch.addEventListener("click", () => { void lookupPhoto(); });
 
   const jobStages = {
     queued: "Emal növbəsində",

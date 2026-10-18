@@ -7,6 +7,7 @@ to this local port and an approved Mini App URL on the Telegram bot.
 import asyncio
 import logging
 import threading
+from pathlib import Path
 
 from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.ai.service import GroundedAnswerService
@@ -33,8 +34,10 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.miniapp.backend import MiniAppBackend
 from office_assistant.miniapp.http import MiniAppHTTPServer
+from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
+from office_assistant.processing.semantic_visual import SemanticVisualSearch
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +121,17 @@ def main() -> None:
             )
 
         storage = LocalFileStorage(settings.file_storage_path)
+        visual = (
+            SemanticVisualSearch(
+                storage_root=storage.root,
+                model_cache_root=Path(settings.embedding_cache_path),
+                version=settings.visual_semantic_model_version,
+                min_score=settings.visual_semantic_min_score,
+                max_references=settings.visual_semantic_max_references,
+            )
+            if settings.visual_semantic_enabled
+            else None
+        )
         backend = MiniAppBackend(
             session_factory,
             bot_token=settings.telegram_bot_token.get_secret_value(),
@@ -131,6 +145,11 @@ def main() -> None:
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
             ),
             progress=MiniAppDocumentProgress(session_factory),
+            photo_lookup=MiniAppPhotoLookup(
+                session_factory,
+                storage_root=storage.root,
+                semantic=visual,
+            ),
             uploads=MiniAppUploadWorkflow(
                 storage,
                 IngestionSessionService(
