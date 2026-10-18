@@ -19,6 +19,7 @@ from office_assistant.infrastructure.database.models import (
     ProductImageRelation,
     ProductImageRelationConfirmation,
 )
+from office_assistant.processing.image_metadata import image_signature
 from office_assistant.processing.image_similarity import (
     MAX_IMAGE_BYTES,
     VisualCandidate,
@@ -77,7 +78,7 @@ class MiniAppPhotoLookup:
             raise InvalidLookupPhoto("Photo exceeds bounded request size")
         # Decode the supplied image BEFORE reporting a SHA as product identity:
         # arbitrary uploaded binary data must never match a historical digest.
-        if await asyncio.to_thread(fingerprint, photo) is None:
+        if image_signature(photo) is None or await asyncio.to_thread(fingerprint, photo) is None:
             raise InvalidLookupPhoto("A valid non-uniform photograph is required")
 
         digest = sha256(photo).hexdigest()
