@@ -489,9 +489,7 @@ def test_signed_binary_photo_returns_candidates_without_uploading() -> None:
         stream = BytesIO()
         image.save(stream, format="PNG")
         picture = stream.getvalue()
-        status, headers, body = send_photo(
-            port, picture, origin="https://assistant.example.org"
-        )
+        status, headers, body = send_photo(port, picture, origin="https://assistant.example.org")
         assert status == 200
         assert headers["Cache-Control"] == "no-store"
         payload = json.loads(body)
