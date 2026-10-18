@@ -497,9 +497,7 @@ def test_photo_lookup_requires_signed_active_actor_and_does_not_write() -> None:
     }
     lookup.lookup.assert_awaited_once_with(picture)
     assert session.executions == 1
-    session.actor = User(
-        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED
-    )
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
     with pytest.raises(MiniAppAccessDenied):
         asyncio.run(backend.photo(signature(123), image_bytes=picture))
     assert lookup.lookup.await_count == 1
