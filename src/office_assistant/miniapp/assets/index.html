@@ -29,6 +29,7 @@
         <button class="mode active" type="button" data-scope="chat" aria-pressed="true"><span aria-hidden="true">✦</span><strong>Sual ver</strong><small>Adi söhbət</small></button>
         <button class="mode" type="button" data-scope="baza" aria-pressed="false"><span aria-hidden="true">▤</span><strong>Bizim baza</strong><small>Yalnız daxili məlumat</small></button>
         <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
+        <button class="mode" type="button" data-scope="photo" aria-pressed="false"><span aria-hidden="true">▧</span><strong>Şəkillə axtar</strong><small>Foto ilə namizədlər</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
         <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
         <button class="mode" type="button" data-scope="upload" aria-pressed="false"><span aria-hidden="true">＋</span><strong>Sənəd əlavə et</strong><small>Bax və təsdiqlə</small></button>
@@ -54,6 +55,15 @@
           <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
           <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
+        <section class="upload-panel" id="photo-panel" hidden aria-label="Şəkil ilə məhsul axtarışı">
+          <label class="upload-picker" for="photo-file">Məhsulun şəklini seçin
+            <input id="photo-file" type="file" accept="image/jpeg,image/png">
+          </label>
+          <p class="muted">JPG və ya PNG, maksimum 4 MB. Şəkil yalnız axtarış üçün istifadə olunur, bazaya əlavə edilmir.</p>
+          <button type="button" id="photo-search" class="upload-primary">Şəkli yoxla →</button>
+          <p class="upload-feedback" id="photo-feedback" role="status" aria-live="polite"></p>
+          <div id="photo-results" class="photo-results" aria-live="polite"></div>
+        </section>
         <section class="upload-panel" id="upload-panel" hidden aria-label="Sənəd əlavə etmə">
           <label class="upload-picker" for="upload-file">Fayl seçin
             <input id="upload-file" type="file" accept=".pdf,.docx,.xlsx,.txt,.jpg,.jpeg,.png">
