@@ -516,7 +516,9 @@ def test_unsigned_wrong_origin_and_invalid_photo_headers_never_dispatch() -> Non
         assert send_photo(port, b"not-an-image", mime="image/png")[0] == 400
         assert send_photo(port, b"")[0] == 413
         assert call(port, "GET", "/api/photo/lookup")[0] == 404
-        assert backend.calls == []
+        # Valid-length but forged bytes still require a current actor
+        # check first; they never reach the recognition model.
+        assert backend.calls == ["actor:pretend-signed-data"]
 
 
 def test_photo_content_length_is_rejected_before_reading_oversized_payload() -> None:
