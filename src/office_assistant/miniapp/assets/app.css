@@ -34,6 +34,11 @@
 .upload-feedback.error{color:#c93650}
 @media(max-width:620px){.upload-panel{padding:12px}.upload-actions button{flex:1}}
 
+/* Read-only photo recognition; photos are never automatically added to the catalog. */
+.photo-results{display:grid;gap:8px;margin-top:12px}
+.photo-results p{margin:0;overflow-wrap:anywhere}
+.photo-results .candidate{display:block;width:100%;min-height:42px;padding:9px 12px;text-align:left;background:var(--card);color:var(--accent);border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13px;cursor:pointer}
+.photo-results .candidate:hover{border-color:var(--accent)}
 /* Source-of-truth progress: no guessed percentages, no reload-dependent tokens. */
 .job-history{margin-top:22px;border-top:1px solid var(--line);padding-top:14px}
 .job-history-head{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
