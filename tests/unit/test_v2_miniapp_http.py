@@ -4,9 +4,9 @@ import asyncio
 import http.client
 import json
 import threading
-from io import BytesIO
 from collections.abc import Generator
 from contextlib import contextmanager
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
