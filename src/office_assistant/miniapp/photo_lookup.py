@@ -32,8 +32,7 @@ from office_assistant.repositories.product_image_relations import ProductImageRe
 MAX_LOOKUP_BYTES = min(4 * 1024 * 1024, MAX_IMAGE_BYTES)
 MAX_REFERENCES = 500
 _WARNING = (
-    "Oxşarlıq məhsulun eyniliyini, qiymətini və anbarda olmasını təsdiqləmir. "
-    "Kodu ayrıca yoxlayın."
+    "Oxşarlıq məhsulun eyniliyini, qiymətini və anbarda olmasını təsdiqləmir. Kodu ayrıca yoxlayın."
 )
 
 
@@ -88,7 +87,10 @@ class MiniAppPhotoLookup:
             ).active_confirmation_holder_by_content(digest, active_product_only=True)
             if holder is not None:
                 return PhotoLookupResult(
-                    "exact", (holder[1],), "confirmed_sha256", False,
+                    "exact",
+                    (holder[1],),
+                    "confirmed_sha256",
+                    False,
                     "Bu şəkil faylı aktiv məhsula təsdiqlənmiş nümunə ilə eynidir. "
                     "Kataloq uyğunluğu anbar qalığını sübut etmir.",
                 )
@@ -111,9 +113,7 @@ class MiniAppPhotoLookup:
                         ProductImageRelation.superseded_at.is_(None),
                         Product.is_active.is_(True),
                     )
-                    .order_by(
-                        ProductImageRelation.created_at.desc(), ProductImageRelation.id
-                    )
+                    .order_by(ProductImageRelation.created_at.desc(), ProductImageRelation.id)
                     .limit(MAX_REFERENCES + 1)
                 )
             ).all()
@@ -126,8 +126,11 @@ class MiniAppPhotoLookup:
         )
         if near:
             return PhotoLookupResult(
-                "candidates", tuple(x.product_code for x in near),
-                "near_duplicate", incomplete, _WARNING,
+                "candidates",
+                tuple(x.product_code for x in near),
+                "near_duplicate",
+                incomplete,
+                _WARNING,
             )
         if approved and self.semantic is not None:
             try:
@@ -141,28 +144,43 @@ class MiniAppPhotoLookup:
                 )
             except TimeoutError:
                 return PhotoLookupResult(
-                    "unavailable", (), "offline_model", incomplete,
+                    "unavailable",
+                    (),
+                    "offline_model",
+                    incomplete,
                     "Şəkil modeli cavab vermədi. Məhsulu kodla axtarın.",
                 )
             if result.unavailable:
                 return PhotoLookupResult(
-                    "unavailable", (), "offline_model", incomplete or result.incomplete,
+                    "unavailable",
+                    (),
+                    "offline_model",
+                    incomplete or result.incomplete,
                     "Şəkil modeli hazırda əlçatan deyil. Məhsulu kodla axtarın.",
                 )
             if result.candidates:
                 return PhotoLookupResult(
-                    "candidates", tuple(x.product_code for x in result.candidates),
-                    "cross_angle", incomplete or result.incomplete, _WARNING,
+                    "candidates",
+                    tuple(x.product_code for x in result.candidates),
+                    "cross_angle",
+                    incomplete or result.incomplete,
+                    _WARNING,
                 )
             incomplete = incomplete or result.incomplete
 
         if existing is not None:
             return PhotoLookupResult(
-                "unconfirmed", (), "no_active_confirmation", incomplete,
+                "unconfirmed",
+                (),
+                "no_active_confirmation",
+                incomplete,
                 "Şəkil bazadadır, lakin aktiv məhsula təsdiqlənmiş əlaqəsi yoxdur.",
             )
         return PhotoLookupResult(
-            "not_found", (), "no_match", incomplete,
+            "not_found",
+            (),
+            "no_match",
+            incomplete,
             "Təsdiqli fotolar arasında uyğun nümunə tapılmadı. "
             "Bu, məhsulun kataloqda olmadığı demək deyil.",
         )
