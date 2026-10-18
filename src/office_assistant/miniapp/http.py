@@ -29,6 +29,7 @@ from office_assistant.miniapp.backend import (
     MiniAppRateLimited,
     MiniAppServiceUnavailable,
 )
+from office_assistant.miniapp.photo_lookup import InvalidLookupPhoto, MAX_LOOKUP_BYTES
 from office_assistant.miniapp.progress import UploadJobNotFound
 from office_assistant.miniapp.uploads import (
     MiniAppUploadConflict,
@@ -414,8 +415,59 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             logger.warning("Mini App upload failed | error_type=%s", type(error).__name__)
             self._json(503, {"error": "service_unavailable"})
 
+    def _photo_lookup(self, signed: str) -> None:
+        """Accept one bounded ephemeral JPEG/PNG without creating an upload."""
+
+        lengths = self.headers.get_all("Content-Length", [])
+        media = self.headers.get_all("Content-Type", [])
+        if (
+            self.headers.get("Transfer-Encoding")
+            or len(lengths) != 1
+            or len(media) != 1
+            or media[0] not in {"image/jpeg", "image/png"}
+            or re.fullmatch(r"[0-9]{1,9}", lengths[0]) is None
+        ):
+            self._json(400, {"error": "invalid_photo_headers"})
+            return
+        size = int(lengths[0])
+        if size < 1 or size > MAX_LOOKUP_BYTES:
+            self._json(413, {"error": "photo_too_large"})
+            return
+        try:
+            # Check the Telegram signature and ACTIVE DB actor before reading
+            # potentially expensive untrusted image bytes from the socket.
+            self._run(self._app().backend.actor(signed))
+            self.connection.settimeout(20.0)
+            photo = self.rfile.read(size)
+            if len(photo) != size:
+                raise InvalidLookupPhoto("Truncated photo")
+            result = self._run(self._app().backend.photo(signed, image_bytes=photo))
+            assert isinstance(result, dict)
+            self._json(200, cast(dict[str, object], result))
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            self._json(401, {"error": "unauthorized"})
+        except (InvalidLookupPhoto, ValueError, TimeoutError):
+            self._json(400, {"error": "invalid_photo"})
+        except MiniAppRateLimited:
+            self._json(429, {"error": "too_many_requests"})
+        except MiniAppServiceUnavailable:
+            self._json(503, {"error": "service_unavailable"})
+        except Exception as error:
+            logger.warning("Mini App photo lookup failed | error_type=%s", type(error).__name__)
+            self._json(503, {"error": "service_unavailable"})
+
     def do_POST(self) -> None:
         path = urlsplit(self.path)
+        if path.path == "/api/photo/lookup" and not path.query:
+            if not self._allowed_origin():
+                self._json(403, {"error": "origin_not_allowed"})
+                return
+            signed = self._authenticate_header()
+            if signed is None:
+                self._json(401, {"error": "telegram_authorization_required"})
+                return
+            self._photo_lookup(signed)
+            return
         if path.path == "/api/upload/prepare" and not path.query:
             if not self._allowed_origin():
                 self._json(403, {"error": "origin_not_allowed"})
