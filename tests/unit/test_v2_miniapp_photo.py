@@ -33,9 +33,7 @@ def picture(color: tuple[int, int, int], *, side: bool = False) -> bytes:
 
 
 class FakeSession:
-    def __init__(
-        self, rows: list[tuple[str, str, str]], *, known_asset: bool = False
-    ) -> None:
+    def __init__(self, rows: list[tuple[str, str, str]], *, known_asset: bool = False) -> None:
         self.rows = rows
         self.known_asset = known_asset
         self.executed = 0
@@ -188,9 +186,7 @@ def test_only_near_candidates_without_model_never_auto_confirm(
         b"x" * (4 * 1024 * 1024 + 1),
     ],
 )
-def test_invalid_photographs_do_not_start_database_lookup(
-    tmp_path: Path, body: bytes
-) -> None:
+def test_invalid_photographs_do_not_start_database_lookup(tmp_path: Path, body: bytes) -> None:
     session = FakeSession([])
     with pytest.raises(InvalidLookupPhoto):
         asyncio.run(make_service(tmp_path, session).lookup(body))
@@ -218,9 +214,7 @@ def test_missing_offline_model_stays_unavailable_without_identity(
         encoder=OfflineError(),
     )
     result = asyncio.run(
-        make_service(tmp_path, session, semantic=model).lookup(
-            picture((220, 35, 20), side=True)
-        )
+        make_service(tmp_path, session, semantic=model).lookup(picture((220, 35, 20), side=True))
     )
     assert result.status == "unavailable"
     assert result.codes == ()
