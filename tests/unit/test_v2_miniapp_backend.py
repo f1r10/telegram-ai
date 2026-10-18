@@ -48,6 +48,7 @@ from office_assistant.miniapp.backend import (
     MiniAppBackend,
     MiniAppServiceUnavailable,
 )
+from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup, PhotoLookupResult
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 
 TOKEN = "123456:TEST-only"
@@ -103,6 +104,7 @@ def make_backend(
     sales: object | None = None,
     file_delivery: object | None = None,
     progress: object | None = None,
+    photo_lookup: object | None = None,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -119,6 +121,7 @@ def make_backend(
         sales=cast(SalesLedgerService | None, sales),
         file_delivery=cast(SourceFileDeliveryService | None, file_delivery),
         progress=cast(MiniAppDocumentProgress | None, progress),
+        photo_lookup=cast(MiniAppPhotoLookup | None, photo_lookup),
     )
     return backend, factory.session
 
