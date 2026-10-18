@@ -471,3 +471,44 @@ def test_progress_is_not_guessed_when_database_service_is_unavailable() -> None:
         asyncio.run(backend.recent_uploads(signature(123)))
     with pytest.raises(MiniAppServiceUnavailable):
         asyncio.run(backend.upload_status(signature(123), job_id=2))
+
+
+def test_photo_lookup_requires_signed_active_actor_and_does_not_write() -> None:
+    picture = b"\x89PNG\r\n\x1a\nphoto"
+    lookup = SimpleNamespace(
+        lookup=AsyncMock(
+            return_value=PhotoLookupResult(
+                status="candidates",
+                codes=("KA45", "KA46"),
+                method="cross_angle",
+                incomplete=True,
+                notice="Yoxlama tələb olunur.",
+            )
+        )
+    )
+    backend, session = make_backend(photo_lookup=lookup)
+    result = asyncio.run(backend.photo(signature(123), image_bytes=picture))
+    assert result == {
+        "status": "candidates",
+        "codes": ["KA45", "KA46"],
+        "method": "cross_angle",
+        "incomplete": True,
+        "notice": "Yoxlama tələb olunur.",
+    }
+    lookup.lookup.assert_awaited_once_with(picture)
+    assert session.executions == 1
+    session.actor = User(
+        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED
+    )
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.photo(signature(123), image_bytes=picture))
+    assert lookup.lookup.await_count == 1
+    with pytest.raises(MiniAppAuthenticationError):
+        asyncio.run(backend.photo("tampered", image_bytes=picture))
+    assert lookup.lookup.await_count == 1
+
+
+def test_photo_lookup_feature_unavailable_is_explicit() -> None:
+    backend, _ = make_backend()
+    with pytest.raises(MiniAppServiceUnavailable):
+        asyncio.run(backend.photo(signature(123), image_bytes=b"photo"))
