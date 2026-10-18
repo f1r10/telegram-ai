@@ -92,3 +92,32 @@ Security note: same-content photo ownership checks deliberately keep
 historical inactive-product claims for confirmation conflict prevention.
 The visible exact-match lookup additionally excludes inactive SKUs.
 This avoids reviving retired catalog items while preserving audit integrity.
+
+
+## Mini App: one-photo product lookup
+
+The `Şəkillə axtar` mode is a read-only one-photo-at-a-time convenience
+view of the same confirmed catalog reference hierarchy used by the native bot.
+An ACTIVE Telegram user may submit one **JPEG or PNG**, maximum **4 MiB**.
+The loopback Mini App handler enforces canonical HTTPS origin, a current
+Telegram launch-data signature and current PostgreSQL actor authorization
+before receiving bounded bytes. The application validates real JPEG/PNG
+content, fingerprints it, and compares ONLY active explicitly
+human-confirmed product references. It prefers exact SHA identity,
+then conservative dHash/aHash near duplicates, then optionally the
+preprovisioned offline CLIP model for different-angle candidates.
+Model queries are transient. There is **no upload staging**, file creation,
+catalog write, price/stock write, or on-device persistent photo history
+from this operation. The local `VISUAL_SEMANTIC_ENABLED` switch defaults
+to **false**. When unavailable, the user sees a truthful fallback.
+
+`/api/photo/lookup` accepts binary JPEG/PNG by signed POST (not a public
+photo GET URL) and returns `exact | candidates | not_found | unconfirmed |
+unavailable`, a list of **up to three** authorized catalog codes, a
+non-authoritative method label and a clear Azerbaijani notice.
+An exact SHA means only that the active reference contains the same bytes:
+it still does **not** certify stock or price. A candidate can be tapped to
+open the existing `Məhsul tap` text-code query, preserving separate
+business verification. Test Android/iOS gallery selection, large images,
+near matches, other-side product views, unknown items and slow connections
+before activating the Mini App on staging.
