@@ -29,7 +29,7 @@ from office_assistant.miniapp.backend import (
     MiniAppRateLimited,
     MiniAppServiceUnavailable,
 )
-from office_assistant.miniapp.photo_lookup import InvalidLookupPhoto, MAX_LOOKUP_BYTES
+from office_assistant.miniapp.photo_lookup import MAX_LOOKUP_BYTES, InvalidLookupPhoto
 from office_assistant.miniapp.progress import UploadJobNotFound
 from office_assistant.miniapp.uploads import (
     MiniAppUploadConflict,
@@ -441,6 +441,11 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             photo = self.rfile.read(size)
             if len(photo) != size:
                 raise InvalidLookupPhoto("Truncated photo")
+            from office_assistant.processing.image_metadata import image_signature
+
+            signature = image_signature(photo)
+            if signature is None or signature.mime_type != media[0]:
+                raise InvalidLookupPhoto("Photo MIME does not match the actual bytes")
             result = self._run(self._app().backend.photo(signed, image_bytes=photo))
             assert isinstance(result, dict)
             self._json(200, cast(dict[str, object], result))
