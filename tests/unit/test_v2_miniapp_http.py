@@ -67,6 +67,20 @@ class DummyBackend:
         self.calls.append("ask:" + raw + ":" + scope + ":" + question)
         return ChatResponse("Mənbəli cavab", ((1, "sənəd.pdf"),), False)
 
+    async def actor(self, raw: str) -> object:
+        self.calls.append("actor:" + raw)
+        return object()
+
+    async def photo(self, raw: str, *, image_bytes: bytes) -> dict[str, object]:
+        self.calls.append("photo:" + raw + ":" + str(len(image_bytes)))
+        return {
+            "status": "candidates",
+            "codes": ["KA45"],
+            "method": "cross_angle",
+            "incomplete": False,
+            "notice": "Məhsul kodunu yoxlayın.",
+        }
+
     async def product(self, raw: str, *, query: str) -> dict[str, object]:
         self.calls.append("product:" + raw + ":" + query)
         return {
