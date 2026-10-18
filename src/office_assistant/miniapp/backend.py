@@ -36,6 +36,7 @@ from office_assistant.internal_evidence.delivery import (
 )
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
+from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
@@ -88,6 +89,7 @@ class MiniAppBackend:
         file_delivery: SourceFileDeliveryService | None = None,
         uploads: MiniAppUploadWorkflow | None = None,
         progress: MiniAppDocumentProgress | None = None,
+        photo_lookup: MiniAppPhotoLookup | None = None,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -102,6 +104,7 @@ class MiniAppBackend:
         self.file_delivery = file_delivery
         self.uploads = uploads
         self.progress = progress
+        self.photo_lookup = photo_lookup
         self._source_tickets: dict[str, SourceTicket] = {}
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
@@ -349,6 +352,20 @@ class MiniAppBackend:
         if self.uploads is None:
             raise MiniAppServiceUnavailable("Document upload is not configured")
         return await self.uploads.cancel(actor, token)
+
+    async def photo(self, init_data: str, *, image_bytes: bytes) -> dict[str, object]:
+        """Signed, rate-limited photograph search; never stores or confirms pictures."""
+
+        actor = await self.actor(init_data)
+        if self.photo_lookup is None:
+            raise MiniAppServiceUnavailable("Photo lookup is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        if self._inflight.locked():
+            raise MiniAppRateLimited("The assistant is busy")
+        async with self._inflight:
+            result = await self.photo_lookup.lookup(image_bytes)
+        return result.payload()
 
     async def recent_uploads(self, init_data: str) -> dict[str, object]:
         """Read only the authenticated actor's most recent durable jobs."""
