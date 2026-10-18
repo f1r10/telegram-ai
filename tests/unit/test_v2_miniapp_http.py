@@ -4,12 +4,15 @@ import asyncio
 import http.client
 import json
 import threading
+from io import BytesIO
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from urllib.parse import quote
+
+from PIL import Image, ImageDraw
 
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
@@ -481,8 +484,13 @@ def send_photo(
 
 def test_signed_binary_photo_returns_candidates_without_uploading() -> None:
     with serve() as (port, backend):
+        image = Image.new("RGB", (64, 64), "white")
+        ImageDraw.Draw(image).rectangle((10, 10, 50, 50), fill="navy")
+        stream = BytesIO()
+        image.save(stream, format="PNG")
+        picture = stream.getvalue()
         status, headers, body = send_photo(
-            port, b"ephemeral-bytes", origin="https://assistant.example.org"
+            port, picture, origin="https://assistant.example.org"
         )
         assert status == 200
         assert headers["Cache-Control"] == "no-store"
@@ -496,7 +504,7 @@ def test_signed_binary_photo_returns_candidates_without_uploading() -> None:
         }
         assert backend.calls == [
             "actor:pretend-signed-data",
-            "photo:pretend-signed-data:15",
+            "photo:pretend-signed-data:" + str(len(picture)),
         ]
 
 
@@ -505,6 +513,7 @@ def test_unsigned_wrong_origin_and_invalid_photo_headers_never_dispatch() -> Non
         assert send_photo(port, b"photo", signed=None)[0] == 401
         assert send_photo(port, b"photo", origin="https://evil.example")[0] == 403
         assert send_photo(port, b"photo", mime="application/octet-stream")[0] == 400
+        assert send_photo(port, b"not-an-image", mime="image/png")[0] == 400
         assert send_photo(port, b"")[0] == 413
         assert call(port, "GET", "/api/photo/lookup")[0] == 404
         assert backend.calls == []
