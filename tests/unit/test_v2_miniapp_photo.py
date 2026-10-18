@@ -65,7 +65,7 @@ class FakeFactory:
 
 class ColorEncoder:
     def embed(self, paths: list[Path]) -> list[list[float]]:
-        vectors = []
+        vectors: list[list[float]] = []
         for path in paths:
             with Image.open(path) as image:
                 pixel = image.getpixel((0, 0))
