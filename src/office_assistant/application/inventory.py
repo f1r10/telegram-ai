@@ -94,6 +94,27 @@ class StockTransferReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class StockAdjustmentDraft:
+    product_code: str
+    warehouse: str
+    kind: str
+    quantity: Decimal
+    reference: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockAdjustmentReceipt:
+    product_code: str
+    warehouse: str
+    kind: str
+    balance_before: Decimal
+    balance_after: Decimal
+    applied_delta: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class StockEntry:
     product_code: str
     warehouse: str
@@ -236,7 +257,7 @@ class InventoryLedgerService:
             raise InventoryValidationError("Miqdar düzgün deyil.")
         key = _key(draft.warehouse)
         reference_key = _key(draft.reference)
-        if reference_key.startswith("xfer:"):
+        if reference_key.startswith(("xfer:", "adj:")):
             raise InventoryValidationError(
                 "Köçürmə sənəd nömrəsi anbar giriş/çıxışında işlədilə bilməz."
             )
@@ -455,3 +476,116 @@ class InventoryLedgerService:
                 )
         except IntegrityError as error:
             raise InventoryConflict("Təkrar köçürmə: heç nə iki dəfə yazılmadı.") from error
+
+    async def adjust(self, actor: User, draft: StockAdjustmentDraft) -> StockAdjustmentReceipt:
+        """Audited return/damage/write-off/correction without editing prior movements.
+
+        This domain method is intentionally not reachable from free-form chat:
+        the future admin UI must perform explicit preview and confirmation.
+        """
+        allowed = {"RETURN", "DAMAGE", "WRITE_OFF", "CORRECTION"}
+        location = _key(draft.warehouse)
+        normalized_ref = _key(draft.reference)
+        reason = " ".join(draft.reason.split())
+        scale = draft.quantity.as_tuple().exponent
+        if (
+            draft.kind not in allowed
+            or not 1 <= len(location) <= 128
+            or not 1 <= len(normalized_ref) <= 124
+            or not 10 <= len(reason) <= 300
+            or not draft.quantity.is_finite()
+            or draft.quantity == 0
+            or abs(draft.quantity) > _MAX_QUANTITY
+            or not isinstance(scale, int)
+            or scale < -3
+            or (draft.kind != "CORRECTION" and draft.quantity < 0)
+        ):
+            raise InventoryValidationError(
+                "Düzəliş növü, miqdarı, səbəbi və sənəd nömrəsi etibarsızdır."
+            )
+        reference_key = "adj:" + normalized_ref
+        try:
+            code = normalize_product_code(draft.product_code)
+        except ValueError as error:
+            raise InventoryValidationError("Məhsul kodu düzgün deyil.") from error
+        delta = (
+            draft.quantity
+            if draft.kind in {"RETURN", "CORRECTION"}
+            else -draft.quantity
+        )
+        try:
+            async with self.session_factory.begin() as session:
+                await self._authorize(session, actor, admin=True)
+                product = await self._product(session, code)
+                locked = await ProductRepository(session).get(product.id, for_update=True)
+                if locked is None or not locked.is_active:
+                    raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                # Product-row lock fences all concurrent writes and adjustment
+                # reference replays, even if the warehouse row is absent.
+                duplicate = await session.scalar(
+                    select(InventoryMovement.id).where(
+                        InventoryMovement.product_id == product.id,
+                        InventoryMovement.reference_key == reference_key,
+                    )
+                )
+                if duplicate is not None:
+                    raise InventoryConflict("Bu düzəliş sənədi artıq istifadə olunub.")
+                balance = await session.scalar(
+                    select(InventoryBalance)
+                    .where(
+                        InventoryBalance.product_id == product.id,
+                        InventoryBalance.location_key == location,
+                    )
+                    .with_for_update()
+                )
+                if balance is None:
+                    raise InventoryConflict(
+                        "Bu anbarda təsdiqlənmiş açılış qalığı yoxdur."
+                    )
+                before = balance.quantity
+                after = before + delta
+                if after < 0:
+                    raise InventoryConflict("Anbarda kifayət qədər təsdiqlənmiş qalıq yoxdur.")
+                if after > _MAX_QUANTITY:
+                    raise InventoryConflict("Düzəliş anbar qalıq limitini aşır.")
+                balance.quantity = after
+                movement = InventoryMovement(
+                    product_id=product.id,
+                    location_key=location,
+                    location_name=balance.location_name,
+                    kind="RECEIPT" if delta > 0 else "ISSUE",
+                    quantity=abs(delta),
+                    balance_after=after,
+                    reference_key=reference_key,
+                    reference_label=draft.reference.strip(),
+                    approved_by_user_id=actor.id,
+                )
+                session.add(movement)
+                await session.flush()
+                session.add(
+                    AuditEvent(
+                        actor_user_id=actor.id,
+                        action="INVENTORY_ADJUSTMENT_POSTED",
+                        entity_type="inventory_movement",
+                        entity_id=str(movement.id),
+                        event_metadata={
+                            "product_id": str(product.id),
+                            "location_key": location,
+                            "reference_key": reference_key,
+                            "kind": draft.kind,
+                            "reason": reason,
+                            "delta": str(delta),
+                        },
+                    )
+                )
+                return StockAdjustmentReceipt(
+                    product.display_code,
+                    balance.location_name,
+                    draft.kind,
+                    before,
+                    after,
+                    delta,
+                    draft.reference.strip(),
+                )
+        except IntegrityError as error:
+            raise InventoryConflict("Təkrar düzəliş: heç nə iki dəfə yazılmadı.") from error
