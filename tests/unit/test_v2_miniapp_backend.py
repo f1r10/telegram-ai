@@ -209,7 +209,9 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
     assert uncomparable["known"] is True
     assert uncomparable["total"] is None
     assert uncomparable["total_reason"] == "UNVERIFIED_UNIT"
-    assert len(uncomparable["locations"]) == 2
+    locations = uncomparable["locations"]
+    assert isinstance(locations, list)
+    assert len(locations) == 2
     note = uncomparable["notice"]
     assert isinstance(note, str)
     assert "cəmlənmir" in note
