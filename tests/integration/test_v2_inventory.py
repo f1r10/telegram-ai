@@ -118,9 +118,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 )
                 assert len(actions) == 5
 
-            transfer = StockTransferDraft(
-                CODE, "Kənar", "Əsas", Decimal("1.000"), "MOVE-001"
-            )
+            transfer = StockTransferDraft(CODE, "Kənar", "Əsas", Decimal("1.000"), "MOVE-001")
             with pytest.raises(AuthorizationDenied):
                 await ledger.transfer(employee, transfer)
             done = await ledger.transfer(admin, transfer)
@@ -131,16 +129,12 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             with pytest.raises(InventoryConflict, match="açılış"):
                 await ledger.transfer(
                     admin,
-                    StockTransferDraft(
-                        CODE, "Kənar", "Naməlum", Decimal("1"), "MOVE-002"
-                    ),
+                    StockTransferDraft(CODE, "Kənar", "Naməlum", Decimal("1"), "MOVE-002"),
                 )
             with pytest.raises(InventoryConflict, match="kifayət"):
                 await ledger.transfer(
                     admin,
-                    StockTransferDraft(
-                        CODE, "Kənar", "Əsas", Decimal("8"), "MOVE-003"
-                    ),
+                    StockTransferDraft(CODE, "Kənar", "Əsas", Decimal("8"), "MOVE-003"),
                 )
             competing = await asyncio.gather(
                 ledger.transfer(
