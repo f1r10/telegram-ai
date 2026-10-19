@@ -14,7 +14,9 @@ from office_assistant.application.inventory_xlsx import (
 HEADERS = ("product_code", "warehouse", "kind", "quantity", "reference")
 
 
-def workbook(*rows: tuple[object, ...], headers: tuple[str, ...] = HEADERS) -> bytes:
+def workbook(
+    *rows: tuple[str | int | float | None, ...], headers: tuple[str, ...] = HEADERS
+) -> bytes:
     document = Workbook()
     sheet = document.active
     assert sheet is not None
