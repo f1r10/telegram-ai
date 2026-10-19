@@ -78,9 +78,17 @@ def test_apply_requires_explicit_quiescence(
             "PGDATABASE": "synthetic",
         },
     )
-    monkeypatch.setattr("sys.argv", [
-        "backup_restic", "--storage-root", str(storage), "--staging-root", str(staging), "--apply"
-    ])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "backup_restic",
+            "--storage-root",
+            str(storage),
+            "--staging-root",
+            str(staging),
+            "--apply",
+        ],
+    )
     with pytest.raises(SystemExit) as raised:
         backup_restic.main()
     assert raised.value.code == 2
