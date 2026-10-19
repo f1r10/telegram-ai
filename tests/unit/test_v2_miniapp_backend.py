@@ -20,8 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.application.inventory import (
     InventoryLedgerService,
-    StockMovementHistoryEntry,
     StockLocation,
+    StockMovementHistoryEntry,
     StockSnapshot,
 )
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesTotal
