@@ -2,8 +2,10 @@
 
 import asyncio
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
+from openpyxl import Workbook
 from sqlalchemy import delete, select
 
 from office_assistant.application.errors import AuthorizationDenied
@@ -16,6 +18,7 @@ from office_assistant.application.inventory import (
     StockReservationDraft,
     StockTransferDraft,
 )
+from office_assistant.application.inventory_xlsx import commit_stock_xlsx, preview_stock_xlsx
 from office_assistant.application.products import ProductService
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -382,8 +385,61 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 assert len(consumed_movements) == 1
                 assert consumed_movements[0].kind == "ISSUE"
 
+            # One invalid row aborts every stock movement and audit entry in
+            # the workbook, even when a previous row was otherwise valid.
+            state_before = await ledger.snapshot(admin, CODE)
+
+            def make_stock_workbook(second_quantity: int) -> bytes:
+                workbook = Workbook()
+                page = workbook.active
+                assert page is not None
+                page.append(["product_code", "warehouse", "kind", "quantity", "reference"])
+                page.append([CODE, "Əsas", "GİRİŞ", 2, "BULK-IN-1"])
+                page.append([CODE, "Əsas", "ÇIXIŞ", second_quantity, "BULK-OUT-1"])
+                buffer = BytesIO()
+                workbook.save(buffer)
+                workbook.close()
+                return buffer.getvalue()
+
+            invalid_body = make_stock_workbook(200)
+            invalid_preview = preview_stock_xlsx(invalid_body)
+            with pytest.raises(InventoryConflict):
+                await commit_stock_xlsx(
+                    ledger, admin, invalid_body, confirmed_sha256=invalid_preview.sha256
+                )
+            assert await ledger.snapshot(admin, CODE) == state_before
+            async with factory() as session:
+                uncommitted = await session.scalar(
+                    select(InventoryMovement.id).where(
+                        InventoryMovement.product_id == product_id,
+                        InventoryMovement.reference_key == "bulk-in-1",
+                    )
+                )
+                assert uncommitted is None
+
+            valid_body = make_stock_workbook(2)
+            valid_preview = preview_stock_xlsx(valid_body)
+            with pytest.raises(AuthorizationDenied):
+                await commit_stock_xlsx(
+                    ledger, employee, valid_body, confirmed_sha256=valid_preview.sha256
+                )
+            with pytest.raises(InventoryValidationError, match="dəyişib"):
+                await commit_stock_xlsx(ledger, admin, valid_body, confirmed_sha256="0" * 64)
+            posted = await commit_stock_xlsx(
+                ledger, admin, valid_body, confirmed_sha256=valid_preview.sha256
+            )
+            assert len(posted) == 2
+            assert posted[-1].balance_after == next(
+                loc.quantity for loc in state_before.locations if loc.warehouse == "Əsas"
+            )
+            assert await ledger.snapshot(admin, CODE) == state_before
+            with pytest.raises(InventoryConflict):
+                await commit_stock_xlsx(
+                    ledger, admin, valid_body, confirmed_sha256=valid_preview.sha256
+                )
+
             history = await ledger.history(employee, CODE, limit=30)
-            assert len(history) == 15
+            assert len(history) == 17
             assert history[0].product_code == CODE
             assert all(item.document_reference for item in history)
             main_history = await ledger.history(employee, CODE, warehouse=" ƏSAS ", limit=25)
