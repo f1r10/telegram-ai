@@ -32,9 +32,7 @@ def serve(*, port: int, interval: int) -> None:
     jobs = prometheus.Gauge(
         "office_operational_count", "Safe bounded job counts", ["kind", "state"]
     )
-    failures = prometheus.Counter(
-        "office_probe_failures_total", "Failed monitoring probe cycles"
-    )
+    failures = prometheus.Counter("office_probe_failures_total", "Failed monitoring probe cycles")
     duration = prometheus.Histogram("office_probe_seconds", "Readiness probe duration")
     for name in sorted(KNOWN_CHECKS):
         components.labels(component=name).set(-1)
@@ -53,9 +51,7 @@ def serve(*, port: int, interval: int) -> None:
                 components.labels(component=name).set(sample.checks.get(name, -1))
             for name in _COUNT_COMPONENTS:
                 for label in KNOWN_COUNTS:
-                    jobs.labels(kind=name, state=label).set(
-                        sample.counters.get((name, label), 0)
-                    )
+                    jobs.labels(kind=name, state=label).set(sample.counters.get((name, label), 0))
         except Exception:
             readiness.set(0)
             failures.inc()
