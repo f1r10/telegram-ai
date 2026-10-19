@@ -20,7 +20,9 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     InventoryBalance,
     InventoryMovement,
+    InventoryProductUnit,
     InventoryReservation,
+    InventoryWarehouse,
     Product,
     User,
     UserRole,
@@ -74,6 +76,7 @@ class StockDraft:
     kind: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +86,7 @@ class StockTransferDraft:
     destination_warehouse: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,7 @@ class StockAdjustmentDraft:
     quantity: Decimal
     reference: str
     reason: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +128,7 @@ class StockReservationDraft:
     warehouse: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +175,7 @@ class StockSnapshot:
     product_code: str
     locations: tuple[StockLocation, ...]
     total: Decimal | None
+    unit_code: str | None = None
 
 
 def _key(text: str) -> str:
@@ -270,10 +277,33 @@ class InventoryLedgerService:
         )
         return Decimal(str(amount)) if amount is not None else Decimal("0")
 
+    @staticmethod
+    async def _enforce_unit_policy(
+        session: AsyncSession, product_id: UUID, supplied_unit: str | None,
+        locations: tuple[str, ...],
+    ) -> None:
+        """Registered products require an explicit canonical unit and open warehouse."""
+        rule = await session.get(InventoryProductUnit, product_id)
+        if rule is None:
+            if supplied_unit is not None:
+                raise InventoryValidationError(
+                    "Bu məhsulun əsas vahidi təsdiqlənməyib; vahidli əməliyyat dayandırıldı."
+                )
+            return  # legacy unit-UNKNOWN records stay unchanged until owner reconciliation
+        if supplied_unit is None or supplied_unit.strip().upper() != rule.base_unit:
+            raise InventoryValidationError(
+                "Ölçü vahidi uyğun deyil; yalnız məhsulun təsdiqlənmiş əsas vahidi qəbul edilir."
+            )
+        for location_key in set(locations):
+            warehouse = await session.get(InventoryWarehouse, location_key)
+            if warehouse is None or warehouse.status != "ACTIVE":
+                raise InventoryConflict("Yalnız reyestrdə aktiv təsdiqlənmiş anbarda əməliyyat olar.")
+
     async def snapshot(self, actor: User, code: str) -> StockSnapshot:
         async with self.session_factory() as session:
             await self._authorize(session, actor)
             product = await self._product(session, normalize_product_code(code))
+            unit_policy = await session.get(InventoryProductUnit, product.id)
             rows = list(
                 (
                     await session.scalars(
@@ -287,6 +317,7 @@ class InventoryLedgerService:
                 product_code=product.display_code,
                 locations=tuple(StockLocation(item.location_name, item.quantity) for item in rows),
                 total=sum((item.quantity for item in rows), Decimal(0)) if rows else None,
+                unit_code=unit_policy.base_unit if unit_policy is not None else None,
             )
 
     async def history(
