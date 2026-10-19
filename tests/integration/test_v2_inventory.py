@@ -257,12 +257,29 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 )
                 assert len(audit) == 3
 
+            history = await ledger.history(employee, CODE, limit=30)
+            assert len(history) == 12
+            assert history[0].product_code == CODE
+            assert all(item.document_reference for item in history)
+            main_history = await ledger.history(
+                employee, CODE, warehouse=" ƏSAS ", limit=25
+            )
+            assert main_history
+            assert all(item.warehouse == "Əsas" for item in main_history)
+            assert len(await ledger.history(employee, CODE, limit=1)) == 1
+            with pytest.raises(InventoryValidationError):
+                await ledger.history(employee, CODE, limit=0)
+            with pytest.raises(InventoryValidationError):
+                await ledger.history(employee, CODE, warehouse="  ")
+
             async with factory.begin() as session:
                 db_actor = await session.get(User, employee_id)
                 assert db_actor is not None
                 db_actor.status = UserStatus.DISABLED
             with pytest.raises(AuthorizationDenied):
                 await ledger.snapshot(employee, CODE)
+            with pytest.raises(AuthorizationDenied):
+                await ledger.history(employee, CODE)
 
             async with factory.begin() as session:
                 product_db = await session.get(Product, product_id)
