@@ -96,7 +96,8 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             await ledger.record(admin, _draft(CODE, "Kənar", "OPENING", "2.500", "O-003"))
             await ledger.record(admin, _draft(CODE, "Kənar", "RECEIPT", "1.000", "R-002"))
             state = await ledger.snapshot(employee, CODE)
-            assert state.total == Decimal("7.250")
+            assert state.total is None
+            assert state.total_reason == "UNVERIFIED_UNIT"
             assert len(state.locations) == 2
 
             async with factory() as session:
@@ -163,7 +164,8 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert sum(isinstance(x, InventoryConflict) for x in competing) == 1
             assert sum(not isinstance(x, Exception) for x in competing) == 1
             after_transfer = await ledger.snapshot(admin, CODE)
-            assert after_transfer.total == Decimal("7.250")
+            assert after_transfer.total is None
+            assert after_transfer.total_reason == "UNVERIFIED_UNIT"
             async with factory() as session:
                 transfers = list(
                     (
