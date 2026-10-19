@@ -445,6 +445,144 @@ class InventoryLedgerService:
         except IntegrityError as error:
             raise InventoryConflict("Təkrar stok əməliyyatı; heç nə iki dəfə yazılmadı.") from error
 
+    async def record_batch(
+        self, actor: User, drafts: tuple[StockDraft, ...], *, workbook_sha256: str
+    ) -> tuple[StockEntry, ...]:
+        """All-or-nothing admin-approved XLSX journal after digest confirmation.
+
+        Product locks are acquired in canonical sorted order before any write;
+        a bad final row rolls the whole batch back, including audit events.
+        """
+        if not 1 <= len(drafts) <= 200 or re.fullmatch(r"[0-9a-f]{64}", workbook_sha256) is None:
+            raise InventoryValidationError("Toplu stok üçün limit və təsdiq düzgün deyil.")
+        checked: list[tuple[str, str, str, StockDraft]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for draft in drafts:
+            try:
+                code = normalize_product_code(draft.product_code)
+            except ValueError as error:
+                raise InventoryValidationError("Məhsul kodu düzgün deyil.") from error
+            location = _key(draft.warehouse)
+            reference = _key(draft.reference)
+            precision = draft.quantity.as_tuple().exponent
+            if (
+                draft.kind not in {"OPENING", "RECEIPT", "ISSUE"}
+                or not 1 <= len(location) <= 128
+                or not 1 <= len(reference) <= 128
+                or reference.startswith(("xfer:", "adj:", "res:"))
+                or not draft.quantity.is_finite()
+                or draft.quantity < 0
+                or draft.quantity > _MAX_QUANTITY
+                or (draft.quantity == 0 and draft.kind != "OPENING")
+                or not isinstance(precision, int)
+                or precision < -3
+            ):
+                raise InventoryValidationError("Toplu stok sətrində təsdiqsiz məlumat var.")
+            key = (code, location, reference)
+            if key in seen:
+                raise InventoryValidationError("Təkrarlanan stok sənəd nömrəsi var.")
+            seen.add(key)
+            checked.append((code, location, reference, draft))
+        try:
+            async with self.session_factory.begin() as session:
+                await self._authorize(session, actor, admin=True)
+                products: dict[str, Product] = {}
+                for code in sorted({row[0] for row in checked}):
+                    product = await self._product(session, code)
+                    locked = await ProductRepository(session).get(product.id, for_update=True)
+                    if locked is None or not locked.is_active:
+                        raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                    products[code] = locked
+
+                receipt: list[StockEntry] = []
+                for code, location, reference, draft in checked:
+                    product = products[code]
+                    prior = await session.scalar(
+                        select(InventoryMovement.id).where(
+                            InventoryMovement.product_id == product.id,
+                            InventoryMovement.location_key == location,
+                            InventoryMovement.reference_key == reference,
+                        )
+                    )
+                    if prior is not None:
+                        raise InventoryConflict("Toplu faylda əvvəldən işlənmiş sənəd var.")
+                    balance = await session.scalar(
+                        select(InventoryBalance)
+                        .where(
+                            InventoryBalance.product_id == product.id,
+                            InventoryBalance.location_key == location,
+                        )
+                        .with_for_update()
+                    )
+                    if balance is None and draft.kind != "OPENING":
+                        raise InventoryConflict("Əvvəl təsdiqlənmiş açılış qalığı tələb olunur.")
+                    if balance is not None and draft.kind == "OPENING":
+                        raise InventoryConflict("Bu anbarda açılış artıq təsdiqlənib.")
+                    before = balance.quantity if balance is not None else Decimal(0)
+                    after = (
+                        draft.quantity
+                        if draft.kind == "OPENING"
+                        else before + (draft.quantity if draft.kind == "RECEIPT" else -draft.quantity)
+                    )
+                    if not 0 <= after <= _MAX_QUANTITY:
+                        raise InventoryConflict("Toplu əməliyyat stok qalıq limitini pozur.")
+                    if draft.kind == "ISSUE":
+                        reserved = await self._reserved_quantity(session, product.id, location)
+                        if after < reserved:
+                            raise InventoryConflict("Rezerv edilmiş stokdan çıxış etmək olmaz.")
+                    if balance is None:
+                        session.add(
+                            InventoryBalance(
+                                product_id=product.id,
+                                location_key=location,
+                                location_name=draft.warehouse.strip(),
+                                quantity=after,
+                            )
+                        )
+                    else:
+                        balance.quantity = after
+                    movement = InventoryMovement(
+                        product_id=product.id,
+                        location_key=location,
+                        location_name=draft.warehouse.strip(),
+                        kind=draft.kind,
+                        quantity=draft.quantity,
+                        balance_after=after,
+                        reference_key=reference,
+                        reference_label=draft.reference.strip(),
+                        approved_by_user_id=actor.id,
+                    )
+                    session.add(movement)
+                    await session.flush()
+                    session.add(
+                        AuditEvent(
+                            actor_user_id=actor.id,
+                            action="INVENTORY_BULK_MOVEMENT_POSTED",
+                            entity_type="inventory_movement",
+                            entity_id=str(movement.id),
+                            event_metadata={
+                                "product_id": str(product.id),
+                                "kind": draft.kind,
+                                "location_key": location,
+                                "reference_key": reference,
+                                "source_sha256": workbook_sha256,
+                            },
+                        )
+                    )
+                    receipt.append(
+                        StockEntry(
+                            product.display_code,
+                            draft.warehouse,
+                            draft.kind,
+                            draft.quantity,
+                            after,
+                            draft.reference,
+                        )
+                    )
+                return tuple(receipt)
+        except IntegrityError as error:
+            raise InventoryConflict("Toplu əməliyyat dəyişmədən rədd edildi.") from error
+
     async def transfer(self, actor: User, draft: StockTransferDraft) -> StockTransferReceipt:
         """Move confirmed stock between two already opened warehouses atomically.
 
