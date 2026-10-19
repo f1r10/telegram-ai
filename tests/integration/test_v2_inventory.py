@@ -12,8 +12,8 @@ from office_assistant.application.inventory import (
     InventoryLedgerService,
     InventoryValidationError,
     StockAdjustmentDraft,
-    StockReservationDraft,
     StockDraft,
+    StockReservationDraft,
     StockTransferDraft,
 )
 from office_assistant.application.products import ProductService
