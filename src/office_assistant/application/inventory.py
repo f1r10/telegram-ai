@@ -486,13 +486,21 @@ class InventoryLedgerService:
         try:
             async with self.session_factory.begin() as session:
                 await self._authorize(session, actor, admin=True)
-                products: dict[str, Product] = {}
-                for code in sorted({row[0] for row in checked}):
-                    product = await self._product(session, code)
-                    locked = await ProductRepository(session).get(product.id, for_update=True)
+                # Different aliases can name the same product. Resolve first,
+                # then lock canonical product IDs in one deterministic order.
+                resolved = {
+                    code: await self._product(session, code)
+                    for code in sorted({row[0] for row in checked})
+                }
+                locked_by_id: dict[UUID, Product] = {}
+                for product_id in sorted({item.id for item in resolved.values()}, key=str):
+                    locked = await ProductRepository(session).get(product_id, for_update=True)
                     if locked is None or not locked.is_active:
                         raise InventoryConflict("Məhsul artıq aktiv deyil.")
-                    products[code] = locked
+                    locked_by_id[product_id] = locked
+                products = {
+                    code: locked_by_id[product.id] for code, product in resolved.items()
+                }
 
                 receipt: list[StockEntry] = []
                 for code, location, reference, draft in checked:
