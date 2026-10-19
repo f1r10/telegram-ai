@@ -6,6 +6,7 @@ import hmac
 import json
 import time
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.application.inventory import (
     InventoryLedgerService,
+    StockMovementHistoryEntry,
     StockLocation,
     StockSnapshot,
 )
@@ -189,6 +191,40 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
     assert known_zero["known"] is True
     assert known_zero["total"] == "0"
     inventory.snapshot.assert_awaited_with(session.actor, "KA45")
+
+
+def test_stock_history_is_bounded_signed_and_rechecks_current_actor() -> None:
+    row = StockMovementHistoryEntry(
+        "KA45",
+        "Əsas",
+        "RECEIPT",
+        Decimal("2.250"),
+        Decimal("3.500"),
+        "QEB-12",
+        datetime(2026, 10, 19, tzinfo=UTC),
+    )
+    inventory = SimpleNamespace(history=AsyncMock(return_value=(row,)))
+    backend, session = make_backend(inventory=inventory)
+    result = asyncio.run(backend.stock_history(signature(123), code="KA45"))
+    assert result["product_code"] == "KA45"
+    assert result["items"] == [
+        {
+            "warehouse": "Əsas",
+            "kind": "RECEIPT",
+            "quantity": "2.250",
+            "balance_after": "3.500",
+            "reference": "QEB-12",
+            "confirmed_at": "2026-10-19T00:00:00+00:00",
+        }
+    ]
+    inventory.history.assert_awaited_once_with(session.actor, "KA45", limit=12)
+    with pytest.raises(ValueError):
+        asyncio.run(backend.stock_history(signature(123), code="../unsafe"))
+    assert inventory.history.await_count == 1
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.stock_history(signature(123), code="KA45"))
+    assert inventory.history.await_count == 1
 
 
 def test_unauthorized_user_cannot_query_business_data() -> None:
