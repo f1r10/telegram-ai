@@ -1509,6 +1509,45 @@ class InventoryBalance(Base):
     )
 
 
+class InventoryReservation(Base):
+    """Approved reservation; never mutates physical on-hand inventory by itself."""
+
+    __tablename__ = "inventory_reservations"
+    __table_args__ = (
+        UniqueConstraint("product_id", "reference_key", name="uq_inventory_reservation_reference"),
+        CheckConstraint("quantity > 0", name="ck_inventory_reservation_quantity_positive"),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'CANCELLED', 'CONSUMED')",
+            name="ck_inventory_reservation_status",
+        ),
+        Index(
+            "ix_inventory_reservation_available",
+            "product_id",
+            "location_key",
+            "status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    location_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    reference_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    reference_label: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ACTIVE")
+    approved_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class InventoryMovement(Base):
     """Append-only signed stock mutation with operator approval and deduplication."""
 
