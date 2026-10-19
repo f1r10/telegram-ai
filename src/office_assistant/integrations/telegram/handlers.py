@@ -2336,8 +2336,10 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             ).all()
         incomplete = len(rows) > 500
         references = [
-            VisualCandidate(product_code=code, storage_key=storage_key)
-            for code, storage_key, _ in rows[:500]
+            VisualCandidate(
+                product_code=code, storage_key=storage_key, content_sha256=reference_sha
+            )
+            for code, storage_key, reference_sha in rows[:500]
         ]
         possible = await asyncio.to_thread(shortlist, picture, references, services.storage.root)
         if possible:

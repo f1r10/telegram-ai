@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from typing import cast
@@ -30,6 +31,7 @@ class ImageFingerprint:
 class VisualCandidate:
     product_code: str
     storage_key: str
+    content_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +118,17 @@ def shortlist(
         a = (query_hash.ahash ^ ref_hash.ahash).bit_count()
         if d > DHASH_DISTANCE_LIMIT or a > AHASH_DISTANCE_LIMIT:
             continue
+        # Fingerprint similarity is not proof that the current file is the
+        # human-approved reference. In live lookups the caller supplies the
+        # confirmed ImageAsset SHA; reject edited, stale or corrupt reference
+        # bytes even when an old fingerprint exists in the local file cache.
+        if item.content_sha256 is not None:
+            try:
+                body = path.read_bytes()
+            except OSError:
+                continue
+            if len(body) > MAX_IMAGE_BYTES or sha256(body).hexdigest() != item.content_sha256:
+                continue
         match = VisualMatch(item.product_code, d, a)
         existing = best_by_product.get(item.product_code)
         if existing is None or (d + a, d, a) < (
