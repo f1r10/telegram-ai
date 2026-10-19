@@ -18,11 +18,8 @@ from office_assistant.application.inventory import (
     StockReservationDraft,
     StockTransferDraft,
 )
+from office_assistant.application.inventory_xlsx import commit_stock_xlsx, preview_stock_xlsx
 from office_assistant.application.products import ProductService
-from office_assistant.application.inventory_xlsx import (
-    commit_stock_xlsx,
-    preview_stock_xlsx,
-)
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
@@ -433,7 +430,9 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 ledger, admin, valid_body, confirmed_sha256=valid_preview.sha256
             )
             assert len(posted) == 2
-            assert posted[-1].balance_after == state_before.locations[0].quantity
+            assert posted[-1].balance_after == next(
+                loc.quantity for loc in state_before.locations if loc.warehouse == "Əsas"
+            )
             assert await ledger.snapshot(admin, CODE) == state_before
             with pytest.raises(InventoryConflict):
                 await commit_stock_xlsx(
