@@ -282,10 +282,8 @@ def test_stock_history_http_is_signed_and_read_only() -> None:
         value = json.loads(body)
         assert value["items"][0]["reference"] == "QEB-12"
         assert backend.calls == ["history:pretend-signed-data:KA45"]
-        assert (
-            call(port, "POST", "/api/stock/history", body={"code": "KA45"}, signed=None)[0]
-            == 401
-        )
+        unsigned = call(port, "POST", "/api/stock/history", body={"code": "KA45"}, signed=None)
+        assert unsigned[0] == 401
         assert (
             call(
                 port,
