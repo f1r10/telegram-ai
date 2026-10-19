@@ -1,7 +1,6 @@
 """Bounded, formula-free stock XLSX preview; no data writes before approval."""
 
 from dataclasses import dataclass
-from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
 from zipfile import BadZipFile, ZipFile
@@ -9,8 +8,12 @@ from zipfile import BadZipFile, ZipFile
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
+from office_assistant.infrastructure.database.models import User
+
 from office_assistant.application.inventory import (
     InventoryValidationError,
+    InventoryLedgerService,
+    StockEntry,
     StockDraft,
     parse_stock_draft,
 )
@@ -134,3 +137,15 @@ def approved_drafts(
     if not hmac.compare_digest(preview.sha256, confirmed_sha256):
         raise InventoryValidationError("Önbaxışdan sonra Excel dəyişib; təsdiq etibarsızdır.")
     return preview.drafts
+
+
+async def commit_stock_xlsx(
+    ledger: InventoryLedgerService,
+    actor: User,
+    payload: bytes,
+    *,
+    confirmed_sha256: str,
+) -> tuple[StockEntry, ...]:
+    """Only an explicitly confirmed, SHA-identical workbook may post stock."""
+    drafts = approved_drafts(payload, confirmed_sha256=confirmed_sha256)
+    return await ledger.record_batch(actor, drafts, workbook_sha256=confirmed_sha256)
