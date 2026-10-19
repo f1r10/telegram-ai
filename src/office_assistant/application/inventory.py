@@ -74,6 +74,26 @@ class StockDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class StockTransferDraft:
+    product_code: str
+    source_warehouse: str
+    destination_warehouse: str
+    quantity: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockTransferReceipt:
+    product_code: str
+    source_warehouse: str
+    destination_warehouse: str
+    source_balance_after: Decimal
+    destination_balance_after: Decimal
+    quantity: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class StockEntry:
     product_code: str
     warehouse: str
@@ -216,6 +236,10 @@ class InventoryLedgerService:
             raise InventoryValidationError("Miqdar düzgün deyil.")
         key = _key(draft.warehouse)
         reference_key = _key(draft.reference)
+        if reference_key.startswith("xfer:"):
+            raise InventoryValidationError(
+                "Köçürmə sənəd nömrəsi anbar giriş/çıxışında işlədilə bilməz."
+            )
         if not 1 <= len(key) <= 128 or not 1 <= len(reference_key) <= 128:
             raise InventoryValidationError("Anbar və sənəd nömrəsi düzgün deyil.")
         try:
@@ -310,3 +334,125 @@ class InventoryLedgerService:
                 )
         except IntegrityError as error:
             raise InventoryConflict("Təkrar stok əməliyyatı; heç nə iki dəfə yazılmadı.") from error
+
+    async def transfer(self, actor: User, draft: StockTransferDraft) -> StockTransferReceipt:
+        """Move confirmed stock between two already opened warehouses atomically.
+
+        This low-level API deliberately has no unreviewed Telegram intent route:
+        an admin must explicitly approve any future UI transfer preview first.
+        """
+        source_key = _key(draft.source_warehouse)
+        dest_key = _key(draft.destination_warehouse)
+        reference_key = "xfer:" + _key(draft.reference)
+        scale = draft.quantity.as_tuple().exponent
+        if (
+            not 1 <= len(source_key) <= 128
+            or not 1 <= len(dest_key) <= 128
+            or source_key == dest_key
+            or not 1 <= len(_key(draft.reference)) <= 123
+            or not draft.quantity.is_finite()
+            or draft.quantity <= 0
+            or draft.quantity > _MAX_QUANTITY
+            or not isinstance(scale, int)
+            or scale < -3
+        ):
+            raise InventoryValidationError(
+                "Köçürmə miqdarı, anbarlar və sənəd nömrəsi düzgün deyil."
+            )
+        try:
+            code = normalize_product_code(draft.product_code)
+        except ValueError as error:
+            raise InventoryValidationError("Məhsul kodu düzgün deyil.") from error
+        try:
+            async with self.session_factory.begin() as session:
+                await self._authorize(session, actor, admin=True)
+                product = await self._product(session, code)
+                locked = await ProductRepository(session).get(product.id, for_update=True)
+                if locked is None or not locked.is_active:
+                    raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                # The product row serializes concurrent operations, even when the
+                # destination has no row yet. Both legs stay in one transaction.
+                balances = list(
+                    (
+                        await session.scalars(
+                            select(InventoryBalance)
+                            .where(
+                                InventoryBalance.product_id == product.id,
+                                InventoryBalance.location_key.in_([source_key, dest_key]),
+                            )
+                            .order_by(InventoryBalance.location_key)
+                            .with_for_update()
+                        )
+                    ).all()
+                )
+                by_location = {balance.location_key: balance for balance in balances}
+                source = by_location.get(source_key)
+                destination = by_location.get(dest_key)
+                if source is None or destination is None:
+                    raise InventoryConflict("Hər iki anbarda təsdiqlənmiş açılış qalığı olmalıdır.")
+                prior = await session.scalar(
+                    select(InventoryMovement.id).where(
+                        InventoryMovement.product_id == product.id,
+                        InventoryMovement.reference_key == reference_key,
+                        InventoryMovement.location_key.in_([source_key, dest_key]),
+                    )
+                )
+                if prior is not None:
+                    raise InventoryConflict("Bu köçürmə sənədi artıq istifadə olunub.")
+                if source.quantity < draft.quantity:
+                    raise InventoryConflict("Mənbə anbarda kifayət qədər qalıq yoxdur.")
+                if destination.quantity + draft.quantity > _MAX_QUANTITY:
+                    raise InventoryConflict("Təyinat anbarı qalıq limitini aşır.")
+                source.quantity -= draft.quantity
+                destination.quantity += draft.quantity
+                leaving = InventoryMovement(
+                    product_id=product.id,
+                    location_key=source_key,
+                    location_name=source.location_name,
+                    kind="ISSUE",
+                    quantity=draft.quantity,
+                    balance_after=source.quantity,
+                    reference_key=reference_key,
+                    reference_label=draft.reference.strip(),
+                    approved_by_user_id=actor.id,
+                )
+                arriving = InventoryMovement(
+                    product_id=product.id,
+                    location_key=dest_key,
+                    location_name=destination.location_name,
+                    kind="RECEIPT",
+                    quantity=draft.quantity,
+                    balance_after=destination.quantity,
+                    reference_key=reference_key,
+                    reference_label=draft.reference.strip(),
+                    approved_by_user_id=actor.id,
+                )
+                session.add_all([leaving, arriving])
+                await session.flush()
+                session.add(
+                    AuditEvent(
+                        actor_user_id=actor.id,
+                        action="INVENTORY_TRANSFER_POSTED",
+                        entity_type="inventory_movement",
+                        entity_id=str(leaving.id),
+                        event_metadata={
+                            "product_id": str(product.id),
+                            "from": source_key,
+                            "to": dest_key,
+                            "reference_key": reference_key,
+                            "out_id": leaving.id,
+                            "in_id": arriving.id,
+                        },
+                    )
+                )
+                return StockTransferReceipt(
+                    product.display_code,
+                    source.location_name,
+                    destination.location_name,
+                    source.quantity,
+                    destination.quantity,
+                    draft.quantity,
+                    draft.reference,
+                )
+        except IntegrityError as error:
+            raise InventoryConflict("Təkrar köçürmə: heç nə iki dəfə yazılmadı.") from error
