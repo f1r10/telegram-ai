@@ -77,7 +77,10 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
         if len(workbook.worksheets) != 1:
             raise InventoryValidationError("Yalnız bir vərəqli stok şablonu qəbul edilir.")
         sheet = workbook.worksheets[0]
-        if sheet.max_column not in (len(_HEADERS), len(_UNIT_HEADERS)) or sheet.max_row > MAX_ROWS + 1:
+        if (
+            sheet.max_column not in (len(_HEADERS), len(_UNIT_HEADERS))
+            or sheet.max_row > MAX_ROWS + 1
+        ):
             raise InventoryValidationError("Excel sütunları və ya sətir limiti düzgün deyil.")
         rows = sheet.iter_rows()
         header = next(rows, ())
