@@ -27,9 +27,11 @@ class Recall:
         return {
             "samples": self.samples,
             "native_phrase_recall": round(self.native_hits / self.samples, 4)
-            if self.samples else None,
+            if self.samples
+            else None,
             "docling_phrase_recall": round(self.docling_hits / self.samples, 4)
-            if self.samples else None,
+            if self.samples
+            else None,
         }
 
 
@@ -45,7 +47,8 @@ def score_phrases(native: str, candidate: str, expected: list[str]) -> Recall:
     if not phrases or any(not item or len(item) > 250 for item in phrases):
         raise ValueError("Invalid private label set")
     return Recall(
-        len(phrases), sum(item in source for item in phrases),
+        len(phrases),
+        sum(item in source for item in phrases),
         sum(item in proposed for item in phrases),
     )
 
