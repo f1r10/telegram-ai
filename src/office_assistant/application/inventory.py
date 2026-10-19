@@ -686,9 +686,7 @@ class InventoryLedgerService:
             raise InventoryValidationError("Rezervasiya sənəd nömrəsi düzgün deyil.")
         return "res:" + key
 
-    async def reserve(
-        self, actor: User, draft: StockReservationDraft
-    ) -> StockReservationReceipt:
+    async def reserve(self, actor: User, draft: StockReservationDraft) -> StockReservationReceipt:
         """Admin-only reservation of already verified available stock."""
         location = _key(draft.warehouse)
         scale = draft.quantity.as_tuple().exponent
