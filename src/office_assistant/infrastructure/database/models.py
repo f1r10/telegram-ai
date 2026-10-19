@@ -1539,9 +1539,7 @@ class InventoryUnitConversion(Base):
             name="ck_inventory_conversion_from_unit",
         ),
         CheckConstraint("factor > 0", name="ck_inventory_conversion_factor_positive"),
-        UniqueConstraint(
-            "product_id", "from_unit", name="uq_inventory_conversion_product_from"
-        ),
+        UniqueConstraint("product_id", "from_unit", name="uq_inventory_conversion_product_from"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
