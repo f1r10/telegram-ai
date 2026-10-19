@@ -389,9 +389,7 @@ class InventoryLedgerService:
                 source = by_location.get(source_key)
                 destination = by_location.get(dest_key)
                 if source is None or destination is None:
-                    raise InventoryConflict(
-                        "Hər iki anbarda təsdiqlənmiş açılış qalığı olmalıdır."
-                    )
+                    raise InventoryConflict("Hər iki anbarda təsdiqlənmiş açılış qalığı olmalıdır.")
                 prior = await session.scalar(
                     select(InventoryMovement.id).where(
                         InventoryMovement.product_id == product.id,
