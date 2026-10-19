@@ -220,7 +220,6 @@ def test_missing_offline_model_stays_unavailable_without_identity(
     assert result.codes == ()
 
 
-
 def test_mobile_near_match_rejects_mutated_approved_photo_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
