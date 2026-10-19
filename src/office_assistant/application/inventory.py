@@ -498,9 +498,7 @@ class InventoryLedgerService:
                     if locked is None or not locked.is_active:
                         raise InventoryConflict("Məhsul artıq aktiv deyil.")
                     locked_by_id[product_id] = locked
-                products = {
-                    code: locked_by_id[product.id] for code, product in resolved.items()
-                }
+                products = {code: locked_by_id[product.id] for code, product in resolved.items()}
 
                 receipt: list[StockEntry] = []
                 for code, location, reference, draft in checked:
