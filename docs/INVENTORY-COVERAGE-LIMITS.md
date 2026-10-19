@@ -1,17 +1,19 @@
 # Inventory scope: confirmed warehouse sums vs companywide availability
 
 The current inventory ledger is authoritative for **explicitly opened
-product/location balances only**. A product with no confirmed opening rows
-is UNKNOWN, not zero. Once some locations are opened, a sum of those
-locations is meaningful but it is NOT evidence that all company
-warehouses are included, because a complete approved warehouse registry
-and unit-of-measure coverage check is not yet implemented.
+product/location balances only**. A product with no confirmed opening
+rows is UNKNOWN, not zero. For **multiple warehouses**, numerical balances
+can be summed ONLY if that product has an explicitly approved canonical
+unit (e.g. all quantities in PCS). Historic free-text records without
+a confirmed unit are shown per warehouse but their combined total is
+UNKNOWN / INCOMPARABLE; it is never guessed from their numerical values.
 
-Therefore Telegram and Mini App stock views now label the number
-"Təsdiqlənmiş anbarlar üzrə cəm" (sum of confirmed locations) and explicitly
-warn that other locations may be unknown. Do not call this "total
-company stock", "available to sell", "no stock elsewhere", or a
-complete stocktake.
+Therefore Telegram and Mini App stock views show "Təsdiqlənmiş anbarlar
+üzrə cəm" only when the verified quantities share a canonical unit or
+when exactly one opening warehouse is reported. An approved unit still
+does NOT establish that all company warehouses have opening balances.
+Do not call any partial number "total company stock", "available to sell",
+"no stock elsewhere", or a complete stocktake.
 
 Reservations, when present, reduce **available stock** but do not reduce
 physical **on-hand stock** until consumed. Neither this view nor catalog
