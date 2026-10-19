@@ -279,7 +279,9 @@ class InventoryLedgerService:
 
     @staticmethod
     async def _enforce_unit_policy(
-        session: AsyncSession, product_id: UUID, supplied_unit: str | None,
+        session: AsyncSession,
+        product_id: UUID,
+        supplied_unit: str | None,
         locations: tuple[str, ...],
     ) -> None:
         """Registered products require an explicit canonical unit and open warehouse."""
@@ -537,9 +539,7 @@ class InventoryLedgerService:
                 receipt: list[StockEntry] = []
                 for code, location, reference, draft in checked:
                     product = products[code]
-                    await self._enforce_unit_policy(
-                        session, product.id, draft.unit, (location,)
-                    )
+                    await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                     prior = await session.scalar(
                         select(InventoryMovement.id).where(
                             InventoryMovement.product_id == product.id,
