@@ -8,8 +8,9 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,6 +20,7 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     InventoryBalance,
     InventoryMovement,
+    InventoryReservation,
     Product,
     User,
     UserRole,
@@ -113,6 +115,26 @@ class StockAdjustmentReceipt:
     balance_after: Decimal
     applied_delta: Decimal
     reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockReservationDraft:
+    product_code: str
+    warehouse: str
+    quantity: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockReservationReceipt:
+    product_code: str
+    warehouse: str
+    reference: str
+    quantity: Decimal
+    status: str
+    on_hand: Decimal
+    reserved: Decimal
+    available: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +257,19 @@ class InventoryLedgerService:
             )
         return product
 
+    @staticmethod
+    async def _reserved_quantity(
+        session: AsyncSession, product_id: UUID, location_key: str
+    ) -> Decimal:
+        amount = await session.scalar(
+            select(func.sum(InventoryReservation.quantity)).where(
+                InventoryReservation.product_id == product_id,
+                InventoryReservation.location_key == location_key,
+                InventoryReservation.status == "ACTIVE",
+            )
+        )
+        return Decimal(str(amount)) if amount is not None else Decimal("0")
+
     async def snapshot(self, actor: User, code: str) -> StockSnapshot:
         async with self.session_factory() as session:
             await self._authorize(session, actor)
@@ -307,7 +342,7 @@ class InventoryLedgerService:
             raise InventoryValidationError("Miqdar düzgün deyil.")
         key = _key(draft.warehouse)
         reference_key = _key(draft.reference)
-        if reference_key.startswith(("xfer:", "adj:")):
+        if reference_key.startswith(("xfer:", "adj:", "res:")):
             raise InventoryValidationError(
                 "Daxili köçürmə/düzəliş nömrəsi adi giriş/çıxışda işlədilə bilməz."
             )
@@ -355,6 +390,10 @@ class InventoryLedgerService:
                 )
                 if after < 0:
                     raise InventoryConflict("Anbarda kifayət qədər təsdiqlənmiş qalıq yoxdur.")
+                if draft.kind == "ISSUE":
+                    reserved = await self._reserved_quantity(session, product.id, key)
+                    if after < reserved:
+                        raise InventoryConflict("Rezerv edilmiş stokdan çıxış etmək olmaz.")
                 if after > _MAX_QUANTITY:
                     raise InventoryConflict("Anbar qalığı sistem limitini aşır.")
                 if balance is None:
@@ -471,6 +510,9 @@ class InventoryLedgerService:
                     raise InventoryConflict("Bu köçürmə sənədi artıq istifadə olunub.")
                 if source.quantity < draft.quantity:
                     raise InventoryConflict("Mənbə anbarda kifayət qədər qalıq yoxdur.")
+                active_reserved = await self._reserved_quantity(session, product.id, source_key)
+                if source.quantity - draft.quantity < active_reserved:
+                    raise InventoryConflict("Köçürmə rezerv edilmiş miqdarı poza bilməz.")
                 if destination.quantity + draft.quantity > _MAX_QUANTITY:
                     raise InventoryConflict("Təyinat anbarı qalıq limitini aşır.")
                 source.quantity -= draft.quantity
@@ -590,6 +632,9 @@ class InventoryLedgerService:
                 after = before + delta
                 if after < 0:
                     raise InventoryConflict("Anbarda kifayət qədər təsdiqlənmiş qalıq yoxdur.")
+                reserved = await self._reserved_quantity(session, product.id, location)
+                if after < reserved:
+                    raise InventoryConflict("Düzəliş rezerv edilmiş stoku poza bilməz.")
                 if after > _MAX_QUANTITY:
                     raise InventoryConflict("Düzəliş anbar qalıq limitini aşır.")
                 balance.quantity = after
