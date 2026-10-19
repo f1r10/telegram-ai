@@ -2,9 +2,9 @@
 
 Private internal company AI assistant foundation. The planned primary interface is a Telegram bot in Azerbaijani, backed by company data, documents, and controlled external search.
 
-## Current status (2026-10-10)
+## Current status (2026-10-19)
 
-The codebase contains the completed Phases 0-11 and the **Phase 12A image foundation**.
+The codebase contains Phases 0-11 and the **Phase 12A image foundation**, plus V2 read-only Mini App, scanned-PDF OCR, sales and inventory ledgers, and candidate-only photo lookup. The operator-only Restic snapshot tool and local Prometheus exporter are available, as is an offline Docling PDF comparison tool. See [Restic recovery](docs/RESTIC-RECOVERY.md), [Prometheus operations](docs/PROMETHEUS-OPERATIONS.md), and [Docling evaluation](docs/DOCLING-EVALUATION.md). These additions do not establish verified production operations.
 The separate reminder and live-test remediation blocks are also recorded in
 [ROADMAP](docs/ROADMAP.md); their historical numbering differs from the owner's
 Master Spec phase numbering.
@@ -21,9 +21,11 @@ Implemented capabilities include:
 - staged product-reference photo confirmations finalized by `/saxla`, cancelled by
   `/cancel`, and revocable by an administrator through `/leqv_et`.
 
-Phase 12B (OCR and visual model benchmarks), Phase 12C (multimodal product search),
-visual internet search, disaster-recovery verification and final production UAT **are not
-implemented or approved as complete**. Automated test results do not substitute
+Real-image model calibration, multimodal search across every internal evidence class,
+warehouse unit/transfer UI/bulk-import completion, internet visual search, disaster-recovery
+**restore verification** and final production UAT **are not approved as complete**.
+Conservative exact/near-duplicate photo candidate code and opt-in offline CLIP are present;
+semantic candidates are not confirmed product identities. Automated test results do not substitute
 for live Telegram tests with real accounts and a representative product corpus.
 
 The owner's separate Master Specification (dated 2026-10-07) is the primary product

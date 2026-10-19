@@ -36,8 +36,8 @@ labels, unknown stock distinctly from confirmed zero, error states, long
 answers, mobile safe-area spacing, and dark/light layouts. Financial writes, stock changes and bulk imports **stay in the native
 bot**. The Mini App supports only user-confirmed single-file ingestion via
 the existing transactional service. The only browser file operation is explicit,
-authorized one-tap download of an original cited document; the user cannot
-upload, alter or delete any company file through the web endpoints.
+authorized one-tap download of an original cited document; the user can submit a **separately confirmed single-file ingestion** through the web endpoints,
+but cannot alter or delete existing company files.
 
 **Critical authentication:** the web API verifies the raw
 `Telegram.WebApp.initData` HMAC using the bot-token-derived `WebAppData`
@@ -51,7 +51,7 @@ localStorage. Source answers are text-only with labels; no private blob
 paths are sent to the UI. Only known routes are served. The server has
 bounded JSON bodies, explicit same-origin checks, no CORS wildcard,
 `no-store`, an restrictive CSP and a bounded inference concurrency.
-All APIs are read-only.
+The question, product, stock, sales and source-read APIs are read-only. Separate upload endpoints provide an explicitly user-confirmed single-file ingestion workflow, not inventory or sales mutations.
 
 **Mini App product and sales cards:** `POST /api/product` accepts an exact
 product code or alias and only displays active confirmed catalog identity,

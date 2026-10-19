@@ -5,8 +5,10 @@
 An Azerbaijani-language Telegram office assistant with PostgreSQL business records,
 Qdrant-backed RAG, reminders, source-aware internal and external web search, document
 and image ingestion, and user-confirmed product reference images. Controlled web search
-is **implemented** in Phase 11; Phase 12A image foundation is implemented. OCR and visual
-similarity remain future benchmark and search phases.
+is **implemented** in Phase 11; Phase 12A image foundation is implemented. Scanned-PDF OCR and conservative visual candidate search exist, but real-image
+model calibration and production acceptance are outstanding. Restic backups,
+local metrics and Docling are operator-only/benchmark capabilities, not
+automatic production dependencies.
 
 ## Source of truth — read in this order
 

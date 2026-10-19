@@ -4,6 +4,19 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Operator integrations and safe inventory transfers (2026-10-19)
+
+- Add default-dry-run Restic PostgreSQL and private storage snapshots, requiring
+  explicit writer quiescence and isolated restore verification (PR #55).
+- Add opt-in loopback Prometheus metrics with fixed privacy-safe labels (PR #56).
+- Add local-artifact Docling candidate evaluation against verified PDF labels;
+  no production parser replacement (PR #57).
+- Add admin-only atomic stock transfers for existing opened warehouses, with
+  auditable two-leg postings and PostgreSQL concurrency tests (PR #58).
+- Clarify code-vs-production acceptance and remaining issues #11/#32/#35/#40/#43.
+- These PRs did not modify, restore or migrate live company data.
+
+
 ### Telegram search-scope privacy and small-office concurrency (2026-10-13)
 
 - Clear pending external/internal search intent on menu reopening, different menu
