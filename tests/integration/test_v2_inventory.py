@@ -11,6 +11,7 @@ from office_assistant.application.inventory import (
     InventoryConflict,
     InventoryLedgerService,
     InventoryValidationError,
+    StockAdjustmentDraft,
     StockDraft,
     StockTransferDraft,
 )
@@ -172,12 +173,139 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 assert len(transfers) == 4
                 assert {item.kind for item in transfers} == {"ISSUE", "RECEIPT"}
 
+            # Returns, damaged stock and signed corrections use append-only
+            # ledger rows with explicit admin approval and a required reason.
+            adjustment = StockAdjustmentDraft(
+                CODE,
+                "Əsas",
+                "RETURN",
+                Decimal("2.000"),
+                "ADJ-001",
+                "Returned by verified customer",
+            )
+            with pytest.raises(AuthorizationDenied):
+                await ledger.adjust(employee, adjustment)
+            returned = await ledger.adjust(admin, adjustment)
+            assert returned.applied_delta == Decimal("2.000")
+            assert returned.balance_after == returned.balance_before + Decimal("2.000")
+            damaged = await ledger.adjust(
+                admin,
+                StockAdjustmentDraft(
+                    CODE,
+                    "Əsas",
+                    "DAMAGE",
+                    Decimal("1.000"),
+                    "ADJ-002",
+                    "Damaged and inspected in warehouse",
+                ),
+            )
+            assert damaged.applied_delta == Decimal("-1.000")
+            correction = await ledger.adjust(
+                admin,
+                StockAdjustmentDraft(
+                    CODE,
+                    "Əsas",
+                    "CORRECTION",
+                    Decimal("-0.500"),
+                    "ADJ-003",
+                    "Verified physical stock count discrepancy",
+                ),
+            )
+            assert correction.balance_after == damaged.balance_after - Decimal("0.500")
+            with pytest.raises(InventoryConflict, match="artıq"):
+                await ledger.adjust(
+                    admin,
+                    StockAdjustmentDraft(
+                        CODE,
+                        "Kənar",
+                        "RETURN",
+                        Decimal("1"),
+                        "ADJ-001",
+                        "The same document must not post twice",
+                    ),
+                )
+            with pytest.raises(InventoryConflict, match="kifayət"):
+                await ledger.adjust(
+                    admin,
+                    StockAdjustmentDraft(
+                        CODE,
+                        "Əsas",
+                        "WRITE_OFF",
+                        Decimal("200"),
+                        "ADJ-004",
+                        "Broken stock has been reviewed",
+                    ),
+                )
+            with pytest.raises(InventoryConflict, match="açılış"):
+                await ledger.adjust(
+                    admin,
+                    StockAdjustmentDraft(
+                        CODE,
+                        "Naməlum",
+                        "RETURN",
+                        Decimal("1"),
+                        "ADJ-005",
+                        "Verified previous sale returned",
+                    ),
+                )
+            with pytest.raises(InventoryValidationError):
+                await ledger.adjust(
+                    admin,
+                    StockAdjustmentDraft(
+                        CODE,
+                        "Əsas",
+                        "RETURN",
+                        Decimal("-2"),
+                        "ADJ-006",
+                        "Negative return must be rejected",
+                    ),
+                )
+            async with factory() as session:
+                adjustments = list(
+                    (
+                        await session.scalars(
+                            select(InventoryMovement).where(
+                                InventoryMovement.product_id == product_id,
+                                InventoryMovement.reference_key.like("adj:%"),
+                            )
+                        )
+                    ).all()
+                )
+                assert len(adjustments) == 3
+                assert sorted(x.kind for x in adjustments) == ["ISSUE", "ISSUE", "RECEIPT"]
+                audit = list(
+                    (
+                        await session.scalars(
+                            select(AuditEvent).where(
+                                AuditEvent.actor_user_id == admin_id,
+                                AuditEvent.action == "INVENTORY_ADJUSTMENT_POSTED",
+                            )
+                        )
+                    ).all()
+                )
+                assert len(audit) == 3
+
+            history = await ledger.history(employee, CODE, limit=30)
+            assert len(history) == 14
+            assert history[0].product_code == CODE
+            assert all(item.document_reference for item in history)
+            main_history = await ledger.history(employee, CODE, warehouse=" ƏSAS ", limit=25)
+            assert main_history
+            assert all(item.warehouse == "Əsas" for item in main_history)
+            assert len(await ledger.history(employee, CODE, limit=1)) == 1
+            with pytest.raises(InventoryValidationError):
+                await ledger.history(employee, CODE, limit=0)
+            with pytest.raises(InventoryValidationError):
+                await ledger.history(employee, CODE, warehouse="  ")
+
             async with factory.begin() as session:
                 db_actor = await session.get(User, employee_id)
                 assert db_actor is not None
                 db_actor.status = UserStatus.DISABLED
             with pytest.raises(AuthorizationDenied):
                 await ledger.snapshot(employee, CODE)
+            with pytest.raises(AuthorizationDenied):
+                await ledger.history(employee, CODE)
 
             async with factory.begin() as session:
                 product_db = await session.get(Product, product_id)
