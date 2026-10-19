@@ -28,6 +28,10 @@ MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
+STOCK_PARTIAL_SCOPE = (
+    "Bu cəm yalnız açılış qalığı təsdiqlənmiş anbarları əhatə edir; "
+    "digər anbarlarda stokun olmadığı təsdiqlənmir."
+)
 MENU_INTERNET_BUTTON = "🌐 İnternet"
 MENU_HELP_BUTTON = "❔ Kömək"
 MENU_EXAMPLES_BUTTON = "✨ Nümunələr"

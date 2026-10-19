@@ -4,6 +4,12 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Partial warehouse stock scope clarity (2026-10-19)
+
+- Telegram/Mini App totals are labeled as sums of confirmed warehouse
+  openings, never proven companywide stock or available-to-sell quantities.
+- UNKNOWN stays distinct from verified zero; full coverage needs a registry.
+
 ### Verified Excel warehouse journals (2026-10-19)
 
 - Add read-only stock XLSX preflight limited by ZIP size, rows, formulas,

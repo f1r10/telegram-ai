@@ -800,8 +800,8 @@ async def _try_stock_turn(
     breakdown = "\n".join(f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations)
     await update.effective_message.reply_text(
         f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
-        f"{breakdown}\n\nCəmi: {snapshot.total:.3f}\n"
-        "Yalnız sistemdə təsdiqlənmiş anbar əməliyyatları əsasında."
+        f"{breakdown}\n\nTəsdiqlənmiş anbarlar üzrə cəm: {snapshot.total:.3f}\n"
+        + messages.STOCK_PARTIAL_SCOPE
     )
     return True
 
