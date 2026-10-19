@@ -50,6 +50,7 @@ _CSP = (
     "frame-ancestors https://web.telegram.org https://*.telegram.org"
 )
 _MAX_POST_BODY = 4096
+_CLIENT_IO_TIMEOUT_SECONDS = 20.0
 _MAX_BINARY_UPLOAD_BYTES = MiniAppUploadWorkflow.MAX_BYTES
 
 
@@ -88,6 +89,9 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
             cast(Any, request).close()
             return
         try:
+            # Bound even the initial request-line and header reads. Otherwise
+            # idle sockets can occupy every Mini App handler thread indefinitely.
+            cast(Any, request).settimeout(_CLIENT_IO_TIMEOUT_SECONDS)
             super().process_request(cast(Any, request), client_address)
         except BaseException:
             self.limiter.release()
@@ -500,6 +504,13 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         ):
             self._json(404, {"error": "not_found"})
             return
+        # Reject cross-origin/unsigned JSON posts before waiting for their body.
+        if not self._allowed_origin():
+            self._json(403, {"error": "origin_not_allowed"})
+            return
+        if self._authenticate_header() is None:
+            self._json(401, {"error": "telegram_authorization_required"})
+            return
         headers = self.headers.get_all("Content-Length", [])
         if self.headers.get("Transfer-Encoding") or len(headers) != 1:
             self._json(400, {"error": "invalid_request"})
@@ -521,6 +532,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             args = cast(dict[str, object], parsed)
             if len(args) > 5:
                 raise ValueError("Too many fields")
+        except TimeoutError:
+            self._json(408, {"error": "request_timeout"})
+            return
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"error": "invalid_request"})
             return
