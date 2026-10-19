@@ -249,6 +249,6 @@ class InventoryRegistryService:
                         raise InventoryValidationError(
                             "Çevrilmiş miqdar üç onluq dəqiqliyə sığmır."
                         )
-                return _quantity(converted, allow_zero=True), base.base_unit
+                return _quantity(converted.quantize(_THOUSANDTH), allow_zero=True), base.base_unit
             except InvalidOperation as error:
                 raise InventoryValidationError("Miqdar çevirməsi etibarsızdır.") from error
