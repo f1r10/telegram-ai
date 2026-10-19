@@ -12,6 +12,7 @@ from office_assistant.application.inventory import (
     InventoryLedgerService,
     InventoryValidationError,
     StockAdjustmentDraft,
+    StockReservationDraft,
     StockDraft,
     StockTransferDraft,
 )
@@ -22,6 +23,7 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     InventoryBalance,
     InventoryMovement,
+    InventoryReservation,
     Product,
     SourceReference,
     User,
@@ -285,8 +287,108 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 )
                 assert len(audit) == 3
 
+            reserve_draft = StockReservationDraft(
+                CODE, "Əsas", Decimal("2.000"), "RES-001"
+            )
+            with pytest.raises(AuthorizationDenied):
+                await ledger.reserve(employee, reserve_draft)
+            booked = await ledger.reserve(admin, reserve_draft)
+            assert booked.status == "ACTIVE"
+            assert booked.on_hand == Decimal("7.250")
+            assert booked.reserved == Decimal("2.000")
+            assert booked.available == Decimal("5.250")
+            with pytest.raises(InventoryConflict, match="artıq"):
+                await ledger.reserve(admin, reserve_draft)
+            with pytest.raises(InventoryConflict, match="sərbəst"):
+                await ledger.reserve(
+                    admin, StockReservationDraft(CODE, "Əsas", Decimal("6"), "RES-002")
+                )
+            with pytest.raises(InventoryConflict, match="Rezerv"):
+                await ledger.record(admin, _draft(CODE, "Əsas", "ISSUE", "6", "I-RES-1"))
+            with pytest.raises(InventoryConflict, match="rezerv"):
+                await ledger.transfer(
+                    admin,
+                    StockTransferDraft(CODE, "Əsas", "Kənar", Decimal("6"), "MOVE-RES-1"),
+                )
+            with pytest.raises(InventoryConflict, match="rezerv"):
+                await ledger.adjust(
+                    admin,
+                    StockAdjustmentDraft(
+                        CODE,
+                        "Əsas",
+                        "WRITE_OFF",
+                        Decimal("6"),
+                        "ADJ-RES-1",
+                        "Confirmed scrapped item physically present",
+                    ),
+                )
+            extra = await ledger.reserve(
+                admin, StockReservationDraft(CODE, "Əsas", Decimal("1"), "RES-003")
+            )
+            assert extra.reserved == Decimal("3.000")
+            cancelled = await ledger.reservation_action(
+                admin, product_code=CODE, reference="RES-003", action="CANCEL"
+            )
+            assert cancelled.status == "CANCELLED"
+            assert cancelled.reserved == Decimal("2.000")
+            again = await ledger.reservation_action(
+                admin, product_code=CODE, reference="RES-003", action="CANCEL"
+            )
+            assert again == cancelled
+            consumed = await ledger.reservation_action(
+                admin, product_code=CODE, reference="RES-001", action="CONSUME"
+            )
+            assert consumed.status == "CONSUMED"
+            assert consumed.on_hand == Decimal("5.250")
+            assert consumed.reserved == Decimal("0")
+            assert consumed.available == Decimal("5.250")
+            assert await ledger.reservation_action(
+                admin, product_code=CODE, reference="RES-001", action="CONSUME"
+            ) == consumed
+            with pytest.raises(InventoryConflict, match="başqa"):
+                await ledger.reservation_action(
+                    admin, product_code=CODE, reference="RES-001", action="CANCEL"
+                )
+            concurrent = await asyncio.gather(
+                ledger.reserve(
+                    admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-004")
+                ),
+                ledger.reserve(
+                    admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-005")
+                ),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(row, InventoryConflict) for row in concurrent) == 1
+            assert sum(not isinstance(row, Exception) for row in concurrent) == 1
+            async with factory() as session:
+                reserved_rows = list(
+                    (
+                        await session.scalars(
+                            select(InventoryReservation).where(
+                                InventoryReservation.product_id == product_id
+                            )
+                        )
+                    ).all()
+                )
+                assert len(reserved_rows) == 4
+                assert {row.status for row in reserved_rows} == {
+                    "CONSUMED", "CANCELLED", "ACTIVE"
+                }
+                consumed_movements = list(
+                    (
+                        await session.scalars(
+                            select(InventoryMovement).where(
+                                InventoryMovement.product_id == product_id,
+                                InventoryMovement.reference_key == "res:res-001",
+                            )
+                        )
+                    ).all()
+                )
+                assert len(consumed_movements) == 1
+                assert consumed_movements[0].kind == "ISSUE"
+
             history = await ledger.history(employee, CODE, limit=30)
-            assert len(history) == 14
+            assert len(history) == 15
             assert history[0].product_code == CODE
             assert all(item.document_reference for item in history)
             main_history = await ledger.history(employee, CODE, warehouse=" ƏSAS ", limit=25)
@@ -316,6 +418,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
         finally:
             async with factory.begin() as session:
                 if product_id is not None:
+                    await session.execute(
+                        delete(InventoryReservation).where(
+                            InventoryReservation.product_id == product_id
+                        )
+                    )
                     await session.execute(
                         delete(InventoryMovement).where(InventoryMovement.product_id == product_id)
                     )
