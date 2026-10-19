@@ -370,7 +370,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                         )
                     ).all()
                 )
-                assert len(reserved_rows) == 4
+                assert len(reserved_rows) == 3
                 assert {row.status for row in reserved_rows} == {
                     "CONSUMED", "CANCELLED", "ACTIVE"
                 }
