@@ -231,7 +231,8 @@ class MiniAppBackend:
                 {"warehouse": x.warehouse, "quantity": str(x.quantity)} for x in snapshot.locations
             ],
             "notice": (
-                "Yalnız təsdiqlənmiş anbar əməliyyatları əsasında."
+                "Yalnız açılışı təsdiqlənmiş anbarlar üzrə cəmdir; "
+                "bütün şirkət stokunun tamlığını təsdiqləmir."
                 if snapshot.total is not None
                 else "Açılış qalığı yoxdur: stok məlum deyil, sıfır hesab edilmir."
             ),
