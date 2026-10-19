@@ -4,6 +4,8 @@ import asyncio
 import http.client
 import json
 import threading
+
+import pytest
 from collections.abc import Generator
 from contextlib import contextmanager
 from io import BytesIO
@@ -532,3 +534,39 @@ def test_photo_content_length_is_rejected_before_reading_oversized_payload() -> 
         result.read()
         connection.close()
         assert backend.calls == []
+
+
+def test_stalled_json_request_times_out_without_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial authenticated bodies must not hold a handler thread forever."""
+
+    monkeypatch.setattr("office_assistant.miniapp.http._CLIENT_IO_TIMEOUT_SECONDS", 0.15)
+    with serve() as (port, backend):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        connection.putrequest("POST", "/api/ask")
+        connection.putheader("X-Telegram-Init-Data", "pretend-signed-data")
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", "64")
+        connection.endheaders()
+        connection.send(b"{")
+        response = connection.getresponse()
+        assert response.status == 408
+        assert json.loads(response.read()) == {"error": "request_timeout"}
+        assert backend.calls == []
+        connection.close()
+
+
+def test_unsigned_json_post_is_rejected_before_body_read() -> None:
+    """No request body is required to refuse a missing Telegram signature."""
+
+    with serve() as (port, backend):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+        connection.putrequest("POST", "/api/ask")
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", "64")
+        connection.endheaders()
+        response = connection.getresponse()
+        assert response.status == 401
+        assert backend.calls == []
+        connection.close()
