@@ -179,7 +179,7 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
         snapshot=AsyncMock(
             side_effect=[
                 StockSnapshot("KA45", (), None),
-                StockSnapshot("KA45", (StockLocation("Əsas", Decimal("0")),), Decimal("0")),
+                StockSnapshot("KA45", (StockLocation("Əsas", Decimal("0")),), Decimal("0"), "PCS"),
             ]
         )
     )
@@ -190,6 +190,8 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
     known_zero = asyncio.run(backend.stock(signature(123), code="KA45"))
     assert known_zero["known"] is True
     assert known_zero["total"] == "0"
+    assert known_zero["unit"] == "PCS"
+    assert unknown["unit"] is None
     notice = known_zero["notice"]
     assert isinstance(notice, str)
     assert "bütün şirkət stokunun tamlığını təsdiqləmir" in notice
