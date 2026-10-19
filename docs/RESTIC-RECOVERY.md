@@ -16,10 +16,13 @@ This tool submits the dump and storage in one Restic backup invocation.
    PGHOST, PGPORT, PGUSER, and PG passfile in the operator environment, not Git.
    No passwords may be placed on a command line or in CI logs.
 3. Find the actual mounted original file-storage directory on the host. The
-   operator needs read permissions for all blobs and image assets.
+   operator needs read permissions for all blobs and image assets. Prepare a
+   SEPARATE, operator-owned, private staging directory on an encrypted trusted
+   filesystem (e.g. mkdir -m 700 /secure/office-backup-stage). This location
+   must not be inside the application storage or the Restic repository.
 4. Default dry-run (does not execute pg_dump or restic):
 
-       python -m office_assistant.scripts.backup_restic --storage-root /absolute/private/storage
+       python -m office_assistant.scripts.backup_restic --storage-root /absolute/private/storage --staging-root /secure/office-backup-stage
 
 5. Before creating a snapshot, quiesce ALL writers, including Telegram polling
    app, ingestion worker, Mini App uploads, admin imports, and scheduled jobs.
@@ -27,10 +30,10 @@ This tool submits the dump and storage in one Restic backup invocation.
    NOT atomic if a writer remains active. Do not claim consistency otherwise.
 6. Only after approved quiescence and preflight, execute:
 
-       python -m office_assistant.scripts.backup_restic --storage-root /absolute/private/storage --apply --confirm-services-paused
+       python -m office_assistant.scripts.backup_restic --storage-root /absolute/private/storage --staging-root /secure/office-backup-stage --apply --confirm-services-paused
 
-SNAPSHOT_WRITTEN is not RESTORE_VERIFIED. Temporary dumps are removed by the
-utility; failures are reported without private subprocess output.
+SNAPSHOT_WRITTEN is not RESTORE_VERIFIED. Temporary dumps are written ONLY to the private staging directory,
+with restrictive file permissions, and removed by the utility; failures are reported without private subprocess output.
 
 ## Isolated restore drill (required before production approval)
 
