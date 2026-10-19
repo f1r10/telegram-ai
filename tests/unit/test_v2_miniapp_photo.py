@@ -218,3 +218,35 @@ def test_missing_offline_model_stays_unavailable_without_identity(
     )
     assert result.status == "unavailable"
     assert result.codes == ()
+
+
+
+def test_mobile_near_match_rejects_mutated_approved_photo_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No product code is suggested from a file whose DB digest is stale."""
+
+    async def no_holder(
+        self: ProductImageRelationRepository, digest: str, *, active_product_only: bool = False
+    ) -> None:
+        del self, digest
+        assert active_product_only
+        return None
+
+    monkeypatch.setattr(
+        ProductImageRelationRepository, "active_confirmation_holder_by_content", no_holder
+    )
+    approved = picture((220, 40, 15))
+    ref_path = tmp_path / "approved.png"
+    ref_path.write_bytes(approved)
+    session = FakeSession([("KA45", "approved.png", sha256(approved).hexdigest())])
+    service = make_service(tmp_path, session)
+
+    assert asyncio.run(service.lookup(approved)).codes == ("KA45",)
+    # A replacement photograph still visually matches itself. Previously this
+    # offered KA45 despite no longer matching the human-confirmed asset hash.
+    changed = picture((210, 40, 15))
+    ref_path.write_bytes(changed)
+    result = asyncio.run(service.lookup(changed))
+    assert result.status == "not_found"
+    assert result.codes == ()
