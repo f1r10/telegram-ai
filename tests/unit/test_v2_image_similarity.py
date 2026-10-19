@@ -1,5 +1,6 @@
 """Near-duplicate photo suggestions: no hallucinated certainty."""
 
+from hashlib import sha256
 from io import BytesIO
 
 from PIL import Image, ImageDraw
@@ -78,3 +79,44 @@ def test_unrelated_image_is_not_forcibly_identified(tmp_path: object) -> None:
         folder,
     )
     assert result == []
+
+
+
+def test_confirmed_photo_sha_blocks_corrupt_reference_even_when_fingerprint_matches(
+    tmp_path: object,
+) -> None:
+    """The persisted ImageAsset hash is stronger than a cached visual resemblance."""
+
+    from pathlib import Path
+
+    root = Path(str(tmp_path))
+    approved_bytes = _synthetic_product(quality=95)
+    reference = root / "approved.jpg"
+    reference.write_bytes(approved_bytes)
+    confirmed = VisualCandidate(
+        "KA45", "approved.jpg", content_sha256=sha256(approved_bytes).hexdigest()
+    )
+    assert [row.product_code for row in shortlist(approved_bytes, [confirmed], root)] == ["KA45"]
+
+    # Same SKU-looking pixels (JPEG recompression) but no longer the
+    # originally human-confirmed reference contents. Do not suggest it.
+    reference.write_bytes(_synthetic_product(quality=50))
+    assert shortlist(_synthetic_product(quality=50), [confirmed], root) == []
+    assert shortlist(approved_bytes, [confirmed], root) == []
+
+    # Bad digest values and missing files fail closed as well.
+    forged = VisualCandidate("OTHER", "approved.jpg", content_sha256="0" * 64)
+    assert shortlist(_synthetic_product(quality=50), [forged], root) == []
+
+
+def test_verified_photo_sha_does_not_change_near_duplicate_recompression_ranking(
+    tmp_path: object,
+) -> None:
+    from pathlib import Path
+
+    root = Path(str(tmp_path))
+    reference = _synthetic_product(quality=95)
+    (root / "approved.jpg").write_bytes(reference)
+    valid = VisualCandidate("KA45", "approved.jpg", sha256(reference).hexdigest())
+    result = shortlist(_synthetic_product(quality=50), [valid], root)
+    assert [match.product_code for match in result] == ["KA45"]
