@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Reservation-safe stock operations (2026-10-19)
+
+- Add reversible migration 0021 for explicit approved stock reservations.
+- Guard ISSUE, TRANSFER and negative adjustments against active reservations.
+- Introduce atomic admin reservation/cancel/consume transitions with audit,
+  idempotence and PostgreSQL concurrency tests; no automatic Telegram writes.
+- Real staging migration, admin preview/approval UI and owner policy are gated.
+
 ### Operator integrations and safe inventory transfers (2026-10-19)
 
 - Add default-dry-run Restic PostgreSQL and private storage snapshots, requiring
