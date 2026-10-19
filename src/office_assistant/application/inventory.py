@@ -6,6 +6,7 @@ payments, file uploads and model responses never post stock automatically.
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
@@ -125,6 +126,17 @@ class StockEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class StockMovementHistoryEntry:
+    product_code: str
+    warehouse: str
+    kind: str
+    quantity: Decimal
+    balance_after: Decimal
+    document_reference: str
+    confirmed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class StockLocation:
     warehouse: str
     quantity: Decimal
@@ -240,6 +252,46 @@ class InventoryLedgerService:
                 product_code=product.display_code,
                 locations=tuple(StockLocation(item.location_name, item.quantity) for item in rows),
                 total=sum((item.quantity for item in rows), Decimal(0)) if rows else None,
+            )
+
+    async def history(
+        self, actor: User, code: str, *, warehouse: str | None = None, limit: int = 30
+    ) -> tuple[StockMovementHistoryEntry, ...]:
+        """Read real approved movements only; never derive entries from raw documents."""
+        if not 1 <= limit <= 100:
+            raise InventoryValidationError("Tarixçə limiti 1–100 arasında olmalıdır.")
+        key = _key(warehouse) if warehouse is not None else None
+        if warehouse is not None and (key is None or not 1 <= len(key) <= 128):
+            raise InventoryValidationError("Anbar adı düzgün deyil.")
+        async with self.session_factory() as session:
+            await self._authorize(session, actor)
+            product = await self._product(session, normalize_product_code(code))
+            query = select(InventoryMovement).where(
+                InventoryMovement.product_id == product.id
+            )
+            if key is not None:
+                query = query.where(InventoryMovement.location_key == key)
+            rows = list(
+                (
+                    await session.scalars(
+                        query.order_by(
+                            InventoryMovement.created_at.desc(),
+                            InventoryMovement.id.desc(),
+                        ).limit(limit)
+                    )
+                ).all()
+            )
+            return tuple(
+                StockMovementHistoryEntry(
+                    product.display_code,
+                    entry.location_name,
+                    entry.kind,
+                    entry.quantity,
+                    entry.balance_after,
+                    entry.reference_label,
+                    entry.created_at,
+                )
+                for entry in rows
             )
 
     async def record(self, actor: User, draft: StockDraft) -> StockEntry:
