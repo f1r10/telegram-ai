@@ -133,6 +133,23 @@ class DummyBackend:
             raise FileDeliveryError("No file selected")
         return DeliverableFile(self.original, "sənəd nümunəsi.pdf", "application/pdf", 9)
 
+    async def stock_history(self, raw: str, *, code: str) -> dict[str, object]:
+        self.calls.append("history:" + raw + ":" + code)
+        return {
+            "product_code": code,
+            "items": [
+                {
+                    "warehouse": "Əsas",
+                    "kind": "RECEIPT",
+                    "quantity": "2",
+                    "balance_after": "3",
+                    "reference": "QEB-12",
+                    "confirmed_at": "2026-10-19T00:00:00+00:00",
+                }
+            ],
+            "notice": "Təsdiqlənmiş hərəkət",
+        }
+
     async def stock(self, raw: str, *, code: str) -> dict[str, object]:
         self.calls.append("stock:" + raw + ":" + code)
         return {
@@ -256,6 +273,29 @@ def test_actual_api_contract_for_chat_and_known_unknown_stock() -> None:
         assert code == 200
         assert json.loads(body)["known"] is False
         assert len(backend.calls) == 3
+
+
+def test_stock_history_http_is_signed_and_read_only() -> None:
+    with serve() as (port, backend):
+        status, _, body = call(port, "POST", "/api/stock/history", body={"code": "KA45"})
+        assert status == 200
+        value = json.loads(body)
+        assert value["items"][0]["reference"] == "QEB-12"
+        assert backend.calls == ["history:pretend-signed-data:KA45"]
+        unsigned = call(port, "POST", "/api/stock/history", body={"code": "KA45"}, signed=None)
+        assert unsigned[0] == 401
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/stock/history",
+                body={"code": "KA45"},
+                origin="https://untrusted.example",
+            )[0]
+            == 403
+        )
+        assert call(port, "POST", "/api/stock/history", body={"code": 10})[0] == 400
+        assert backend.calls == ["history:pretend-signed-data:KA45"]
 
 
 def test_malformed_json_and_path_guessing_fail_closed() -> None:

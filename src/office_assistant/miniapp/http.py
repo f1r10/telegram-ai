@@ -207,6 +207,14 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
+    def _api_stock_history(self, signed: str, args: dict[str, object]) -> None:
+        code = args.get("code")
+        if not isinstance(code, str):
+            raise ValueError("Invalid stock code")
+        value = self._run(self._app().backend.stock_history(signed, code=code))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
     def _api_product(self, signed: str, args: dict[str, object]) -> None:
         query = args.get("query")
         if not isinstance(query, str):
@@ -274,6 +282,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         routes: dict[str, Callable[[str, dict[str, object]], None]] = {
             "/api/ask": self._api_ask,
             "/api/stock": self._api_stock,
+            "/api/stock/history": self._api_stock_history,
             "/api/product": self._api_product,
             "/api/sales": self._api_sales,
             "/api/source": self._api_source,
@@ -492,6 +501,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             not in {
                 "/api/ask",
                 "/api/stock",
+                "/api/stock/history",
                 "/api/product",
                 "/api/sales",
                 "/api/source",

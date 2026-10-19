@@ -8,7 +8,7 @@
 .sales-fields span{font-size:12px;line-height:1.5;color:var(--subtle)}
 .bubble .candidate{display:block;width:100%;margin-top:10px;padding:11px 12px;text-align:left;font:inherit;font-size:13px;line-height:1.4;color:var(--accent);background:var(--card);border:1px solid var(--line);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
 .bubble .candidate:hover{border-color:var(--accent)}
-@media(max-width:620px){.modes{grid-template-columns:repeat(3,minmax(0,1fr))}.mode{min-height:95px}.sales-fields{align-items:flex-start}}
+@media(max-width:620px){.modes{grid-template-columns:repeat(2,minmax(0,1fr))}.mode{min-height:95px}.sales-fields{align-items:flex-start}}
 
 /* Original sources are optional, private, explicitly user-initiated actions. */
 .source{align-items:center;flex-wrap:wrap;line-height:1.5}
@@ -52,3 +52,6 @@
 .job-stage{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;background:var(--bubble);border:1px solid var(--line);color:var(--navy);font-size:12px;font-weight:700;border-radius:30px}
 .job-stage.completed{border-color:#229267;color:#18764e}
 .job-stage.requires-review{border-color:#be8d43;color:#a46c18}
+
+/* Larger two-column targets improve mobile touch accessibility without hiding modes. */
+@media(max-width:620px){.mode{min-height:102px}.mode strong{font-size:13px}.mode small{font-size:11px}}

@@ -499,6 +499,32 @@
           ? [stock.product_code, ...stock.locations.map(x => x.warehouse + ": " + x.quantity), "Cəmi: " + stock.total]
           : [stock.product_code, "Qalıq MƏLUM DEYİL"];
         pending.textContent = lines.join("\n") + "\n\n" + stock.notice;
+        if (stock.known) {
+          const historyButton = document.createElement("button");
+          historyButton.type = "button";
+          historyButton.className = "candidate";
+          historyButton.textContent = "Son anbar hərəkətlərini göstər →";
+          historyButton.addEventListener("click", async () => {
+            if (!active || historyButton.disabled) return;
+            historyButton.disabled = true;
+            try {
+              const history = await request("/api/stock/history", {code: stock.product_code});
+              const rows = Array.isArray(history.items) ? history.items.slice(0, 12) : [];
+              const summary = rows.map(x => [
+                x.warehouse + " · " + x.kind,
+                x.quantity + " · Qalıq: " + x.balance_after,
+                "Sənəd: " + x.reference,
+                x.confirmed_at ? new Date(x.confirmed_at).toLocaleString("az-AZ") : ""
+              ].join(" — "));
+              appendBubble([history.notice || "Anbar tarixçəsi", ...summary].join("\n"), "assistant");
+            } catch (error) {
+              if (active) appendBubble(error?.message || "Tarixçə açıla bilmədi.", "assistant error");
+            } finally {
+              historyButton.disabled = !active;
+            }
+          });
+          pending.append(historyButton);
+        }
       } else if (currentScope === "product") {
         const result = await request("/api/product", {query: sent});
         if (result.status === "found" && result.product) {

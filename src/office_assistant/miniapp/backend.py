@@ -237,6 +237,39 @@ class MiniAppBackend:
             ),
         }
 
+    async def stock_history(self, init_data: str, *, code: str) -> dict[str, object]:
+        """Only previously approved stock movements, never inferred invoice quantities."""
+        actor = await self.actor(init_data)
+        if self.inventory is None:
+            raise MiniAppServiceUnavailable("Warehouse ledger is not configured")
+        if not _STOCK_CODE.fullmatch(code):
+            raise ValueError("Məhsul kodu düzgün deyil.")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        normalized = parse_stock_request("Stok: " + code)
+        if normalized is None:
+            raise ValueError("Invalid stock product code")
+        rows = await self.inventory.history(actor, normalized, limit=12)
+        return {
+            "product_code": normalized,
+            "items": [
+                {
+                    "warehouse": row.warehouse,
+                    "kind": row.kind,
+                    "quantity": str(row.quantity),
+                    "balance_after": str(row.balance_after),
+                    "reference": row.document_reference,
+                    "confirmed_at": row.confirmed_at.isoformat(),
+                }
+                for row in rows
+            ],
+            "notice": (
+                "Yalnız təsdiqlənmiş anbar hərəkətləri; ən son 12 qeyd."
+                if rows
+                else "Bu məhsul üzrə təsdiqlənmiş anbar hərəkəti tapılmadı."
+            ),
+        }
+
     async def product(self, init_data: str, *, query: str) -> dict[str, object]:
         """Only exact, active and authorized company product identities are shown."""
 
