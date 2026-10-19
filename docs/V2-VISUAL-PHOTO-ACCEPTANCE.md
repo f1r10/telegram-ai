@@ -121,3 +121,13 @@ open the existing `Məhsul tap` text-code query, preserving separate
 business verification. Test Android/iOS gallery selection, large images,
 near matches, other-side product views, unknown items and slow connections
 before activating the Mini App on staging.
+
+Near-duplicate candidates in **both** Telegram and Mini App now verify
+the current reference file's SHA-256 against the database's original
+human-confirmed ImageAsset content hash **after** fingerprint screening.
+Replacing the image file while leaving its original filename and DB
+relation intact must not produce a candidate, even if a previous dHash
+fingerprint is still cached. A valid original reference continues to
+match resized or recompressed query photographs. If the original image
+is corrupt or missing, the result abstains; neither the local photo
+cache nor the provider model is an authority for business identities.
