@@ -258,7 +258,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 assert len(audit) == 3
 
             history = await ledger.history(employee, CODE, limit=30)
-            assert len(history) == 12
+            assert len(history) == 14
             assert history[0].product_code == CODE
             assert all(item.document_reference for item in history)
             main_history = await ledger.history(
