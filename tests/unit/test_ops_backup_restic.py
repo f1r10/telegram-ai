@@ -51,7 +51,10 @@ def test_dry_run_never_invokes_pg_dump_or_restic(
         raise AssertionError("no subprocess in dry run")
 
     monkeypatch.setattr(backup_restic.subprocess, "run", refuse)
-    monkeypatch.setattr("sys.argv", ["backup_restic", "--storage-root", str(storage), "--staging-root", str(staging)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["backup_restic", "--storage-root", str(storage), "--staging-root", str(staging)],
+    )
     backup_restic.main()
     assert '"DRY_RUN"' in capsys.readouterr().out
 
@@ -96,7 +99,9 @@ def test_failed_child_command_never_exposes_private_stderr(
     assert "12" in str(raised.value)
 
 
-def test_staging_requires_private_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_staging_requires_private_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     storage = tmp_path / "storage"
     storage.mkdir()
     staging = tmp_path / "staging"
