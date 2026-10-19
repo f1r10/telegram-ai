@@ -207,7 +207,11 @@ class InventoryRegistryService:
                         action="INVENTORY_UNIT_CONVERSION_APPROVED",
                         entity_type="product",
                         entity_id=str(product.id),
-                        event_metadata={"from_unit": unit, "to_unit": base.base_unit, "factor": str(factor)},
+                        event_metadata={
+                            "from_unit": unit,
+                            "to_unit": base.base_unit,
+                            "factor": str(factor),
+                        },
                     )
                 )
         except IntegrityError as error:
