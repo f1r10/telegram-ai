@@ -522,7 +522,8 @@ class InventoryLedgerService:
                     after = (
                         draft.quantity
                         if draft.kind == "OPENING"
-                        else before + (draft.quantity if draft.kind == "RECEIPT" else -draft.quantity)
+                        else before
+                        + (draft.quantity if draft.kind == "RECEIPT" else -draft.quantity)
                     )
                     if not 0 <= after <= _MAX_QUANTITY:
                         raise InventoryConflict("Toplu əməliyyat stok qalıq limitini pozur.")
