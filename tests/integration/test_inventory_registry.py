@@ -170,12 +170,12 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
             )
             with pytest.raises(InventoryValidationError, match="vahidi"):
                 await ledger.transfer(
-                    admin, StockTransferDraft(
-                        CODE, "Test Əsas", "Test Kənar", Decimal(1), "TRANSFER-UOM"
-                    ),
+                    admin,
+                    StockTransferDraft(CODE, "Test Əsas", "Test Kənar", Decimal(1), "TRANSFER-UOM"),
                 )
             moved = await ledger.transfer(
-                admin, StockTransferDraft(
+                admin,
+                StockTransferDraft(
                     CODE, "Test Əsas", "Test Kənar", Decimal(1), "TRANSFER-UOM", "PCS"
                 ),
             )
