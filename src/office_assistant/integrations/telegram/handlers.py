@@ -790,6 +790,16 @@ async def _try_stock_turn(
     except AuthorizationDenied:
         await update.effective_message.reply_text(messages.NO_PERMISSION)
         return True
+    if snapshot.total_reason == "UNVERIFIED_UNIT":
+        breakdown = "\\n".join(
+            f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations
+        )
+        await update.effective_message.reply_text(
+            f"📦 ANBAR QALIĞI\\n\\nMəhsul: {snapshot.product_code}\\n"
+            f"{breakdown}\\n\\n{messages.STOCK_UNIT_UNKNOWN}\\n"
+            + messages.STOCK_SUM_INCOMPARABLE
+        )
+        return True
     if snapshot.total is None:
         await update.effective_message.reply_text(
             f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
