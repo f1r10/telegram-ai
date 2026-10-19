@@ -225,17 +225,25 @@ class MiniAppBackend:
         snapshot = await self.inventory.snapshot(actor, normalized)
         return {
             "product_code": snapshot.product_code,
-            "known": snapshot.total is not None,
+            "known": bool(snapshot.locations),
             "unit": snapshot.unit_code,
             "total": str(snapshot.total) if isinstance(snapshot.total, Decimal) else None,
+            "total_reason": snapshot.total_reason,
             "locations": [
                 {"warehouse": x.warehouse, "quantity": str(x.quantity)} for x in snapshot.locations
             ],
             "notice": (
-                "Yalnız açılışı təsdiqlənmiş anbarlar üzrə cəmdir; "
-                "bütün şirkət stokunun tamlığını təsdiqləmir."
-                if snapshot.total is not None
-                else "Açılış qalığı yoxdur: stok məlum deyil, sıfır hesab edilmir."
+                "Açılış qalığı yoxdur: stok məlum deyil, sıfır hesab edilmir."
+                if not snapshot.locations
+                else (
+                    "Anbar qalıqları ayrı-ayrılıqda məlumdur, amma təsdiqlənmiş "
+                    "ümumi vahid olmadığı üçün cəmlənmir."
+                    if snapshot.total_reason == "UNVERIFIED_UNIT"
+                    else (
+                        "Yalnız açılışı təsdiqlənmiş anbarlar üzrə cəmdir; "
+                        "bütün şirkət stokunun tamlığını təsdiqləmir."
+                    )
+                )
             ),
         }
 

@@ -180,6 +180,10 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
                 ),
             )
             assert moved.source_balance_after == Decimal(5)
+            typed_scope = await ledger.snapshot(employee, CODE)
+            assert typed_scope.total == Decimal(6)
+            assert typed_scope.unit_code == "PCS"
+            assert typed_scope.total_reason is None
             with pytest.raises(InventoryValidationError, match="vahidi"):
                 await ledger.reserve(
                     admin, StockReservationDraft(CODE, "Test Əsas", Decimal(1), "RES-UOM")

@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Comparable unit safety for partial inventory (2026-10-19)
+
+- Refuse cross-warehouse arithmetic totals for legacy unknown-unit stock,
+  while retaining each confirmed location quantity and access controls.
+- Same-approved-unit warehouse sums remain available; Telegram/Mini App
+  explain missing aggregate instead of displaying null or a guessed zero.
+- Add PostgreSQL and Mini App regression tests for unknown versus comparable.
+
 ### Unit-aware warehouse posting fences (2026-10-19)
 
 - Require explicit canonical units and registered active warehouses in all

@@ -29,6 +29,10 @@ MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
 STOCK_UNIT_UNKNOWN = "Ölçü vahidi: təsdiqlənməyib."
+STOCK_SUM_INCOMPARABLE = (
+    "Anbarlar üzrə fərdi qalıqlar məlumdur, lakin vahid təsdiqlənmədiyindən "
+    "onları ümumi cəm kimi toplamaq düzgün deyil."
+)
 STOCK_PARTIAL_SCOPE = (
     "Bu cəm yalnız açılış qalığı təsdiqlənmiş anbarları əhatə edir; "
     "digər anbarlarda stokun olmadığı təsdiqlənmir."

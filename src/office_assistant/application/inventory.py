@@ -176,6 +176,7 @@ class StockSnapshot:
     locations: tuple[StockLocation, ...]
     total: Decimal | None
     unit_code: str | None = None
+    total_reason: str | None = None
 
 
 def _key(text: str) -> str:
@@ -317,11 +318,17 @@ class InventoryLedgerService:
                     )
                 ).all()
             )
+            incomparable = len(rows) > 1 and unit_policy is None
             return StockSnapshot(
                 product_code=product.display_code,
                 locations=tuple(StockLocation(item.location_name, item.quantity) for item in rows),
-                total=sum((item.quantity for item in rows), Decimal(0)) if rows else None,
+                total=(
+                    sum((item.quantity for item in rows), Decimal(0))
+                    if rows and not incomparable
+                    else None
+                ),
                 unit_code=unit_policy.base_unit if unit_policy is not None else None,
+                total_reason="UNVERIFIED_UNIT" if incomparable else None,
             )
 
     async def history(
