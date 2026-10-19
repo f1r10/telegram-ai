@@ -78,9 +78,7 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
             with pytest.raises(InventoryConflict, match="artıq"):
                 await service.register_warehouse(admin, "test ƏSAS")
             with pytest.raises(AuthorizationDenied):
-                await service.declare_unit(
-                    employee, product_code=CODE, base_unit="PCS"
-                )
+                await service.declare_unit(employee, product_code=CODE, base_unit="PCS")
             unit = await service.declare_unit(admin, product_code=CODE, base_unit="PCS")
             assert unit.base_unit == "PCS"
             with pytest.raises(InventoryConflict, match="artıq"):
@@ -169,9 +167,7 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
                 ):
                     await session.execute(delete(table).where(table.product_id.in_(product_ids)))
                 await session.execute(
-                    delete(InventoryWarehouse).where(
-                        InventoryWarehouse.location_key == "test əsas"
-                    )
+                    delete(InventoryWarehouse).where(InventoryWarehouse.location_key == "test əsas")
                 )
                 if actor_id is not None:
                     await session.execute(
