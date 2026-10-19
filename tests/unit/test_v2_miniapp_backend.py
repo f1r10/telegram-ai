@@ -180,6 +180,16 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
             side_effect=[
                 StockSnapshot("KA45", (), None),
                 StockSnapshot("KA45", (StockLocation("Əsas", Decimal("0")),), Decimal("0"), "PCS"),
+                StockSnapshot(
+                    "KA45",
+                    (
+                        StockLocation("Əsas", Decimal("2")),
+                        StockLocation("Kənar", Decimal("3")),
+                    ),
+                    None,
+                    None,
+                    "UNVERIFIED_UNIT",
+                ),
             ]
         )
     )
@@ -195,6 +205,14 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
     notice = known_zero["notice"]
     assert isinstance(notice, str)
     assert "bütün şirkət stokunun tamlığını təsdiqləmir" in notice
+    uncomparable = asyncio.run(backend.stock(signature(123), code="KA45"))
+    assert uncomparable["known"] is True
+    assert uncomparable["total"] is None
+    assert uncomparable["total_reason"] == "UNVERIFIED_UNIT"
+    assert len(uncomparable["locations"]) == 2
+    note = uncomparable["notice"]
+    assert isinstance(note, str)
+    assert "cəmlənmir" in note
     inventory.snapshot.assert_awaited_with(session.actor, "KA45")
 
 
