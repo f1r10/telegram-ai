@@ -259,7 +259,7 @@ class InventoryLedgerService:
         reference_key = _key(draft.reference)
         if reference_key.startswith(("xfer:", "adj:")):
             raise InventoryValidationError(
-                "Köçürmə sənəd nömrəsi anbar giriş/çıxışında işlədilə bilməz."
+                "Daxili köçürmə/düzəliş nömrəsi adi giriş/çıxışda işlədilə bilməz."
             )
         if not 1 <= len(key) <= 128 or not 1 <= len(reference_key) <= 128:
             raise InventoryValidationError("Anbar və sənəd nömrəsi düzgün deyil.")
