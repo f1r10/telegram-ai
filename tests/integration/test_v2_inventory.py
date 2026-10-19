@@ -133,9 +133,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             with pytest.raises(InventoryConflict, match="artıq"):
                 await ledger.transfer(
                     admin,
-                    StockTransferDraft(
-                        CODE, "Üçüncü", "Dördüncü", Decimal("1"), "MOVE-001"
-                    ),
+                    StockTransferDraft(CODE, "Üçüncü", "Dördüncü", Decimal("1"), "MOVE-001"),
                 )
             with pytest.raises(InventoryConflict, match="açılış"):
                 await ledger.transfer(
