@@ -394,7 +394,6 @@ class InventoryLedgerService:
                     select(InventoryMovement.id).where(
                         InventoryMovement.product_id == product.id,
                         InventoryMovement.reference_key == reference_key,
-                        InventoryMovement.location_key.in_([source_key, dest_key]),
                     )
                 )
                 if prior is not None:
