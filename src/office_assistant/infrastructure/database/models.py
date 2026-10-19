@@ -1487,6 +1487,75 @@ class PendingProductImageConfirmation(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class InventoryWarehouse(Base):
+    """Explicitly approved warehouse; historical free-text locations are not auto-registered."""
+
+    __tablename__ = "inventory_warehouses"
+    __table_args__ = (
+        CheckConstraint("status IN ('ACTIVE', 'DISABLED')", name="ck_inventory_warehouse_status"),
+    )
+
+    location_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    location_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    approved_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class InventoryProductUnit(Base):
+    """Immutable approved canonical stock unit; existing unitless ledgers need review."""
+
+    __tablename__ = "inventory_product_units"
+    __table_args__ = (
+        CheckConstraint(
+            "base_unit IN ('PCS', 'KG', 'L', 'BOX')",
+            name="ck_inventory_product_base_unit",
+        ),
+    )
+
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), primary_key=True
+    )
+    base_unit: Mapped[str] = mapped_column(String(8), nullable=False)
+    approved_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class InventoryUnitConversion(Base):
+    """Per-product signed package ratio: one FROM unit equals factor BASE units."""
+
+    __tablename__ = "inventory_unit_conversions"
+    __table_args__ = (
+        CheckConstraint(
+            "from_unit IN ('PCS', 'KG', 'L', 'BOX')",
+            name="ck_inventory_conversion_from_unit",
+        ),
+        CheckConstraint("factor > 0", name="ck_inventory_conversion_factor_positive"),
+        UniqueConstraint("product_id", "from_unit", name="uq_inventory_conversion_product_from"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    from_unit: Mapped[str] = mapped_column(String(8), nullable=False)
+    factor: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False)
+    approved_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class InventoryBalance(Base):
     """Authoritative known balance per product/location; no row means UNKNOWN, not zero."""
 

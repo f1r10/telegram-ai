@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Staged warehouse registry and product unit rules (2026-10-19)
+
+- Add reversible migration 0022 for independently approved warehouses,
+  immutable product canonical units and audited exact conversion factors.
+- Refuse unsafe unit backfill on existing unitless stock; no change to live
+  ledger writes or automatic unit guesses. Add disposable PostgreSQL tests.
+- Explicit unit-aware write/UI rollout and owner migration acceptance remain open.
+
 ### Partial warehouse stock scope clarity (2026-10-19)
 
 - Telegram/Mini App totals are labeled as sums of confirmed warehouse
