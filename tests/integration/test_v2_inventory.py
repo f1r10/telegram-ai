@@ -126,6 +126,17 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert done.destination_balance_after == Decimal("4.750")
             with pytest.raises(InventoryConflict, match="artıq"):
                 await ledger.transfer(admin, transfer)
+            # The same approved transfer document cannot fund an unrelated
+            # warehouse pair; uniqueness is product-wide, not per location.
+            await ledger.record(admin, _draft(CODE, "Üçüncü", "OPENING", "0", "O-004"))
+            await ledger.record(admin, _draft(CODE, "Dördüncü", "OPENING", "0", "O-005"))
+            with pytest.raises(InventoryConflict, match="artıq"):
+                await ledger.transfer(
+                    admin,
+                    StockTransferDraft(
+                        CODE, "Üçüncü", "Dördüncü", Decimal("1"), "MOVE-001"
+                    ),
+                )
             with pytest.raises(InventoryConflict, match="açılış"):
                 await ledger.transfer(
                     admin,
