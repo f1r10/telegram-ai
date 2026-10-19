@@ -266,9 +266,7 @@ class InventoryLedgerService:
         async with self.session_factory() as session:
             await self._authorize(session, actor)
             product = await self._product(session, normalize_product_code(code))
-            query = select(InventoryMovement).where(
-                InventoryMovement.product_id == product.id
-            )
+            query = select(InventoryMovement).where(InventoryMovement.product_id == product.id)
             if key is not None:
                 query = query.where(InventoryMovement.location_key == key)
             rows = list(
@@ -560,11 +558,7 @@ class InventoryLedgerService:
             code = normalize_product_code(draft.product_code)
         except ValueError as error:
             raise InventoryValidationError("Məhsul kodu düzgün deyil.") from error
-        delta = (
-            draft.quantity
-            if draft.kind in {"RETURN", "CORRECTION"}
-            else -draft.quantity
-        )
+        delta = draft.quantity if draft.kind in {"RETURN", "CORRECTION"} else -draft.quantity
         try:
             async with self.session_factory.begin() as session:
                 await self._authorize(session, actor, admin=True)
@@ -591,9 +585,7 @@ class InventoryLedgerService:
                     .with_for_update()
                 )
                 if balance is None:
-                    raise InventoryConflict(
-                        "Bu anbarda təsdiqlənmiş açılış qalığı yoxdur."
-                    )
+                    raise InventoryConflict("Bu anbarda təsdiqlənmiş açılış qalığı yoxdur.")
                 before = balance.quantity
                 after = before + delta
                 if after < 0:
