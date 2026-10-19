@@ -2,6 +2,7 @@
 
 import asyncio
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from sqlalchemy import delete, select
@@ -48,8 +49,8 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
         engine = create_database_engine(settings)
         factory = create_session_factory(engine)
         actor_id = None
-        product_ids: list[object] = []
-        source_ids: list[object] = []
+        product_ids: list[UUID] = []
+        source_ids: list[UUID] = []
         try:
             async with factory.begin() as session:
                 admin = User(telegram_user_id=ADMIN, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
