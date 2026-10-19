@@ -13,6 +13,8 @@ from office_assistant.application.inventory import (
     InventoryLedgerService,
     InventoryValidationError,
     StockDraft,
+    StockReservationDraft,
+    StockTransferDraft,
 )
 from office_assistant.application.inventory_registry import InventoryRegistryService
 from office_assistant.application.products import ProductService
@@ -23,6 +25,7 @@ from office_assistant.infrastructure.database.models import (
     InventoryBalance,
     InventoryMovement,
     InventoryProductUnit,
+    InventoryReservation,
     InventoryUnitConversion,
     InventoryWarehouse,
     Product,
@@ -131,6 +134,60 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
                     from_unit="KG",
                     quantity=Decimal("-1"),
                 )
+            ledger = InventoryLedgerService(factory)
+            with pytest.raises(InventoryValidationError, match="vahidi"):
+                await ledger.record(
+                    admin, StockDraft(CODE, "Test Əsas", "OPENING", Decimal(5), "OPEN-UOM")
+                )
+            with pytest.raises(InventoryValidationError, match="vahidi"):
+                await ledger.record(
+                    admin, StockDraft(CODE, "Test Əsas", "OPENING", Decimal(5), "OPEN-UOM", "BOX")
+                )
+            with pytest.raises(InventoryConflict, match="reyestrdə"):
+                await ledger.record(
+                    admin, StockDraft(CODE, "Naməlum", "OPENING", Decimal(5), "OPEN-UOM", "PCS")
+                )
+            opened = await ledger.record(
+                admin, StockDraft(CODE, "Test Əsas", "OPENING", Decimal(5), "OPEN-UOM", "PCS")
+            )
+            assert opened.balance_after == Decimal(5)
+            assert (await ledger.snapshot(employee, CODE)).unit_code == "PCS"
+            with pytest.raises(InventoryValidationError, match="vahidi"):
+                await ledger.record_batch(
+                    admin,
+                    (StockDraft(CODE, "Test Əsas", "RECEIPT", Decimal(1), "BATCH-UOM"),),
+                    workbook_sha256="a" * 64,
+                )
+            batch = await ledger.record_batch(
+                admin,
+                (StockDraft(CODE, "Test Əsas", "RECEIPT", Decimal(1), "BATCH-UOM", "PCS"),),
+                workbook_sha256="b" * 64,
+            )
+            assert batch[0].balance_after == Decimal(6)
+            await service.register_warehouse(admin, "Test Kənar")
+            await ledger.record(
+                admin, StockDraft(CODE, "Test Kənar", "OPENING", Decimal(0), "SIDE-UOM", "PCS")
+            )
+            with pytest.raises(InventoryValidationError, match="vahidi"):
+                await ledger.transfer(
+                    admin, StockTransferDraft(
+                        CODE, "Test Əsas", "Test Kənar", Decimal(1), "TRANSFER-UOM"
+                    ),
+                )
+            moved = await ledger.transfer(
+                admin, StockTransferDraft(
+                    CODE, "Test Əsas", "Test Kənar", Decimal(1), "TRANSFER-UOM", "PCS"
+                ),
+            )
+            assert moved.source_balance_after == Decimal(5)
+            with pytest.raises(InventoryValidationError, match="vahidi"):
+                await ledger.reserve(
+                    admin, StockReservationDraft(CODE, "Test Əsas", Decimal(1), "RES-UOM")
+                )
+            reserved = await ledger.reserve(
+                admin, StockReservationDraft(CODE, "Test Əsas", Decimal(1), "RES-UOM", "PCS")
+            )
+            assert reserved.available == Decimal(4)
             # Unitless historic rows cannot acquire a guessed base unit or
             # cause a warehouse to be silently promoted to a registered location.
             ledger = InventoryLedgerService(factory)
@@ -162,12 +219,15 @@ def test_warehouse_and_product_unit_registry_is_explicit_and_admin_approved() ->
                 for table in (
                     InventoryUnitConversion,
                     InventoryProductUnit,
+                    InventoryReservation,
                     InventoryMovement,
                     InventoryBalance,
                 ):
                     await session.execute(delete(table).where(table.product_id.in_(product_ids)))
                 await session.execute(
-                    delete(InventoryWarehouse).where(InventoryWarehouse.location_key == "test əsas")
+                    delete(InventoryWarehouse).where(
+                        InventoryWarehouse.location_key.in_(["test əsas", "test kənar"])
+                    )
                 )
                 if actor_id is not None:
                     await session.execute(
