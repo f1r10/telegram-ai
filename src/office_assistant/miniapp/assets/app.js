@@ -496,7 +496,7 @@
       if (currentScope === "stock") {
         const stock = await request("/api/stock", {code: sent});
         const lines = stock.known
-          ? [stock.product_code, ...stock.locations.map(x => x.warehouse + ": " + x.quantity), "Cəmi: " + stock.total]
+          ? [stock.product_code, ...stock.locations.map(x => x.warehouse + ": " + x.quantity), "Təsdiqlənmiş anbarlar üzrə cəm: " + stock.total]
           : [stock.product_code, "Qalıq MƏLUM DEYİL"];
         pending.textContent = lines.join("\n") + "\n\n" + stock.notice;
         if (stock.known) {
