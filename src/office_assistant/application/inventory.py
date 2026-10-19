@@ -237,7 +237,9 @@ class InventoryLedgerService:
         key = _key(draft.warehouse)
         reference_key = _key(draft.reference)
         if reference_key.startswith("xfer:"):
-            raise InventoryValidationError("Köçürmə sənəd nömrəsi anbar giriş/çıxışında işlədilə bilməz.")
+            raise InventoryValidationError(
+                "Köçürmə sənəd nömrəsi anbar giriş/çıxışında işlədilə bilməz."
+            )
         if not 1 <= len(key) <= 128 or not 1 <= len(reference_key) <= 128:
             raise InventoryValidationError("Anbar və sənəd nömrəsi düzgün deyil.")
         try:
@@ -354,7 +356,9 @@ class InventoryLedgerService:
             or not isinstance(scale, int)
             or scale < -3
         ):
-            raise InventoryValidationError("Köçürmə miqdarı, anbarlar və sənəd nömrəsi düzgün deyil.")
+            raise InventoryValidationError(
+                "Köçürmə miqdarı, anbarlar və sənəd nömrəsi düzgün deyil."
+            )
         try:
             code = normalize_product_code(draft.product_code)
         except ValueError as error:
