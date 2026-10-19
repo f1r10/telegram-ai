@@ -287,9 +287,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 )
                 assert len(audit) == 3
 
-            reserve_draft = StockReservationDraft(
-                CODE, "Əsas", Decimal("2.000"), "RES-001"
-            )
+            reserve_draft = StockReservationDraft(CODE, "Əsas", Decimal("2.000"), "RES-001")
             with pytest.raises(AuthorizationDenied):
                 await ledger.reserve(employee, reserve_draft)
             booked = await ledger.reserve(admin, reserve_draft)
@@ -342,20 +340,19 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert consumed.on_hand == Decimal("5.250")
             assert consumed.reserved == Decimal("0")
             assert consumed.available == Decimal("5.250")
-            assert await ledger.reservation_action(
-                admin, product_code=CODE, reference="RES-001", action="CONSUME"
-            ) == consumed
+            assert (
+                await ledger.reservation_action(
+                    admin, product_code=CODE, reference="RES-001", action="CONSUME"
+                )
+                == consumed
+            )
             with pytest.raises(InventoryConflict, match="başqa"):
                 await ledger.reservation_action(
                     admin, product_code=CODE, reference="RES-001", action="CANCEL"
                 )
             concurrent = await asyncio.gather(
-                ledger.reserve(
-                    admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-004")
-                ),
-                ledger.reserve(
-                    admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-005")
-                ),
+                ledger.reserve(admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-004")),
+                ledger.reserve(admin, StockReservationDraft(CODE, "Əsas", Decimal("4"), "RES-005")),
                 return_exceptions=True,
             )
             assert sum(isinstance(row, InventoryConflict) for row in concurrent) == 1
@@ -371,9 +368,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                     ).all()
                 )
                 assert len(reserved_rows) == 3
-                assert {row.status for row in reserved_rows} == {
-                    "CONSUMED", "CANCELLED", "ACTIVE"
-                }
+                assert {row.status for row in reserved_rows} == {"CONSUMED", "CANCELLED", "ACTIVE"}
                 consumed_movements = list(
                     (
                         await session.scalars(
