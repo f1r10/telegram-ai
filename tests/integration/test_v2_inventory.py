@@ -176,7 +176,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             # Returns, damaged stock and signed corrections use append-only
             # ledger rows with explicit admin approval and a required reason.
             adjustment = StockAdjustmentDraft(
-                CODE, "Əsas", "RETURN", Decimal("2.000"), "ADJ-001",
+                CODE,
+                "Əsas",
+                "RETURN",
+                Decimal("2.000"),
+                "ADJ-001",
                 "Returned by verified customer",
             )
             with pytest.raises(AuthorizationDenied):
@@ -187,7 +191,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             damaged = await ledger.adjust(
                 admin,
                 StockAdjustmentDraft(
-                    CODE, "Əsas", "DAMAGE", Decimal("1.000"), "ADJ-002",
+                    CODE,
+                    "Əsas",
+                    "DAMAGE",
+                    Decimal("1.000"),
+                    "ADJ-002",
                     "Damaged and inspected in warehouse",
                 ),
             )
@@ -195,7 +203,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             correction = await ledger.adjust(
                 admin,
                 StockAdjustmentDraft(
-                    CODE, "Əsas", "CORRECTION", Decimal("-0.500"), "ADJ-003",
+                    CODE,
+                    "Əsas",
+                    "CORRECTION",
+                    Decimal("-0.500"),
+                    "ADJ-003",
                     "Verified physical stock count discrepancy",
                 ),
             )
@@ -204,7 +216,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 await ledger.adjust(
                     admin,
                     StockAdjustmentDraft(
-                        CODE, "Kənar", "RETURN", Decimal("1"), "ADJ-001",
+                        CODE,
+                        "Kənar",
+                        "RETURN",
+                        Decimal("1"),
+                        "ADJ-001",
                         "The same document must not post twice",
                     ),
                 )
@@ -212,7 +228,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 await ledger.adjust(
                     admin,
                     StockAdjustmentDraft(
-                        CODE, "Əsas", "WRITE_OFF", Decimal("200"), "ADJ-004",
+                        CODE,
+                        "Əsas",
+                        "WRITE_OFF",
+                        Decimal("200"),
+                        "ADJ-004",
                         "Broken stock has been reviewed",
                     ),
                 )
@@ -220,7 +240,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 await ledger.adjust(
                     admin,
                     StockAdjustmentDraft(
-                        CODE, "Naməlum", "RETURN", Decimal("1"), "ADJ-005",
+                        CODE,
+                        "Naməlum",
+                        "RETURN",
+                        Decimal("1"),
+                        "ADJ-005",
                         "Verified previous sale returned",
                     ),
                 )
@@ -228,7 +252,11 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                 await ledger.adjust(
                     admin,
                     StockAdjustmentDraft(
-                        CODE, "Əsas", "RETURN", Decimal("-2"), "ADJ-006",
+                        CODE,
+                        "Əsas",
+                        "RETURN",
+                        Decimal("-2"),
+                        "ADJ-006",
                         "Negative return must be rejected",
                     ),
                 )
@@ -261,9 +289,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert len(history) == 14
             assert history[0].product_code == CODE
             assert all(item.document_reference for item in history)
-            main_history = await ledger.history(
-                employee, CODE, warehouse=" ƏSAS ", limit=25
-            )
+            main_history = await ledger.history(employee, CODE, warehouse=" ƏSAS ", limit=25)
             assert main_history
             assert all(item.warehouse == "Əsas" for item in main_history)
             assert len(await ledger.history(employee, CODE, limit=1)) == 1
