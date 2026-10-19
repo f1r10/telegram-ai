@@ -99,8 +99,7 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
             if all(not value for value in values):
                 raise InventoryValidationError("Excel daxilində boş sətir olmamalıdır.")
             if any(
-                not value or "|" in value or any(ord(ch) < 32 for ch in value)
-                for value in values
+                not value or "|" in value or any(ord(ch) < 32 for ch in value) for value in values
             ):
                 raise InventoryValidationError("Excel sətrində yararsız məlumat var.")
             text = "Anbar əməliyyatı: " + " | ".join(values)
@@ -129,9 +128,7 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
         workbook.close()
 
 
-def approved_drafts(
-    payload: bytes, *, confirmed_sha256: str
-) -> tuple[StockDraft, ...]:
+def approved_drafts(payload: bytes, *, confirmed_sha256: str) -> tuple[StockDraft, ...]:
     """Return content only for exact, intentionally confirmed workbook bytes."""
     import hmac
 
