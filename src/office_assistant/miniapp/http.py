@@ -501,6 +501,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             not in {
                 "/api/ask",
                 "/api/stock",
+                "/api/stock/history",
                 "/api/product",
                 "/api/sales",
                 "/api/source",
