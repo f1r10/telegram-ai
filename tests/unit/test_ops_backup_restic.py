@@ -8,12 +8,16 @@ import pytest
 from office_assistant.scripts import backup_restic
 
 
+def mock_binary(_binary: str) -> str:
+    return "/usr/bin/mock"
+
+
 def test_prerequisites_refuse_missing_password_and_nested_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     storage = tmp_path / "storage"
     storage.mkdir()
-    monkeypatch.setattr(backup_restic.shutil, "which", lambda _binary: "/usr/bin/mock")
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     env = {
         "RESTIC_REPOSITORY": str(storage / "backups"),
         "RESTIC_PASSWORD_FILE": str(tmp_path / "absent"),
@@ -36,7 +40,7 @@ def test_dry_run_never_invokes_pg_dump_or_restic(
         "RESTIC_PASSWORD_FILE": str(secret),
         "PGDATABASE": "synthetic",
     }
-    monkeypatch.setattr(backup_restic.shutil, "which", lambda _binary: "/usr/bin/mock")
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     monkeypatch.setattr(backup_restic.os, "environ", environment)
 
     def refuse(*_args: object, **_kwargs: object) -> None:
@@ -55,7 +59,7 @@ def test_apply_requires_explicit_quiescence(
     storage.mkdir()
     secret = tmp_path / "password"
     secret.write_text("test-only", encoding="utf-8")
-    monkeypatch.setattr(backup_restic.shutil, "which", lambda _binary: "/usr/bin/mock")
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     monkeypatch.setattr(
         backup_restic.os,
         "environ",
