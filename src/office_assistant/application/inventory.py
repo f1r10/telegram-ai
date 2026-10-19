@@ -388,6 +388,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (key,))
                 previous = await session.scalar(
                     select(InventoryMovement.id).where(
                         InventoryMovement.product_id == product.id,
@@ -534,6 +535,9 @@ class InventoryLedgerService:
                 receipt: list[StockEntry] = []
                 for code, location, reference, draft in checked:
                     product = products[code]
+                    await self._enforce_unit_policy(
+                        session, product.id, draft.unit, (location,)
+                    )
                     prior = await session.scalar(
                         select(InventoryMovement.id).where(
                             InventoryMovement.product_id == product.id,
@@ -656,6 +660,9 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(
+                    session, product.id, draft.unit, (source_key, dest_key)
+                )
                 # The product row serializes concurrent operations, even when the
                 # destination has no row yet. Both legs stay in one transaction.
                 balances = list(
@@ -784,6 +791,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                 # Product-row lock fences all concurrent writes and adjustment
                 # reference replays, even if the warehouse row is absent.
                 duplicate = await session.scalar(
@@ -883,6 +891,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                 previous = await session.scalar(
                     select(InventoryReservation.id).where(
                         InventoryReservation.product_id == product.id,
