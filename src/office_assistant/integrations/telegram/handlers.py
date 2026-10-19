@@ -798,9 +798,14 @@ async def _try_stock_turn(
         )
         return True
     breakdown = "\n".join(f"• {item.warehouse}: {item.quantity:.3f}" for item in snapshot.locations)
+    unit_label = (
+        f"Ölçü vahidi: {snapshot.unit_code}"
+        if snapshot.unit_code is not None
+        else messages.STOCK_UNIT_UNKNOWN
+    )
     await update.effective_message.reply_text(
         f"📦 ANBAR QALIĞI\n\nMəhsul: {snapshot.product_code}\n"
-        f"{breakdown}\n\nTəsdiqlənmiş anbarlar üzrə cəm: {snapshot.total:.3f}\n"
+        f"{breakdown}\n\n{unit_label}\nTəsdiqlənmiş anbarlar üzrə cəm: {snapshot.total:.3f}\n"
         + messages.STOCK_PARTIAL_SCOPE
     )
     return True
