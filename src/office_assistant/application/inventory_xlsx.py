@@ -8,15 +8,14 @@ from zipfile import BadZipFile, ZipFile
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
-from office_assistant.infrastructure.database.models import User
-
 from office_assistant.application.inventory import (
-    InventoryValidationError,
     InventoryLedgerService,
-    StockEntry,
+    InventoryValidationError,
     StockDraft,
+    StockEntry,
     parse_stock_draft,
 )
+from office_assistant.infrastructure.database.models import User
 
 MAX_XLSX_BYTES = 5 * 1024 * 1024
 MAX_XLSX_UNPACKED = 35 * 1024 * 1024
@@ -99,7 +98,10 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
             values = [str(cell.value if cell.value is not None else "").strip() for cell in row]
             if all(not value for value in values):
                 raise InventoryValidationError("Excel daxilində boş sətir olmamalıdır.")
-            if any(not value or "|" in value or any(ord(ch) < 32 for ch in value) for value in values):
+            if any(
+                not value or "|" in value or any(ord(ch) < 32 for ch in value)
+                for value in values
+            ):
                 raise InventoryValidationError("Excel sətrində yararsız məlumat var.")
             text = "Anbar əməliyyatı: " + " | ".join(values)
             draft = parse_stock_draft(text)
