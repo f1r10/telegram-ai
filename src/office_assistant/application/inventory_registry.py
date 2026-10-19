@@ -178,8 +178,6 @@ class InventoryRegistryService:
     ) -> None:
         unit = _unit(from_unit)
         _quantity(factor)
-        if factor == 1:
-            raise InventoryValidationError("Eyni miqdar üçün artıq dönüşüm tələb olunmur.")
         try:
             async with self.session_factory.begin() as session:
                 await InventoryLedgerService._authorize(session, actor, admin=True)
