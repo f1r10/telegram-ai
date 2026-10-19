@@ -297,7 +297,9 @@ class InventoryLedgerService:
         for location_key in set(locations):
             warehouse = await session.get(InventoryWarehouse, location_key)
             if warehouse is None or warehouse.status != "ACTIVE":
-                raise InventoryConflict("Yalnız reyestrdə aktiv təsdiqlənmiş anbarda əməliyyat olar.")
+                raise InventoryConflict(
+                    "Yalnız reyestrdə aktiv təsdiqlənmiş anbarda əməliyyat olar."
+                )
 
     async def snapshot(self, actor: User, code: str) -> StockSnapshot:
         async with self.session_factory() as session:
