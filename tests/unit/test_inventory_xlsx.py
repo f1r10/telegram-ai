@@ -74,3 +74,18 @@ def test_reject_overlong_and_invalid_quantity_workbooks() -> None:
         preview_stock_xlsx(workbook(("KA45", "Əsas", "GİRİŞ", -1, "IN-1")))
     with pytest.raises(InventoryValidationError):
         preview_stock_xlsx(workbook(("KA45", "Əsas", "GİRİŞ", 0.00001, "IN-1")))
+
+
+def test_explicit_unit_template_previews_without_guessing() -> None:
+    headers = (*HEADERS[:4], "unit", HEADERS[4])
+    payload = workbook(
+        ("KA45", "Əsas", "AÇILIŞ", 12, "PCS", "OPEN-UOM"),
+        headers=headers,
+    )
+    preview = preview_stock_xlsx(payload)
+    assert preview.count == 1
+    assert preview.drafts[0].unit == "PCS"
+    with pytest.raises(InventoryValidationError, match="vahidi"):
+        preview_stock_xlsx(
+            workbook(("KA45", "Əsas", "AÇILIŞ", 12, "PIECE?", "OPEN-UOM"), headers=headers)
+        )
