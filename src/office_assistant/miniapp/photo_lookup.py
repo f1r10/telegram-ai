@@ -120,7 +120,9 @@ class MiniAppPhotoLookup:
 
         incomplete = len(rows) > MAX_REFERENCES
         approved = rows[:MAX_REFERENCES]
-        references = [VisualCandidate(code, key) for code, key, _ in approved]
+        references = [
+            VisualCandidate(code, key, content_sha256=digest) for code, key, digest in approved
+        ]
         near = await asyncio.to_thread(
             shortlist, photo, references, self.storage_root, max_results=3
         )
