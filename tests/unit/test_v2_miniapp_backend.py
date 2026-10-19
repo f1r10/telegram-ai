@@ -190,6 +190,7 @@ def test_warehouse_unknown_is_distinct_from_zero_and_reuses_stock_service() -> N
     known_zero = asyncio.run(backend.stock(signature(123), code="KA45"))
     assert known_zero["known"] is True
     assert known_zero["total"] == "0"
+    assert "bütün şirkət stokunun tamlığını təsdiqləmir" in known_zero["notice"]
     inventory.snapshot.assert_awaited_with(session.actor, "KA45")
 
 
