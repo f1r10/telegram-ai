@@ -8,8 +8,9 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,6 +20,7 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     InventoryBalance,
     InventoryMovement,
+    InventoryReservation,
     Product,
     User,
     UserRole,
@@ -113,6 +115,26 @@ class StockAdjustmentReceipt:
     balance_after: Decimal
     applied_delta: Decimal
     reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockReservationDraft:
+    product_code: str
+    warehouse: str
+    quantity: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class StockReservationReceipt:
+    product_code: str
+    warehouse: str
+    reference: str
+    quantity: Decimal
+    status: str
+    on_hand: Decimal
+    reserved: Decimal
+    available: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +257,19 @@ class InventoryLedgerService:
             )
         return product
 
+    @staticmethod
+    async def _reserved_quantity(
+        session: AsyncSession, product_id: UUID, location_key: str
+    ) -> Decimal:
+        amount = await session.scalar(
+            select(func.sum(InventoryReservation.quantity)).where(
+                InventoryReservation.product_id == product_id,
+                InventoryReservation.location_key == location_key,
+                InventoryReservation.status == "ACTIVE",
+            )
+        )
+        return Decimal(str(amount)) if amount is not None else Decimal("0")
+
     async def snapshot(self, actor: User, code: str) -> StockSnapshot:
         async with self.session_factory() as session:
             await self._authorize(session, actor)
@@ -307,7 +342,7 @@ class InventoryLedgerService:
             raise InventoryValidationError("Miqdar düzgün deyil.")
         key = _key(draft.warehouse)
         reference_key = _key(draft.reference)
-        if reference_key.startswith(("xfer:", "adj:")):
+        if reference_key.startswith(("xfer:", "adj:", "res:")):
             raise InventoryValidationError(
                 "Daxili köçürmə/düzəliş nömrəsi adi giriş/çıxışda işlədilə bilməz."
             )
@@ -355,6 +390,10 @@ class InventoryLedgerService:
                 )
                 if after < 0:
                     raise InventoryConflict("Anbarda kifayət qədər təsdiqlənmiş qalıq yoxdur.")
+                if draft.kind == "ISSUE":
+                    reserved = await self._reserved_quantity(session, product.id, key)
+                    if after < reserved:
+                        raise InventoryConflict("Rezerv edilmiş stokdan çıxış etmək olmaz.")
                 if after > _MAX_QUANTITY:
                     raise InventoryConflict("Anbar qalığı sistem limitini aşır.")
                 if balance is None:
@@ -471,6 +510,9 @@ class InventoryLedgerService:
                     raise InventoryConflict("Bu köçürmə sənədi artıq istifadə olunub.")
                 if source.quantity < draft.quantity:
                     raise InventoryConflict("Mənbə anbarda kifayət qədər qalıq yoxdur.")
+                active_reserved = await self._reserved_quantity(session, product.id, source_key)
+                if source.quantity - draft.quantity < active_reserved:
+                    raise InventoryConflict("Köçürmə rezerv edilmiş miqdarı poza bilməz.")
                 if destination.quantity + draft.quantity > _MAX_QUANTITY:
                     raise InventoryConflict("Təyinat anbarı qalıq limitini aşır.")
                 source.quantity -= draft.quantity
@@ -590,6 +632,9 @@ class InventoryLedgerService:
                 after = before + delta
                 if after < 0:
                     raise InventoryConflict("Anbarda kifayət qədər təsdiqlənmiş qalıq yoxdur.")
+                reserved = await self._reserved_quantity(session, product.id, location)
+                if after < reserved:
+                    raise InventoryConflict("Düzəliş rezerv edilmiş stoku poza bilməz.")
                 if after > _MAX_QUANTITY:
                     raise InventoryConflict("Düzəliş anbar qalıq limitini aşır.")
                 balance.quantity = after
@@ -633,3 +678,194 @@ class InventoryLedgerService:
                 )
         except IntegrityError as error:
             raise InventoryConflict("Təkrar düzəliş: heç nə iki dəfə yazılmadı.") from error
+
+    @staticmethod
+    def _reservation_key(reference: str) -> str:
+        key = _key(reference)
+        if not 1 <= len(key) <= 124 or any(ord(char) < 32 for char in key):
+            raise InventoryValidationError("Rezervasiya sənəd nömrəsi düzgün deyil.")
+        return "res:" + key
+
+    async def reserve(self, actor: User, draft: StockReservationDraft) -> StockReservationReceipt:
+        """Admin-only reservation of already verified available stock."""
+        location = _key(draft.warehouse)
+        scale = draft.quantity.as_tuple().exponent
+        if (
+            not 1 <= len(location) <= 128
+            or not draft.quantity.is_finite()
+            or not 0 < draft.quantity <= _MAX_QUANTITY
+            or not isinstance(scale, int)
+            or scale < -3
+        ):
+            raise InventoryValidationError("Rezervasiya anbarı və miqdarı düzgün deyil.")
+        reference_key = self._reservation_key(draft.reference)
+        code = normalize_product_code(draft.product_code)
+        try:
+            async with self.session_factory.begin() as session:
+                await self._authorize(session, actor, admin=True)
+                product = await self._product(session, code)
+                locked = await ProductRepository(session).get(product.id, for_update=True)
+                if locked is None or not locked.is_active:
+                    raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                previous = await session.scalar(
+                    select(InventoryReservation.id).where(
+                        InventoryReservation.product_id == product.id,
+                        InventoryReservation.reference_key == reference_key,
+                    )
+                )
+                if previous is not None:
+                    raise InventoryConflict("Rezervasiya nömrəsi artıq istifadə olunub.")
+                balance = await session.scalar(
+                    select(InventoryBalance)
+                    .where(
+                        InventoryBalance.product_id == product.id,
+                        InventoryBalance.location_key == location,
+                    )
+                    .with_for_update()
+                )
+                if balance is None:
+                    raise InventoryConflict("Anbar açılış qalığı təsdiqlənməyib.")
+                reserved = await self._reserved_quantity(session, product.id, location)
+                if balance.quantity - reserved < draft.quantity:
+                    raise InventoryConflict("Anbarda kifayət qədər sərbəst stok yoxdur.")
+                item = InventoryReservation(
+                    product_id=product.id,
+                    location_key=location,
+                    quantity=draft.quantity,
+                    reference_key=reference_key,
+                    reference_label=draft.reference.strip(),
+                    status="ACTIVE",
+                    approved_by_user_id=actor.id,
+                )
+                session.add(item)
+                await session.flush()
+                session.add(
+                    AuditEvent(
+                        actor_user_id=actor.id,
+                        action="INVENTORY_RESERVATION_CREATED",
+                        entity_type="inventory_reservation",
+                        entity_id=str(item.id),
+                        event_metadata={
+                            "product_id": str(product.id),
+                            "location_key": location,
+                            "reference_key": reference_key,
+                            "quantity": str(draft.quantity),
+                        },
+                    )
+                )
+                return StockReservationReceipt(
+                    product.display_code,
+                    balance.location_name,
+                    draft.reference.strip(),
+                    draft.quantity,
+                    "ACTIVE",
+                    balance.quantity,
+                    reserved + draft.quantity,
+                    balance.quantity - reserved - draft.quantity,
+                )
+        except IntegrityError as error:
+            raise InventoryConflict("Rezervasiya təkrar edildi; heç nə dəyişmədi.") from error
+
+    async def reservation_action(
+        self, actor: User, *, product_code: str, reference: str, action: str
+    ) -> StockReservationReceipt:
+        """Cancel or consume one reservation, fenced by the same product lock.
+
+        Consumption appends an ISSUE in the same transaction, so on-hand
+        decreases precisely once. Cancellation never alters physical stock.
+        """
+        if action not in {"CANCEL", "CONSUME"}:
+            raise InventoryValidationError("Rezervasiya əməliyyatı düzgün deyil.")
+        reference_key = self._reservation_key(reference)
+        code = normalize_product_code(product_code)
+        try:
+            async with self.session_factory.begin() as session:
+                await self._authorize(session, actor, admin=True)
+                product = await self._product(session, code)
+                locked = await ProductRepository(session).get(product.id, for_update=True)
+                if locked is None or not locked.is_active:
+                    raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                reservation = await session.scalar(
+                    select(InventoryReservation)
+                    .where(
+                        InventoryReservation.product_id == product.id,
+                        InventoryReservation.reference_key == reference_key,
+                    )
+                    .with_for_update()
+                )
+                if reservation is None:
+                    raise InventoryConflict("Rezervasiya tapılmadı.")
+                location = reservation.location_key
+                balance = await session.scalar(
+                    select(InventoryBalance)
+                    .where(
+                        InventoryBalance.product_id == product.id,
+                        InventoryBalance.location_key == location,
+                    )
+                    .with_for_update()
+                )
+                if balance is None:
+                    raise InventoryConflict("Təsdiqlənmiş anbar qalığı tapılmadı.")
+                reserved = await self._reserved_quantity(session, product.id, location)
+                target_status = "CANCELLED" if action == "CANCEL" else "CONSUMED"
+                if reservation.status == target_status:
+                    return StockReservationReceipt(
+                        product.display_code,
+                        balance.location_name,
+                        reservation.reference_label,
+                        reservation.quantity,
+                        target_status,
+                        balance.quantity,
+                        reserved,
+                        balance.quantity - reserved,
+                    )
+                if reservation.status != "ACTIVE":
+                    raise InventoryConflict("Rezervasiya artıq başqa əməliyyatla yekunlaşdırılıb.")
+                if action == "CONSUME":
+                    if balance.quantity - reservation.quantity < reserved - reservation.quantity:
+                        raise InventoryConflict("Rezervasiya üçün stok yetərli deyil.")
+                    balance.quantity -= reservation.quantity
+                    movement = InventoryMovement(
+                        product_id=product.id,
+                        location_key=location,
+                        location_name=balance.location_name,
+                        kind="ISSUE",
+                        quantity=reservation.quantity,
+                        balance_after=balance.quantity,
+                        reference_key=reference_key,
+                        reference_label=reservation.reference_label,
+                        approved_by_user_id=actor.id,
+                    )
+                    session.add(movement)
+                    await session.flush()
+                reservation.status = target_status
+                new_reserved = reserved - reservation.quantity
+                session.add(
+                    AuditEvent(
+                        actor_user_id=actor.id,
+                        action=(
+                            "INVENTORY_RESERVATION_CANCELLED"
+                            if action == "CANCEL"
+                            else "INVENTORY_RESERVATION_CONSUMED"
+                        ),
+                        entity_type="inventory_reservation",
+                        entity_id=str(reservation.id),
+                        event_metadata={
+                            "product_id": str(product.id),
+                            "location_key": location,
+                            "reference_key": reference_key,
+                        },
+                    )
+                )
+                return StockReservationReceipt(
+                    product.display_code,
+                    balance.location_name,
+                    reservation.reference_label,
+                    reservation.quantity,
+                    target_status,
+                    balance.quantity,
+                    new_reserved,
+                    balance.quantity - new_reserved,
+                )
+        except IntegrityError as error:
+            raise InventoryConflict("Rezervasiya təkrar edildi; heç nə dəyişmədi.") from error
