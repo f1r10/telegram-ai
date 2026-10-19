@@ -4,8 +4,6 @@ import asyncio
 import http.client
 import json
 import threading
-
-import pytest
 from collections.abc import Generator
 from contextlib import contextmanager
 from io import BytesIO
@@ -14,6 +12,7 @@ from types import SimpleNamespace
 from typing import cast
 from urllib.parse import quote
 
+import pytest
 from PIL import Image, ImageDraw
 
 from office_assistant.infrastructure.storage.local import LocalFileStorage
