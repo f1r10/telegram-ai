@@ -388,6 +388,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             # One invalid row aborts every stock movement and audit entry in
             # the workbook, even when a previous row was otherwise valid.
             state_before = await ledger.snapshot(admin, CODE)
+
             def make_stock_workbook(second_quantity: int) -> bytes:
                 workbook = Workbook()
                 page = workbook.active
@@ -423,9 +424,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                     ledger, employee, valid_body, confirmed_sha256=valid_preview.sha256
                 )
             with pytest.raises(InventoryValidationError, match="dəyişib"):
-                await commit_stock_xlsx(
-                    ledger, admin, valid_body, confirmed_sha256="0" * 64
-                )
+                await commit_stock_xlsx(ledger, admin, valid_body, confirmed_sha256="0" * 64)
             posted = await commit_stock_xlsx(
                 ledger, admin, valid_body, confirmed_sha256=valid_preview.sha256
             )
