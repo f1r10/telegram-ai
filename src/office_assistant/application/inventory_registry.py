@@ -117,9 +117,7 @@ class InventoryRegistryService:
         except IntegrityError as error:
             raise InventoryConflict("Anbar reyestrində təkrar qeydiyyat var.") from error
 
-    async def list_warehouses(
-        self, actor: User, *, limit: int = 100
-    ) -> tuple[WarehouseView, ...]:
+    async def list_warehouses(self, actor: User, *, limit: int = 100) -> tuple[WarehouseView, ...]:
         if not 1 <= limit <= 100:
             raise InventoryValidationError("Anbar siyahısı limiti düzgün deyil.")
         async with self.session_factory() as session:
