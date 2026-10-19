@@ -12,6 +12,7 @@ from office_assistant.application.inventory import (
     InventoryLedgerService,
     InventoryValidationError,
     StockDraft,
+    StockTransferDraft,
 )
 from office_assistant.application.products import ProductService
 from office_assistant.core.settings import load_settings
@@ -116,6 +117,57 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
                     ).all()
                 )
                 assert len(actions) == 5
+
+            transfer = StockTransferDraft(
+                CODE, "Kənar", "Əsas", Decimal("1.000"), "MOVE-001"
+            )
+            with pytest.raises(AuthorizationDenied):
+                await ledger.transfer(employee, transfer)
+            done = await ledger.transfer(admin, transfer)
+            assert done.source_balance_after == Decimal("2.500")
+            assert done.destination_balance_after == Decimal("4.750")
+            with pytest.raises(InventoryConflict, match="artıq"):
+                await ledger.transfer(admin, transfer)
+            with pytest.raises(InventoryConflict, match="açılış"):
+                await ledger.transfer(
+                    admin,
+                    StockTransferDraft(
+                        CODE, "Kənar", "Naməlum", Decimal("1"), "MOVE-002"
+                    ),
+                )
+            with pytest.raises(InventoryConflict, match="kifayət"):
+                await ledger.transfer(
+                    admin,
+                    StockTransferDraft(
+                        CODE, "Kənar", "Əsas", Decimal("8"), "MOVE-003"
+                    ),
+                )
+            competing = await asyncio.gather(
+                ledger.transfer(
+                    admin, StockTransferDraft(CODE, "Kənar", "Əsas", Decimal("2"), "MOVE-004")
+                ),
+                ledger.transfer(
+                    admin, StockTransferDraft(CODE, "Kənar", "Əsas", Decimal("2"), "MOVE-005")
+                ),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(x, InventoryConflict) for x in competing) == 1
+            assert sum(not isinstance(x, Exception) for x in competing) == 1
+            after_transfer = await ledger.snapshot(admin, CODE)
+            assert after_transfer.total == Decimal("7.250")
+            async with factory() as session:
+                transfers = list(
+                    (
+                        await session.scalars(
+                            select(InventoryMovement).where(
+                                InventoryMovement.product_id == product_id,
+                                InventoryMovement.reference_key.like("xfer:%"),
+                            )
+                        )
+                    ).all()
+                )
+                assert len(transfers) == 4
+                assert {item.kind for item in transfers} == {"ISSUE", "RECEIPT"}
 
             async with factory.begin() as session:
                 db_actor = await session.get(User, employee_id)
