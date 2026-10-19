@@ -17,13 +17,15 @@ def test_prerequisites_refuse_missing_password_and_nested_repository(
 ) -> None:
     storage = tmp_path / "storage"
     storage.mkdir()
+    staging = tmp_path / "private-staging"
+    staging.mkdir(mode=0o700)
     monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     env = {
         "RESTIC_REPOSITORY": str(storage / "backups"),
         "RESTIC_PASSWORD_FILE": str(tmp_path / "absent"),
         "PGDATABASE": "synthetic",
     }
-    result = backup_restic.prerequisites(storage, env)
+    result = backup_restic.prerequisites(storage, env, staging)
     assert "repository_inside_source" in result
     assert "restic_password_file_missing" in result
 
@@ -33,6 +35,8 @@ def test_dry_run_never_invokes_pg_dump_or_restic(
 ) -> None:
     storage = tmp_path / "storage"
     storage.mkdir()
+    staging = tmp_path / "private-staging"
+    staging.mkdir(mode=0o700)
     secret = tmp_path / "password"
     secret.write_text("test-only", encoding="utf-8")
     environment = {
@@ -47,7 +51,7 @@ def test_dry_run_never_invokes_pg_dump_or_restic(
         raise AssertionError("no subprocess in dry run")
 
     monkeypatch.setattr(backup_restic.subprocess, "run", refuse)
-    monkeypatch.setattr("sys.argv", ["backup_restic", "--storage-root", str(storage)])
+    monkeypatch.setattr("sys.argv", ["backup_restic", "--storage-root", str(storage), "--staging-root", str(staging)])
     backup_restic.main()
     assert '"DRY_RUN"' in capsys.readouterr().out
 
@@ -57,6 +61,8 @@ def test_apply_requires_explicit_quiescence(
 ) -> None:
     storage = tmp_path / "storage"
     storage.mkdir()
+    staging = tmp_path / "private-staging"
+    staging.mkdir(mode=0o700)
     secret = tmp_path / "password"
     secret.write_text("test-only", encoding="utf-8")
     monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
@@ -69,7 +75,9 @@ def test_apply_requires_explicit_quiescence(
             "PGDATABASE": "synthetic",
         },
     )
-    monkeypatch.setattr("sys.argv", ["backup_restic", "--storage-root", str(storage), "--apply"])
+    monkeypatch.setattr("sys.argv", [
+        "backup_restic", "--storage-root", str(storage), "--staging-root", str(staging), "--apply"
+    ])
     with pytest.raises(SystemExit) as raised:
         backup_restic.main()
     assert raised.value.code == 2
@@ -86,3 +94,22 @@ def test_failed_child_command_never_exposes_private_stderr(
         backup_restic.run_command(["restic", "backup"], timeout=1, environment={})
     assert "customer-secret" not in str(raised.value)
     assert "12" in str(raised.value)
+
+
+def test_staging_requires_private_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o755)
+    secret = tmp_path / "secret"
+    secret.write_text("test-only", encoding="utf-8")
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
+    env = {
+        "RESTIC_REPOSITORY": "s3:example/backups",
+        "RESTIC_PASSWORD_FILE": str(secret),
+        "PGDATABASE": "synthetic",
+    }
+    assert "staging_permissions_not_private" in backup_restic.prerequisites(storage, env, staging)
+    staging.chmod(0o700)
+    assert backup_restic.prerequisites(storage, env, staging) == []
+    assert "staging_overlaps_source" in backup_restic.prerequisites(storage, env, storage)
