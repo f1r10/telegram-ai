@@ -9,9 +9,9 @@ from sqlalchemy import delete, select
 from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import (
     InventoryConflict,
-    StockAdjustmentDraft,
     InventoryLedgerService,
     InventoryValidationError,
+    StockAdjustmentDraft,
     StockDraft,
     StockTransferDraft,
 )
