@@ -23,16 +23,27 @@ needs more than 3 decimal places and already-declared ratios fail closed.
 Registration and ratio declarations are ADMIN-only and generate AuditEvent
 rows. Read-only conversions and warehouse listing check ACTIVE users.
 
-Crucially, **this registry is not wired into existing free-text stock
-postings**. Those legacy postings have unit-UNKNOWN semantics, and the new
-API alone must not imply a finished unit migration. Before enabling
-new-unit stock writes: extend the ledger and XLSX template to carry
-explicit base units, reject unregistered/inactive warehouse locations
-for unit-managed products, expose verified units in Telegram/Mini App
-without claiming full company coverage, build admin preview/confirm,
-and test concurrent imports and migration on a backed-up staging copy.
-Do not infer unit or whole-company stock from product descriptions,
-invoices, photos or unreviewed Excel.
+The ledger now applies a **conditional unit fence**. When a product has
+an approved base unit, every new opening, receipt, issue, warehouse
+transfer, adjustment, reservation and batch posting must carry that exact
+unit and involve ACTIVE registered warehouses. Legacy products with NO
+base-unit approval continue using their old unknown-unit flow; supplying
+an alleged unit to an unregistered product is rejected. Consumption of
+an existing approved reservation remains tied to its original quantity.
+
+The new six-column XLSX template has explicit `unit` before `reference`.
+The old five-column template remains accepted for legacy unknown-unit
+products, but cannot alter unit-managed products. Conversion of arbitrary
+noncanonical XLSX quantities is NOT implicit; operators must use a
+separate reviewed conversion and approve exact canonical quantities.
+
+Telegram chat's old stock-write draft lacks a unit and therefore safely
+fails for unit-managed products until an explicit administrator preview/
+confirm UI exists. Read-only stock answers display the verified unit or
+say it is unconfirmed, never guess. Full warehouse coverage and real
+historical unit reconciliation still require backed-up staging acceptance.
+Do not infer unit or whole-company stock from catalog descriptions,
+photos, invoices or unreviewed Excel.
 
 Run new disposable PostgreSQL tests for unauthorized registration,
 conflicting aliases, unit immutability, no conversion guesses,

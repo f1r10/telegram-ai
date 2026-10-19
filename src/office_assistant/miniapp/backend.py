@@ -226,6 +226,7 @@ class MiniAppBackend:
         return {
             "product_code": snapshot.product_code,
             "known": snapshot.total is not None,
+            "unit": snapshot.unit_code,
             "total": str(snapshot.total) if isinstance(snapshot.total, Decimal) else None,
             "locations": [
                 {"warehouse": x.warehouse, "quantity": str(x.quantity)} for x in snapshot.locations

@@ -20,7 +20,9 @@ from office_assistant.infrastructure.database.models import (
     AuditEvent,
     InventoryBalance,
     InventoryMovement,
+    InventoryProductUnit,
     InventoryReservation,
+    InventoryWarehouse,
     Product,
     User,
     UserRole,
@@ -74,6 +76,7 @@ class StockDraft:
     kind: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +86,7 @@ class StockTransferDraft:
     destination_warehouse: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,7 @@ class StockAdjustmentDraft:
     quantity: Decimal
     reference: str
     reason: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +128,7 @@ class StockReservationDraft:
     warehouse: str
     quantity: Decimal
     reference: str
+    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +175,7 @@ class StockSnapshot:
     product_code: str
     locations: tuple[StockLocation, ...]
     total: Decimal | None
+    unit_code: str | None = None
 
 
 def _key(text: str) -> str:
@@ -270,10 +277,37 @@ class InventoryLedgerService:
         )
         return Decimal(str(amount)) if amount is not None else Decimal("0")
 
+    @staticmethod
+    async def _enforce_unit_policy(
+        session: AsyncSession,
+        product_id: UUID,
+        supplied_unit: str | None,
+        locations: tuple[str, ...],
+    ) -> None:
+        """Registered products require an explicit canonical unit and open warehouse."""
+        rule = await session.get(InventoryProductUnit, product_id)
+        if rule is None:
+            if supplied_unit is not None:
+                raise InventoryValidationError(
+                    "Bu məhsulun əsas vahidi təsdiqlənməyib; vahidli əməliyyat dayandırıldı."
+                )
+            return  # legacy unit-UNKNOWN records stay unchanged until owner reconciliation
+        if supplied_unit is None or supplied_unit.strip().upper() != rule.base_unit:
+            raise InventoryValidationError(
+                "Ölçü vahidi uyğun deyil; yalnız məhsulun təsdiqlənmiş əsas vahidi qəbul edilir."
+            )
+        for location_key in set(locations):
+            warehouse = await session.get(InventoryWarehouse, location_key)
+            if warehouse is None or warehouse.status != "ACTIVE":
+                raise InventoryConflict(
+                    "Yalnız reyestrdə aktiv təsdiqlənmiş anbarda əməliyyat olar."
+                )
+
     async def snapshot(self, actor: User, code: str) -> StockSnapshot:
         async with self.session_factory() as session:
             await self._authorize(session, actor)
             product = await self._product(session, normalize_product_code(code))
+            unit_policy = await session.get(InventoryProductUnit, product.id)
             rows = list(
                 (
                     await session.scalars(
@@ -287,6 +321,7 @@ class InventoryLedgerService:
                 product_code=product.display_code,
                 locations=tuple(StockLocation(item.location_name, item.quantity) for item in rows),
                 total=sum((item.quantity for item in rows), Decimal(0)) if rows else None,
+                unit_code=unit_policy.base_unit if unit_policy is not None else None,
             )
 
     async def history(
@@ -357,6 +392,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (key,))
                 previous = await session.scalar(
                     select(InventoryMovement.id).where(
                         InventoryMovement.product_id == product.id,
@@ -503,6 +539,7 @@ class InventoryLedgerService:
                 receipt: list[StockEntry] = []
                 for code, location, reference, draft in checked:
                     product = products[code]
+                    await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                     prior = await session.scalar(
                         select(InventoryMovement.id).where(
                             InventoryMovement.product_id == product.id,
@@ -625,6 +662,9 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(
+                    session, product.id, draft.unit, (source_key, dest_key)
+                )
                 # The product row serializes concurrent operations, even when the
                 # destination has no row yet. Both legs stay in one transaction.
                 balances = list(
@@ -753,6 +793,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                 # Product-row lock fences all concurrent writes and adjustment
                 # reference replays, even if the warehouse row is absent.
                 duplicate = await session.scalar(
@@ -852,6 +893,7 @@ class InventoryLedgerService:
                 locked = await ProductRepository(session).get(product.id, for_update=True)
                 if locked is None or not locked.is_active:
                     raise InventoryConflict("Məhsul artıq aktiv deyil.")
+                await self._enforce_unit_policy(session, product.id, draft.unit, (location,))
                 previous = await session.scalar(
                     select(InventoryReservation.id).where(
                         InventoryReservation.product_id == product.id,

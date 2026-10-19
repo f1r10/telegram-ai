@@ -9,9 +9,18 @@ GitHub, and no parser output is treated as an automatic purchase/sale.
 
 ## Accepted XLSX template
 
-Exactly one worksheet, exactly five columns, with the literal first row:
+Exactly one worksheet. For historic unknown-unit products, the original
+five-column format is accepted:
 
     product_code | warehouse | kind | quantity | reference
+
+Products with a separately approved base unit REQUIRE the explicit
+six-column format, and the unit must equal that canonical base unit:
+
+    product_code | warehouse | kind | quantity | unit | reference
+
+No automatic box-to-piece, kilogram-to-piece or other conversion happens
+during XLSX posting. A separately reviewed exact conversion is required.
 
 Supported Azerbaijani `kind`: AÇILIŞ, GİRİŞ, ÇIXIŞ. Each row explicitly
 states a known product code, warehouse, quantity (maximum three decimal

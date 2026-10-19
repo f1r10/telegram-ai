@@ -4,6 +4,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Unit-aware warehouse posting fences (2026-10-19)
+
+- Require explicit canonical units and registered active warehouses in all
+  stock write APIs once a product has an approved unit; reject silent unit
+  guesses while retaining legacy unknown-unit product flows.
+- Support six-column unit-annotated XLSX journals without implicit conversion;
+  show canonical unit or UNKNOWN in Mini App and Telegram stock views.
+- Add PostgreSQL and unit regression tests; admin confirmation UI remains gated.
+
 ### Staged warehouse registry and product unit rules (2026-10-19)
 
 - Add reversible migration 0022 for independently approved warehouses,

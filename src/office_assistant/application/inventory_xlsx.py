@@ -1,6 +1,6 @@
 """Bounded, formula-free stock XLSX preview; no data writes before approval."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from io import BytesIO
 from zipfile import BadZipFile, ZipFile
@@ -15,12 +15,14 @@ from office_assistant.application.inventory import (
     StockEntry,
     parse_stock_draft,
 )
+from office_assistant.application.inventory_registry import VALID_UNITS
 from office_assistant.infrastructure.database.models import User
 
 MAX_XLSX_BYTES = 5 * 1024 * 1024
 MAX_XLSX_UNPACKED = 35 * 1024 * 1024
 MAX_ROWS = 200
 _HEADERS = ("product_code", "warehouse", "kind", "quantity", "reference")
+_UNIT_HEADERS = ("product_code", "warehouse", "kind", "quantity", "unit", "reference")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,19 +77,22 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
         if len(workbook.worksheets) != 1:
             raise InventoryValidationError("Yalnız bir vərəqli stok şablonu qəbul edilir.")
         sheet = workbook.worksheets[0]
-        if sheet.max_column != len(_HEADERS) or sheet.max_row > MAX_ROWS + 1:
+        if (
+            sheet.max_column not in (len(_HEADERS), len(_UNIT_HEADERS))
+            or sheet.max_row > MAX_ROWS + 1
+        ):
             raise InventoryValidationError("Excel sütunları və ya sətir limiti düzgün deyil.")
         rows = sheet.iter_rows()
         header = next(rows, ())
         names = tuple(str(cell.value or "").strip().casefold() for cell in header)
-        if names != _HEADERS:
+        if names not in (_HEADERS, _UNIT_HEADERS):
             raise InventoryValidationError("Excel başlıqları təsdiqlənmiş şablona uyğun deyil.")
         drafts: list[StockDraft] = []
         seen: set[tuple[str, str, str]] = set()
         for row in rows:
             if len(drafts) >= MAX_ROWS:
                 raise InventoryValidationError("Excel sətir limiti aşılıb.")
-            if len(row) != len(_HEADERS):
+            if len(row) != len(names):
                 raise InventoryValidationError("Excel sətrində sütun çatışmır.")
             if any(
                 cell.data_type == "f"
@@ -102,10 +107,18 @@ def preview_stock_xlsx(payload: bytes) -> StockXlsxPreview:
                 not value or "|" in value or any(ord(ch) < 32 for ch in value) for value in values
             ):
                 raise InventoryValidationError("Excel sətrində yararsız məlumat var.")
+            unit = None
+            if names == _UNIT_HEADERS:
+                unit = values[4].upper()
+                if unit not in VALID_UNITS:
+                    raise InventoryValidationError("Excel ölçü vahidi təsdiqlənməyib.")
+                values = [*values[:4], values[5]]
             text = "Anbar əməliyyatı: " + " | ".join(values)
             draft = parse_stock_draft(text)
             if draft is None:
                 raise InventoryValidationError("Excel sətri tanınmadı.")
+            if unit is not None:
+                draft = replace(draft, unit=unit)
             key = (
                 draft.product_code,
                 " ".join(draft.warehouse.casefold().split()),
