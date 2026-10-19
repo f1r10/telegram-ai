@@ -18,8 +18,15 @@ KNOWN_CHECKS = frozenset(
     }
 )
 KNOWN_COUNTS = frozenset(
-    {"deferred", "ingestion_failed", "failed", "partial", "pending_or_running",
-     "awaiting_index", "indexed"}
+    {
+        "deferred",
+        "ingestion_failed",
+        "failed",
+        "partial",
+        "pending_or_running",
+        "awaiting_index",
+        "indexed",
+    }
 )
 _STATUS_CODES = {"OK": 2, "WARN": 1, "FAIL": 0}
 _READINESS_CODES = {"READY": 2, "DEGRADED": 1, "NOT_READY": 0}
@@ -42,7 +49,9 @@ def project_metrics(readiness: str, checks: list[Check]) -> SafeMetrics:
             continue
         status[item.name] = _STATUS_CODES.get(item.status, 0)
         if item.name not in {
-            "document_processing", "search_index_jobs", "historical_pdf_ocr_replay"
+            "document_processing",
+            "search_index_jobs",
+            "historical_pdf_ocr_replay",
         }:
             continue
         for field, amount in _COUNT_PATTERN.findall(item.detail):
