@@ -106,6 +106,7 @@ def test_staging_requires_private_directory(
     storage.mkdir()
     staging = tmp_path / "staging"
     staging.mkdir(mode=0o755)
+    staging.chmod(0o755)
     secret = tmp_path / "secret"
     secret.write_text("test-only", encoding="utf-8")
     monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
