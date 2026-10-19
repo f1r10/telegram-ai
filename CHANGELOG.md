@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Verified Excel warehouse journals (2026-10-19)
+
+- Add read-only stock XLSX preflight limited by ZIP size, rows, formulas,
+  document references and explicit SHA-256 confirmation.
+- Admin-only atomic multirow posting rechecks stock reservations, product
+  authority and nonnegative inventory, with audit and rollback tests.
+- Operator source-retention and Telegram approval UX still require acceptance.
+
 ### Reservation-safe stock operations (2026-10-19)
 
 - Add reversible migration 0021 for explicit approved stock reservations.
