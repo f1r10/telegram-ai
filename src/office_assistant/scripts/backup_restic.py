@@ -78,9 +78,7 @@ def run_command(args: list[str], *, timeout: int, environment: dict[str, str]) -
         raise BackupPrerequisiteError(f"backup_command_exit_{completed.returncode}")
 
 
-def snapshot(
-    storage_root: Path, environment: dict[str, str], staging_root: Path
-) -> None:
+def snapshot(storage_root: Path, environment: dict[str, str], staging_root: Path) -> None:
     """Write one Restic snapshot covering the SQL dump and original blobs."""
     storage = storage_root.resolve(strict=True)
     previous_umask = os.umask(0o077)
