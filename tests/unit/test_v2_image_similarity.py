@@ -81,7 +81,6 @@ def test_unrelated_image_is_not_forcibly_identified(tmp_path: object) -> None:
     assert result == []
 
 
-
 def test_confirmed_photo_sha_blocks_corrupt_reference_even_when_fingerprint_matches(
     tmp_path: object,
 ) -> None:
