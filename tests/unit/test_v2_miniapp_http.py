@@ -151,8 +151,15 @@ class DummyBackend:
         }
 
     async def prepare_stock_transfer(
-        self, raw: str, *, code: str, source: str, destination: str,
-        quantity: str, reference: str, unit: str | None,
+        self,
+        raw: str,
+        *,
+        code: str,
+        source: str,
+        destination: str,
+        quantity: str,
+        reference: str,
+        unit: str | None,
     ) -> dict[str, object]:
         self.calls.append("stock-preview:" + raw)
         return {
