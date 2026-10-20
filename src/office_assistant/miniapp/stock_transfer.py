@@ -37,10 +37,7 @@ def _location_key(value: str) -> str:
 
 def _text(value: str, *, limit: int = 128) -> str:
     result = value.strip()
-    if (
-        not 1 <= len(result) <= limit
-        or any(ord(char) < 32 or ord(char) == 127 for char in result)
-    ):
+    if not 1 <= len(result) <= limit or any(ord(char) < 32 or ord(char) == 127 for char in result):
         raise InventoryValidationError("Anbar və ya sənəd məlumatı düzgün deyil.")
     return result
 
