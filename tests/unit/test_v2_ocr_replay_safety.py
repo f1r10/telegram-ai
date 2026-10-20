@@ -83,18 +83,14 @@ def test_ocr_queue_preflight_rejects_changed_active_source_and_unknown_mime(
         file.id, run.id, {"schema_version": "v1", "blocks": []}
     )
     config = ChunkingConfig("v1-medium-1800-180", 1800, 180)
-    args = {
-        "max_raw_bytes": 1024,
-        "chunking": config,
-    }
-    assert safe_artifacts(storage, run, file, **args)
+    assert safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
     raw.write_bytes(b"%PDF-CHANGED-legacy-scan")
-    assert not safe_artifacts(storage, run, file, **args)
+    assert not safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
     raw.write_bytes(payload)
     file.state = FileObjectState.DELETED
-    assert not safe_artifacts(storage, run, file, **args)
+    assert not safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
     file.state = FileObjectState.ACTIVE
     file.content_type = "text/plain"
-    assert not safe_artifacts(storage, run, file, **args)
+    assert not safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
     file.content_type = "application/pdf"
-    assert safe_artifacts(storage, run, file, **args)
+    assert safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
