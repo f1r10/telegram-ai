@@ -4,6 +4,19 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Isolated Restic snapshot artifact verification (2026-10-20)
+
+- Add operator-only opt-in `verify_restic_backup` to restore a full pinned
+  snapshot into a disposable private directory, check the expected storage
+  tree, backup manifest and PostgreSQL dump with read-only `pg_restore --list`.
+- Default remains dry-run; reject non-private staging/password files,
+  overlapping source/repository paths, snapshot aliasing and restored
+  symlink routes. Never write to a production database.
+- Add unit tests for isolation, corrupt archives, safe cleanup and refusal
+  to run external commands on dry-run. Full database restore and index
+  rebuild acceptance remain separate and explicitly unverified.
+
+
 ### OCR replay preflight source-integrity enforcement (2026-10-20)
 
 - Verify ACTIVE PDF state, MIME, filename, size and original SHA-256
