@@ -26,6 +26,7 @@ def private_layout(
         "RESTIC_REPOSITORY": "s3:fake-not-accessed/repository",
         "RESTIC_PASSWORD_FILE": str(secret),
     }
+
     def mock_binary(_name: str) -> str:
         return "/mock/bin"
 
