@@ -71,7 +71,11 @@
       if (!response.ok) {
         if (response.status === 429) throw new Error("Çox sayda sorğu göndərildi. Bir qədər sonra yenidən cəhd edin.");
         if (response.status === 400) throw new Error("Məlumatı yoxlayın və yenidən yazın.");
-        if (response.status === 409) throw new Error("Başqa sənəd sessiyası açıqdır. Əvvəl Telegram botunda /saxla və ya /cancel edin.");
+        if (response.status === 409) throw new Error(
+          path.startsWith("/api/stock/transfer/")
+            ? "Anbar qalıqları və ya təsdiq dəyişib. Tarixçəni yoxlayıb yenidən önbaxış edin."
+            : "Başqa sənəd sessiyası açıqdır. Əvvəl Telegram botunda /saxla və ya /cancel edin."
+        );
         if (response.status === 410) throw new Error("Fayl təsdiqinin vaxtı bitib. Yenidən seçin.");
         throw new Error("Xidmət hazırda əlçatan deyil. Telegram botunda sual verməyə davam edə bilərsiniz.");
       }
