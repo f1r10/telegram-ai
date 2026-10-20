@@ -121,7 +121,9 @@ class MiniAppStockActionReview:
         if location is None:
             raise InventoryConflict("Anbar açılış qalığı təsdiqlənməyib.")
         if snapshot.unit_code != unit:
-            raise InventoryValidationError("Təsdiqlənmiş əsas vahid ilə əməliyyat vahidi eyni olmalıdır.")
+            raise InventoryValidationError(
+                "Təsdiqlənmiş əsas vahid ilə əməliyyat vahidi eyni olmalıdır."
+            )
         if kind in {"DAMAGE", "WRITE_OFF"}:
             delta = -value
         elif kind == "RESERVE":
@@ -171,7 +173,9 @@ class MiniAppStockActionReview:
         async with self._lock:
             item = self._tickets.get(token)
             if item is None or item.actor_id != actor.id or item.expires_at <= monotonic():
-                raise InventoryConflict("Təsdiq kodu etibarsız, vaxtı bitmiş və ya başqasına aiddir.")
+                raise InventoryConflict(
+                    "Təsdiq kodu etibarsız, vaxtı bitmiş və ya başqasına aiddir."
+                )
             del self._tickets[token]  # One-use, including an ambiguous HTTP failure
         if isinstance(item.draft, StockReservationDraft):
             receipt = await self.ledger.reserve(actor, item.draft)
