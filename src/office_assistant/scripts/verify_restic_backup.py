@@ -128,7 +128,7 @@ def _manifest_parent(target: Path) -> Path:
                 if candidate.stat().st_size > _MAX_MANIFEST_BYTES:
                     raise BackupPrerequisiteError("manifest_size_invalid")
                 data: object = json.loads(candidate.read_text(encoding="utf-8"))
-            except (OSError, ValueError, UnicodeError) as error:
+            except (OSError, ValueError, UnicodeError):
                 raise BackupPrerequisiteError("manifest_invalid") from None
             if not isinstance(data, dict):
                 raise BackupPrerequisiteError("manifest_invalid")
