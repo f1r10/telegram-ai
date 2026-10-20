@@ -215,6 +215,47 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
+    def _api_stock_action_preview(self, signed: str, args: dict[str, object]) -> None:
+        required = ("kind", "code", "warehouse", "quantity", "reference")
+        if any(not isinstance(args.get(key), str) for key in required):
+            raise ValueError("Invalid stock action fields")
+        unit = args.get("unit")
+        reason = args.get("reason")
+        if (unit is not None and not isinstance(unit, str)) or (
+            reason is not None and not isinstance(reason, str)
+        ):
+            raise ValueError("Invalid unit or reason")
+        value = self._run(
+            self._app().backend.preview_stock_action(
+                signed,
+                kind=cast(str, args["kind"]),
+                code=cast(str, args["code"]),
+                warehouse=cast(str, args["warehouse"]),
+                quantity=cast(str, args["quantity"]),
+                reference=cast(str, args["reference"]),
+                unit=unit,
+                reason=reason,
+            )
+        )
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_stock_action_confirm(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid stock action token")
+        result = self._run(self._app().backend.confirm_stock_action(signed, token=token))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
+    def _api_stock_action_cancel(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid stock action token")
+        result = self._run(self._app().backend.cancel_stock_action(signed, token=token))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
     def _api_transfer_preview(self, signed: str, args: dict[str, object]) -> None:
         required = ("code", "source", "destination", "quantity", "reference")
         if any(not isinstance(args.get(key), str) for key in required):
@@ -320,6 +361,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             "/api/ask": self._api_ask,
             "/api/stock": self._api_stock,
             "/api/stock/history": self._api_stock_history,
+            "/api/stock/action/preview": self._api_stock_action_preview,
+            "/api/stock/action/confirm": self._api_stock_action_confirm,
+            "/api/stock/action/cancel": self._api_stock_action_cancel,
             "/api/stock/transfer/preview": self._api_transfer_preview,
             "/api/stock/transfer/confirm": self._api_transfer_confirm,
             "/api/stock/transfer/cancel": self._api_transfer_cancel,
@@ -544,6 +588,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 "/api/ask",
                 "/api/stock",
                 "/api/stock/history",
+                "/api/stock/action/preview",
+                "/api/stock/action/confirm",
+                "/api/stock/action/cancel",
                 "/api/stock/transfer/preview",
                 "/api/stock/transfer/confirm",
                 "/api/stock/transfer/cancel",
@@ -585,7 +632,12 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             if not isinstance(parsed, dict):
                 raise ValueError("Invalid input object")
             args = cast(dict[str, object], parsed)
-            if len(args) > (6 if path.path == "/api/stock/transfer/preview" else 5):
+            max_fields = (
+                7 if path.path == "/api/stock/action/preview"
+                else 6 if path.path == "/api/stock/transfer/preview"
+                else 5
+            )
+            if len(args) > max_fields:
                 raise ValueError("Too many fields")
         except TimeoutError:
             self._json(408, {"error": "request_timeout"})
