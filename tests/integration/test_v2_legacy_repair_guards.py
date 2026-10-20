@@ -267,9 +267,7 @@ def test_legacy_reindex_revalidates_source_and_preserves_good_sibling() -> None:
                     )
                 )
                 await db.execute(
-                    delete(KnowledgeIndexJob).where(
-                        KnowledgeIndexJob.id == ids.get("index", -1)
-                    )
+                    delete(KnowledgeIndexJob).where(KnowledgeIndexJob.id == ids.get("index", -1))
                 )
                 await db.execute(
                     delete(DocumentParseRun).where(
@@ -290,9 +288,7 @@ def test_legacy_reindex_revalidates_source_and_preserves_good_sibling() -> None:
                     )
                 )
                 await db.execute(
-                    delete(IngestionSession).where(
-                        IngestionSession.id == ids.get("session", -1)
-                    )
+                    delete(IngestionSession).where(IngestionSession.id == ids.get("session", -1))
                 )
                 await db.execute(delete(User).where(User.id == ids.get("user", -1)))
             await engine.dispose()
