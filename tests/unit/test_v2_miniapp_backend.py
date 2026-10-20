@@ -109,6 +109,7 @@ def make_backend(
     photo_lookup: object | None = None,
     stock_transfer_enabled: bool = False,
     stock_actions_enabled: bool = False,
+    stock_xlsx_enabled: bool = False,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -128,6 +129,7 @@ def make_backend(
         photo_lookup=cast(MiniAppPhotoLookup | None, photo_lookup),
         stock_transfer_enabled=stock_transfer_enabled,
         stock_actions_enabled=stock_actions_enabled,
+        stock_xlsx_enabled=stock_xlsx_enabled,
     )
     return backend, factory.session
 
@@ -139,6 +141,7 @@ def test_signed_user_profile_and_db_approval_are_distinct() -> None:
         "role": "employee",
         "can_transfer": False,
         "can_stock_actions": False,
+        "can_stock_xlsx": False,
     }
     assert session.executions == 1
     with pytest.raises(MiniAppAuthenticationError):
@@ -234,6 +237,19 @@ def test_stock_action_requires_live_admin_and_rechecks_role_before_commit() -> N
     result = asyncio.run(backend.confirm_stock_action(signature(123), token=str(preview["token"])))
     assert result["status"] == "posted"
     assert inventory.adjust.await_count == 1
+
+
+def test_stock_xlsx_requires_admin_and_separate_feature_gate() -> None:
+    fake = SimpleNamespace(record_batch=AsyncMock(return_value=()))
+    admin = User(id=1, telegram_user_id=123, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
+    backend, session = make_backend(actor=admin, inventory=fake, stock_xlsx_enabled=True)
+    assert asyncio.run(backend.profile(signature(123)))["can_stock_xlsx"] is True
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(backend.stock_xlsx_permission(signature(123)))
+    session.actor = admin
+    asyncio.run(backend.stock_xlsx_permission(signature(123)))
+    assert fake.record_batch.await_count == 0
 
 
 def test_chat_and_company_base_reuse_existing_grounded_service() -> None:

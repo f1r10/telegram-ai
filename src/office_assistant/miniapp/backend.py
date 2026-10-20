@@ -40,6 +40,7 @@ from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.stock_actions import MiniAppStockActionReview
 from office_assistant.miniapp.stock_transfer import MiniAppStockTransferReview
+from office_assistant.miniapp.stock_xlsx import MiniAppStockXlsxReview
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class MiniAppBackend:
         photo_lookup: MiniAppPhotoLookup | None = None,
         stock_transfer_enabled: bool = False,
         stock_actions_enabled: bool = False,
+        stock_xlsx_enabled: bool = False,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -110,6 +112,11 @@ class MiniAppBackend:
         )
         self.stock_actions = (
             MiniAppStockActionReview(inventory, enabled=stock_actions_enabled)
+            if inventory is not None
+            else None
+        )
+        self.stock_xlsx = (
+            MiniAppStockXlsxReview(inventory, enabled=stock_xlsx_enabled)
             if inventory is not None
             else None
         )
@@ -142,6 +149,11 @@ class MiniAppBackend:
         return {
             "display_name": actor.first_name or "Əməkdaş",
             "role": "admin" if actor.role == "ADMIN" else "employee",
+            "can_stock_xlsx": (
+                self.stock_xlsx is not None
+                and self.stock_xlsx.enabled
+                and actor.role == UserRole.ADMIN
+            ),
             "can_stock_actions": (
                 self.stock_actions is not None
                 and self.stock_actions.enabled
@@ -236,6 +248,41 @@ class MiniAppBackend:
         if original.file_id != ticket.file_id:
             raise FileDeliveryError("Original citation has been superseded")
         return original
+
+    async def stock_xlsx_permission(self, init_data: str) -> None:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if self.stock_xlsx is None or not self.stock_xlsx.enabled:
+            raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+
+    async def preview_stock_xlsx(self, init_data: str, *, payload: bytes) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if self.stock_xlsx is None or not self.stock_xlsx.enabled:
+            raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
+        return await self.stock_xlsx.preview(actor, payload)
+
+    async def confirm_stock_xlsx(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        if self.stock_xlsx is None or not self.stock_xlsx.enabled:
+            raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
+        return await self.stock_xlsx.confirm(actor, token)
+
+    async def cancel_stock_xlsx(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if self.stock_xlsx is None or not self.stock_xlsx.enabled:
+            raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
+        return await self.stock_xlsx.cancel(actor, token)
 
     def _stock_action_review(self) -> MiniAppStockActionReview:
         if self.stock_actions is None or not self.stock_actions.enabled:

@@ -20,6 +20,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 from office_assistant.application.errors import AuthorizationDenied
 from office_assistant.application.inventory import InventoryConflict, InventoryValidationError
+from office_assistant.application.inventory_xlsx import MAX_XLSX_BYTES
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
@@ -215,6 +216,22 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
+    def _api_stock_xlsx_confirm(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid XLSX approval token")
+        value = self._run(self._app().backend.confirm_stock_xlsx(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_stock_xlsx_cancel(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid XLSX approval token")
+        value = self._run(self._app().backend.cancel_stock_xlsx(signed, token=token))
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
     def _api_stock_action_preview(self, signed: str, args: dict[str, object]) -> None:
         required = ("kind", "code", "warehouse", "quantity", "reference")
         if any(not isinstance(args.get(key), str) for key in required):
@@ -361,6 +378,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             "/api/ask": self._api_ask,
             "/api/stock": self._api_stock,
             "/api/stock/history": self._api_stock_history,
+            "/api/stock/xlsx/confirm": self._api_stock_xlsx_confirm,
+            "/api/stock/xlsx/cancel": self._api_stock_xlsx_cancel,
             "/api/stock/action/preview": self._api_stock_action_preview,
             "/api/stock/action/confirm": self._api_stock_action_confirm,
             "/api/stock/action/cancel": self._api_stock_action_cancel,
@@ -560,8 +579,70 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             logger.warning("Mini App photo lookup failed | error_type=%s", type(error).__name__)
             self._json(503, {"error": "service_unavailable"})
 
+    def _stock_xlsx_preview(self, signed: str) -> None:
+        """Read bounded XLSX bytes only after signed admin permission check."""
+        sizes = self.headers.get_all("Content-Length", [])
+        mimes = self.headers.get_all("Content-Type", [])
+        if (
+            self.headers.get("Transfer-Encoding")
+            or len(sizes) != 1
+            or len(mimes) != 1
+            or mimes[0]
+            not in {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/octet-stream",
+            }
+            or not re.fullmatch(r"[0-9]{1,9}", sizes[0])
+        ):
+            self._json(400, {"error": "invalid_xlsx_headers"})
+            return
+        size = int(sizes[0])
+        if not 0 < size <= MAX_XLSX_BYTES:
+            self._json(413, {"error": "xlsx_too_large"})
+            return
+        try:
+            backend = self._app().backend
+            self._run(backend.stock_xlsx_permission(signed))
+            self.connection.settimeout(_CLIENT_IO_TIMEOUT_SECONDS)
+            remaining = size
+            chunks: list[bytes] = []
+            while remaining:
+                part = self.rfile.read(min(64 * 1024, remaining))
+                if not part:
+                    raise ValueError("Truncated workbook")
+                chunks.append(part)
+                remaining -= len(part)
+            value = self._run(backend.preview_stock_xlsx(signed, payload=b"".join(chunks)))
+            assert isinstance(value, dict)
+            self._json(200, cast(dict[str, object], value))
+        except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
+            self._json(401, {"error": "unauthorized"})
+        except InventoryConflict:
+            self._json(409, {"error": "stock_approval_conflict"})
+        except (ValueError, InventoryValidationError):
+            self._json(400, {"error": "invalid_xlsx"})
+        except MiniAppRateLimited:
+            self._json(429, {"error": "too_many_requests"})
+        except (TimeoutError, OSError):
+            self._json(408, {"error": "request_timeout"})
+        except MiniAppServiceUnavailable:
+            self._json(503, {"error": "service_unavailable"})
+        except Exception as error:
+            logger.warning("Mini App XLSX preview failed | type=%s", type(error).__name__)
+            self._json(503, {"error": "service_unavailable"})
+
     def do_POST(self) -> None:
         path = urlsplit(self.path)
+        if path.path == "/api/stock/xlsx/preview" and not path.query:
+            if not self._allowed_origin():
+                self._json(403, {"error": "origin_not_allowed"})
+                return
+            signed = self._authenticate_header()
+            if signed is None:
+                self._json(401, {"error": "telegram_authorization_required"})
+                return
+            self._stock_xlsx_preview(signed)
+            return
         if path.path == "/api/photo/lookup" and not path.query:
             if not self._allowed_origin():
                 self._json(403, {"error": "origin_not_allowed"})
@@ -588,6 +669,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 "/api/ask",
                 "/api/stock",
                 "/api/stock/history",
+                "/api/stock/xlsx/confirm",
+                "/api/stock/xlsx/cancel",
                 "/api/stock/action/preview",
                 "/api/stock/action/confirm",
                 "/api/stock/action/cancel",
