@@ -26,7 +26,10 @@ def private_layout(
         "RESTIC_REPOSITORY": "s3:fake-not-accessed/repository",
         "RESTIC_PASSWORD_FILE": str(secret),
     }
-    monkeypatch.setattr(verify_restic_backup.shutil, "which", lambda _name: "/mock/bin")
+    def mock_binary(_name: str) -> str:
+        return "/mock/bin"
+
+    monkeypatch.setattr(verify_restic_backup.shutil, "which", mock_binary)
     return storage, staging, env
 
 
