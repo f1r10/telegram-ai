@@ -202,20 +202,27 @@ def test_stock_action_requires_live_admin_and_rechecks_role_before_commit() -> N
         ),
         adjust=AsyncMock(
             return_value=SimpleNamespace(
-                product_code="KA45", warehouse="Əsas", kind="RETURN",
-                balance_before=Decimal("8"), balance_after=Decimal("10"),
-                applied_delta=Decimal("2"), reference="RETURN-01",
+                product_code="KA45",
+                warehouse="Əsas",
+                kind="RETURN",
+                balance_before=Decimal("8"),
+                balance_after=Decimal("10"),
+                applied_delta=Decimal("2"),
+                reference="RETURN-01",
             )
         ),
     )
     admin = User(id=1, telegram_user_id=123, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
-    backend, session = make_backend(
-        actor=admin, inventory=inventory, stock_actions_enabled=True
-    )
+    backend, session = make_backend(actor=admin, inventory=inventory, stock_actions_enabled=True)
     assert asyncio.run(backend.profile(signature(123)))["can_stock_actions"] is True
     proposal = dict(
-        kind="RETURN", code="KA45", warehouse="Əsas", quantity="2",
-        reference="RETURN-01", unit="PCS", reason="Customer item returned and inspected",
+        kind="RETURN",
+        code="KA45",
+        warehouse="Əsas",
+        quantity="2",
+        reference="RETURN-01",
+        unit="PCS",
+        reason="Customer item returned and inspected",
     )
     preview = asyncio.run(backend.preview_stock_action(signature(123), **proposal))
     assert inventory.adjust.await_count == 0
@@ -224,9 +231,7 @@ def test_stock_action_requires_live_admin_and_rechecks_role_before_commit() -> N
         asyncio.run(backend.confirm_stock_action(signature(123), token=str(preview["token"])))
     assert inventory.adjust.await_count == 0
     session.actor = admin
-    result = asyncio.run(
-        backend.confirm_stock_action(signature(123), token=str(preview["token"]))
-    )
+    result = asyncio.run(backend.confirm_stock_action(signature(123), token=str(preview["token"])))
     assert result["status"] == "posted"
     assert inventory.adjust.await_count == 1
 
