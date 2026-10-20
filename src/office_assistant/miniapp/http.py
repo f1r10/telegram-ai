@@ -633,8 +633,10 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid input object")
             args = cast(dict[str, object], parsed)
             max_fields = (
-                7 if path.path == "/api/stock/action/preview"
-                else 6 if path.path == "/api/stock/transfer/preview"
+                7
+                if path.path == "/api/stock/action/preview"
+                else 6
+                if path.path == "/api/stock/transfer/preview"
                 else 5
             )
             if len(args) > max_fields:
