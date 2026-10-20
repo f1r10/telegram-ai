@@ -150,6 +150,21 @@ class DummyBackend:
             "notice": "Təsdiqlənmiş hərəkət",
         }
 
+    async def stock_xlsx_permission(self, raw: str) -> None:
+        self.calls.append("xlsx-permission:" + raw)
+
+    async def preview_stock_xlsx(self, raw: str, *, payload: bytes) -> dict[str, object]:
+        self.calls.append("xlsx-preview:" + raw + ":" + str(len(payload)))
+        return {"token": "admin-xlsx-approval-test-ticket", "rows": 1, "items": []}
+
+    async def confirm_stock_xlsx(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("xlsx-confirm:" + raw + ":" + token)
+        return {"status": "posted", "count": 1}
+
+    async def cancel_stock_xlsx(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("xlsx-cancel:" + raw + ":" + token)
+        return {"status": "cancelled"}
+
     async def preview_stock_action(
         self,
         raw: str,
@@ -349,6 +364,45 @@ def test_stock_history_http_is_signed_and_read_only() -> None:
         )
         assert call(port, "POST", "/api/stock/history", body={"code": 10})[0] == 400
         assert backend.calls == ["history:pretend-signed-data:KA45"]
+
+
+def test_stock_xlsx_binary_preview_auth_and_confirm_cancel() -> None:
+    with serve() as (port, backend):
+        path = "/api/stock/xlsx/preview"
+
+        def send_file(signed: bool, mime: str) -> int:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+            headers = {"Content-Type": mime}
+            if signed:
+                headers["X-Telegram-Init-Data"] = "pretend-signed-data"
+            connection.request("POST", path, body=b"TEST-XLSX", headers=headers)
+            reply = connection.getresponse()
+            status = reply.status
+            reply.read()
+            connection.close()
+            return status
+
+        assert send_file(False, "application/octet-stream") == 401
+        assert send_file(True, "text/plain") == 400
+        assert backend.calls == []
+        assert send_file(True, "application/octet-stream") == 200
+        assert backend.calls == [
+            "xlsx-permission:pretend-signed-data",
+            "xlsx-preview:pretend-signed-data:9",
+        ]
+        token = "admin-xlsx-approval-test-ticket"
+        ok = call(port, "POST", "/api/stock/xlsx/confirm", body={"token": token})
+        cancel = call(port, "POST", "/api/stock/xlsx/cancel", body={"token": token})
+        assert ok[0] == cancel[0] == 200
+        assert backend.calls[-2:] == [
+            "xlsx-confirm:pretend-signed-data:" + token,
+            "xlsx-cancel:pretend-signed-data:" + token,
+        ]
+        unsigned = call(
+            port, "POST", "/api/stock/xlsx/confirm",
+            body={"token": token}, signed=None,
+        )
+        assert unsigned[0] == 401
 
 
 def test_stock_action_http_requires_auth_origin_and_typed_payload() -> None:
