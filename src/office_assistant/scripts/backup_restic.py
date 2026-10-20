@@ -43,6 +43,7 @@ def prerequisites(
     problems: list[str] = []
     if (
         not storage_root.is_absolute()
+        or storage_root.resolve() == Path("/")
         or not storage_root.is_dir()
         or storage_root.is_symlink()
     ):
