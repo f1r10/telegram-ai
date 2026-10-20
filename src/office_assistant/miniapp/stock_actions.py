@@ -36,9 +36,8 @@ class ReviewTicket:
 
 def _field(value: str, *, minimum: int = 1, maximum: int = 128) -> str:
     v = value.strip()
-    if (
-        not minimum <= len(v) <= maximum
-        or any(ord(ch) < 32 or ord(ch) == 127 or ch == "|" for ch in v)
+    if not minimum <= len(v) <= maximum or any(
+        ord(ch) < 32 or ord(ch) == 127 or ch == "|" for ch in v
     ):
         raise InventoryValidationError("Təsdiq sahəsində etibarsız məlumat var.")
     return v
