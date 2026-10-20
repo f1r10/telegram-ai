@@ -103,7 +103,8 @@ class MiniAppBackend:
         self.inventory = inventory
         self.stock_transfers = (
             MiniAppStockTransferReview(inventory, enabled=stock_transfer_enabled)
-            if inventory is not None else None
+            if inventory is not None
+            else None
         )
         self.products = products
         self.sales = sales
@@ -230,8 +231,15 @@ class MiniAppBackend:
         return self.stock_transfers
 
     async def prepare_stock_transfer(
-        self, init_data: str, *, code: str, source: str, destination: str,
-        quantity: str, reference: str, unit: str | None,
+        self,
+        init_data: str,
+        *,
+        code: str,
+        source: str,
+        destination: str,
+        quantity: str,
+        reference: str,
+        unit: str | None,
     ) -> dict[str, object]:
         actor = await self.actor(init_data)
         if actor.role != UserRole.ADMIN:
@@ -239,8 +247,13 @@ class MiniAppBackend:
         if not self.rate_guard.allow(actor.id):
             raise MiniAppRateLimited("Too many requests")
         return await self._stock_review().preview(
-            actor, code=code, source=source, destination=destination,
-            quantity=quantity, reference=reference, unit=unit,
+            actor,
+            code=code,
+            source=source,
+            destination=destination,
+            quantity=quantity,
+            reference=reference,
+            unit=unit,
         )
 
     async def confirm_stock_transfer(self, init_data: str, *, token: str) -> dict[str, object]:
