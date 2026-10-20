@@ -150,6 +150,29 @@ class DummyBackend:
             "notice": "Təsdiqlənmiş hərəkət",
         }
 
+    async def preview_stock_action(
+        self,
+        raw: str,
+        *,
+        kind: str,
+        code: str,
+        warehouse: str,
+        quantity: str,
+        reference: str,
+        unit: str | None,
+        reason: str | None,
+    ) -> dict[str, object]:
+        self.calls.append("action-preview:" + raw)
+        return {"token": "test-action-approval-token-123456", "kind": kind, "code": code}
+
+    async def confirm_stock_action(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("action-confirm:" + raw + ":" + token)
+        return {"status": "posted", "reference": "ADJ-01"}
+
+    async def cancel_stock_action(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("action-cancel:" + raw + ":" + token)
+        return {"status": "cancelled"}
+
     async def prepare_stock_transfer(
         self,
         raw: str,
@@ -326,6 +349,44 @@ def test_stock_history_http_is_signed_and_read_only() -> None:
         )
         assert call(port, "POST", "/api/stock/history", body={"code": 10})[0] == 400
         assert backend.calls == ["history:pretend-signed-data:KA45"]
+
+
+def test_stock_action_http_requires_auth_origin_and_typed_payload() -> None:
+    fields = {
+        "kind": "DAMAGE",
+        "code": "KA45",
+        "warehouse": "Əsas",
+        "quantity": "1",
+        "reference": "ADJ-01",
+        "unit": "PCS",
+        "reason": "Damaged item confirmed and signed",
+    }
+    ticket = "test-action-approval-token-123456"
+    with serve() as (port, backend):
+        unsigned = call(port, "POST", "/api/stock/action/preview", body=fields, signed=None)
+        assert unsigned[0] == 401
+        origin = call(
+            port,
+            "POST",
+            "/api/stock/action/preview",
+            body=fields,
+            origin="https://not-our-company.example",
+        )
+        assert origin[0] == 403
+        invalid = call(port, "POST", "/api/stock/action/preview", body=fields | {"unit": 22})
+        assert invalid[0] == 400
+        assert backend.calls == []
+        created = call(port, "POST", "/api/stock/action/preview", body=fields)
+        assert created[0] == 200
+        assert json.loads(created[2])["token"] == ticket
+        committed = call(port, "POST", "/api/stock/action/confirm", body={"token": ticket})
+        aborted = call(port, "POST", "/api/stock/action/cancel", body={"token": ticket})
+        assert committed[0] == aborted[0] == 200
+        assert backend.calls == [
+            "action-preview:pretend-signed-data",
+            "action-confirm:pretend-signed-data:" + ticket,
+            "action-cancel:pretend-signed-data:" + ticket,
+        ]
 
 
 def test_transfer_preview_confirm_and_cancel_http_are_signed_and_bounded() -> None:

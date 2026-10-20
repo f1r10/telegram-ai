@@ -31,6 +31,7 @@
         <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
         <button class="mode" type="button" data-scope="photo" aria-pressed="false"><span aria-hidden="true">▧</span><strong>Şəkillə axtar</strong><small>Foto ilə namizədlər</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
+        <button class="mode" id="stock-action-mode" type="button" data-scope="stock-action" aria-pressed="false" hidden><span aria-hidden="true">▤</span><strong>Stok əməliyyatı</strong><small>Admin önbaxışı</small></button>
         <button class="mode" id="transfer-mode" type="button" data-scope="transfer" aria-pressed="false" hidden><span aria-hidden="true">⇄</span><strong>Anbar köçürməsi</strong><small>Admin təsdiqi ilə</small></button>
         <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
         <button class="mode" type="button" data-scope="upload" aria-pressed="false"><span aria-hidden="true">＋</span><strong>Sənəd əlavə et</strong><small>Bax və təsdiqlə</small></button>
@@ -56,6 +57,38 @@
           <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
           <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
+        <section class="upload-panel transfer-panel" id="stock-action-panel" hidden aria-label="Administrator stok əməliyyatı">
+          <p class="muted">Anbar düzəlişləri və yeni rezervasiyalar iki mərhələdə təsdiqlənir. Önbaxış heç nəyi dəyişmir.</p>
+          <div class="transfer-fields">
+            <label for="stock-action-kind">Əməliyyat növü
+              <select id="stock-action-kind">
+                <option value="RESERVE">Rezerv et</option>
+                <option value="RETURN">Qaytarma (stok artır)</option>
+                <option value="DAMAGE">Zədə (stok azaldır)</option>
+                <option value="WRITE_OFF">Silinmə (stok azaldır)</option>
+                <option value="CORRECTION">İmzalı düzəliş (+/-)</option>
+              </select>
+            </label>
+            <label for="stock-action-code">Məhsul kodu<input id="stock-action-code" maxlength="64" autocomplete="off"></label>
+            <label for="stock-action-warehouse">Anbar<input id="stock-action-warehouse" maxlength="128" autocomplete="off"></label>
+            <label for="stock-action-quantity">Miqdar<input id="stock-action-quantity" maxlength="24" inputmode="decimal" autocomplete="off" placeholder="1.000"></label>
+            <label for="stock-action-unit">Təsdiqlənmiş vahid (yoxdursa boş)<input id="stock-action-unit" maxlength="8" autocomplete="off" placeholder="PCS, KG, L, BOX"></label>
+            <label for="stock-action-reference">Sənəd nömrəsi<input id="stock-action-reference" maxlength="124" autocomplete="off"></label>
+            <label id="stock-action-reason-field" for="stock-action-reason" hidden>Əsaslandırma (10–300 simvol)
+              <textarea id="stock-action-reason" maxlength="300" rows="3"></textarea>
+            </label>
+          </div>
+          <button id="stock-action-prepare" type="button" class="upload-primary">Əməliyyatı önbaxışda yoxla →</button>
+          <div id="stock-action-preview" class="upload-preview" hidden>
+            <strong>Önbaxış — stok dəyişməyib</strong>
+            <p id="stock-action-details" class="muted"></p>
+            <div class="upload-actions">
+              <button id="stock-action-confirm" type="button" class="upload-primary">Təsdiqlə və icra et</button>
+              <button id="stock-action-cancel" type="button" class="upload-secondary">Ləğv et</button>
+            </div>
+          </div>
+          <p id="stock-action-feedback" class="upload-feedback" role="status" aria-live="polite"></p>
+        </section>
         <section class="upload-panel transfer-panel" id="transfer-panel" hidden aria-label="Administrator anbar köçürməsi">
           <p class="muted">Yalnız administrator. Köçürmə əvvəlcə önbaxışda yoxlanır; stok yalnız ikinci təsdiqdən sonra dəyişir.</p>
           <div class="transfer-fields">

@@ -65,3 +65,9 @@
 .transfer-fields input:focus-visible{outline:3px solid #80a7fb;outline-offset:2px}
 #transfer-details{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:620px){.transfer-fields{grid-template-columns:minmax(0,1fr)}}
+
+/* Separate administrator forms must stay private and usable on narrow Telegram WebViews. */
+#stock-action-mode[hidden],#stock-action-panel[hidden],#stock-action-reason-field[hidden]{display:none}
+#stock-action-panel .transfer-fields select,#stock-action-panel .transfer-fields textarea{min-width:0;width:100%;padding:11px 12px;min-height:43px;background:var(--card);color:var(--navy);border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
+#stock-action-panel .transfer-fields textarea{resize:vertical;min-height:84px}
+#stock-action-details{white-space:pre-wrap;overflow-wrap:anywhere}

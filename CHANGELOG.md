@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Admin-only stock adjustments and reservation approvals (2026-10-20)
+
+- Add two-stage Mini App confirmation for RESERVE, RETURN, DAMAGE,
+  WRITE_OFF and signed CORRECTION with actor-bound 120-second tickets.
+- Preserve stock reservations, audited transactional posting and unit
+  verification; all are gated behind a dedicated OFF-by-default flag.
+- Add role-revocation, replay and cross-origin API regression tests.
+
 ### Administrator review of stock transfers (2026-10-20)
 
 - Add a signed, administrator-only Mini App transfer preview, one-time

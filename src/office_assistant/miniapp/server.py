@@ -138,6 +138,7 @@ def main() -> None:
             evidence=evidence,
             inventory=InventoryLedgerService(session_factory),
             stock_transfer_enabled=settings.miniapp_stock_transfer_enabled,
+            stock_actions_enabled=settings.miniapp_stock_actions_enabled,
             products=BusinessQueryService(session_factory),
             sales=SalesLedgerService(session_factory),
             file_delivery=SourceFileDeliveryService(

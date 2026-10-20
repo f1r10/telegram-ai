@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     miniapp_enabled: bool = False
     # Irreversible stock actions require a separate operator opt-in after staging/UAT.
     miniapp_stock_transfer_enabled: bool = False
+    miniapp_stock_actions_enabled: bool = False
     miniapp_public_origin: str | None = None
     miniapp_local_port: int = Field(default=18791, ge=1024, le=65535)
     miniapp_request_timeout_seconds: float = Field(default=75, ge=5, le=75)

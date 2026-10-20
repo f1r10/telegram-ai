@@ -21,7 +21,12 @@
     transferMode: $("transfer-mode"), transferPanel: $("transfer-panel"),
     transferPreview: $("transfer-preview"), transferDetails: $("transfer-details"),
     transferFeedback: $("transfer-feedback"), transferPrepare: $("transfer-prepare"),
-    transferConfirm: $("transfer-confirm"), transferCancel: $("transfer-cancel")
+    transferConfirm: $("transfer-confirm"), transferCancel: $("transfer-cancel"),
+    actionMode: $("stock-action-mode"), actionPanel: $("stock-action-panel"),
+    actionKind: $("stock-action-kind"), actionReasonField: $("stock-action-reason-field"),
+    actionPreview: $("stock-action-preview"), actionDetails: $("stock-action-details"),
+    actionFeedback: $("stock-action-feedback"), actionPrepare: $("stock-action-prepare"),
+    actionConfirm: $("stock-action-confirm"), actionCancel: $("stock-action-cancel")
   };
   let scope = "chat";
   let busy = false;
@@ -30,6 +35,9 @@
   let transferTicket = null;
   let transferBusy = false;
   let canTransfer = false;
+  let canStockActions = false;
+  let actionTicket = null;
+  let actionBusy = false;
   const signed = typeof tg?.initData === "string" ? tg.initData : "";
   if (tg) {
     tg.ready();
@@ -211,6 +219,12 @@
       note: "Yalnız təsdiqlənmiş satış fakturaları; valyutalar qarışdırılmır. Qeyd yoxdursa sıfır satış faktı iddia edilmir.",
       samples: ["A şirkəti", "B şirkəti"]
     },
+    "stock-action": {
+      kicker: "ADMİN · STOK TƏSDİQİ", title: "Anbar əməliyyatını yoxlayın",
+      placeholder: "",
+      note: "Rezervasiya, qaytarma, zədə, silinmə və düzəliş yalnız ayrıca administrator təsdiqi ilə yazılır.",
+      samples: []
+    },
     transfer: {
       kicker: "ADMİN · ANBARLARARASI KÖÇÜRMƏ", title: "Köçürməni önbaxışda yoxlayın",
       placeholder: "",
@@ -226,7 +240,8 @@
   };
 
   function selectScope(next) {
-    if (busy || !screens[next] || (next === "transfer" && !canTransfer)) return;
+    if (busy || !screens[next] || (next === "transfer" && !canTransfer) ||
+        (next === "stock-action" && !canStockActions)) return;
     if (uploadTicket && next !== "upload") {
       ui.uploadFeedback.textContent = "Əvvəl faylı təsdiqləyin və ya ləğv edin.";
       return;
@@ -246,10 +261,11 @@
     ui.salesFields.hidden = scope !== "sales";
     ui.photoPanel.hidden = scope !== "photo";
     ui.transferPanel.hidden = scope !== "transfer";
+    ui.actionPanel.hidden = scope !== "stock-action";
     ui.uploadPanel.hidden = scope !== "upload";
     if (scope === "upload" && active) void refreshUploadJobs();
-    ui.composer.hidden = scope === "upload" || scope === "photo" || scope === "transfer";
-    ui.suggestions.hidden = scope === "upload" || scope === "photo" || scope === "transfer";
+    ui.composer.hidden = ["upload", "photo", "transfer", "stock-action"].includes(scope);
+    ui.suggestions.hidden = ["upload", "photo", "transfer", "stock-action"].includes(scope);
     if (scope === "sales" && !ui.salesYear.value) {
       ui.salesYear.value = String(new Date().getFullYear());
     }
@@ -687,6 +703,104 @@
     }
   }
 
+  function actionState(message, failure = false) {
+    ui.actionFeedback.textContent = message;
+    ui.actionFeedback.classList.toggle("error", failure);
+  }
+  function clearActionPreview() {
+    actionTicket = null;
+    ui.actionPreview.hidden = true;
+    ui.actionDetails.textContent = "";
+  }
+  ui.actionKind.addEventListener("change", () => {
+    ui.actionReasonField.hidden = ui.actionKind.value === "RESERVE";
+    clearActionPreview();
+  });
+  for (const field of ui.actionPanel.querySelectorAll("input, textarea, select")) {
+    field.addEventListener("input", clearActionPreview);
+  }
+  async function previewStockAction() {
+    if (!active || !canStockActions || actionBusy || actionTicket) return;
+    actionBusy = true;
+    ui.actionPrepare.disabled = true;
+    clearActionPreview();
+    actionState("Əməliyyatın önbaxışı yoxlanılır...");
+    try {
+      const kind = ui.actionKind.value;
+      const unit = $("stock-action-unit").value.trim();
+      const result = await request("/api/stock/action/preview", {
+        kind,
+        code: $("stock-action-code").value.trim(),
+        warehouse: $("stock-action-warehouse").value.trim(),
+        quantity: $("stock-action-quantity").value.trim(),
+        reference: $("stock-action-reference").value.trim(),
+        unit: unit || null,
+        reason: kind === "RESERVE" ? null : $("stock-action-reason").value.trim()
+      });
+      if (!active) return;
+      actionTicket = result.token;
+      ui.actionDetails.textContent = [
+        "Əməliyyat: " + result.kind,
+        "Məhsul: " + result.product_code,
+        "Anbar: " + result.warehouse,
+        "Miqdar: " + result.quantity + " " + (result.unit || "(vahid təsdiqsiz)"),
+        "Sənəd: " + result.reference,
+        "Əvvəlki fiziki qalıq: " + result.on_hand_before,
+        "Təxmini sonrakı fiziki qalıq: " + result.on_hand_after_if_approved,
+        result.warning
+      ].join("\n");
+      ui.actionPreview.hidden = false;
+      actionState("Önbaxış hazırdır. Təsdiq 2 dəqiqə ərzində verilməlidir.");
+    } catch (error) {
+      if (active) actionState(error?.message || "Əməliyyat yoxlanmadı.", true);
+    } finally {
+      actionBusy = false;
+      ui.actionPrepare.disabled = !active;
+    }
+  }
+  async function finishStockAction(confirm) {
+    if (!active || !canStockActions || actionBusy || !actionTicket) return;
+    actionBusy = true;
+    ui.actionConfirm.disabled = true;
+    ui.actionCancel.disabled = true;
+    const token = actionTicket;
+    clearActionPreview();
+    actionState(confirm ? "Təsdiq edilir..." : "Ləğv edilir...");
+    try {
+      const result = await request(
+        confirm ? "/api/stock/action/confirm" : "/api/stock/action/cancel", {token}
+      );
+      if (!active) return;
+      if (confirm) {
+        actionState("Əməliyyat qeydə alındı. Sənəd: " + result.reference);
+        appendBubble(
+          "ANBAR ƏMƏLİYYATI QEYDƏ ALINDI\n" +
+          "Məhsul: " + result.product_code + "\n" +
+          "Növ: " + result.kind + "\n" +
+          "Sənəd: " + result.reference + "\n" +
+          (result.available === undefined
+            ? "Yeni qalıq: " + result.balance_after
+            : "Rezerv: " + result.reserved + " · Sərbəst: " + result.available),
+          "assistant"
+        );
+      } else {
+        actionState("Təsdiq ləğv edildi, stok dəyişdirilmədi.");
+      }
+    } catch (error) {
+      if (active) actionState(
+        (error?.message || "Təsdiq mümkün olmadı.") +
+        " Yenidən təsdiq etməzdən əvvəl stok tarixçəsini yoxlayın.", true
+      );
+    } finally {
+      actionBusy = false;
+      ui.actionConfirm.disabled = false;
+      ui.actionCancel.disabled = false;
+    }
+  }
+  ui.actionPrepare.addEventListener("click", () => { void previewStockAction(); });
+  ui.actionConfirm.addEventListener("click", () => { void finishStockAction(true); });
+  ui.actionCancel.addEventListener("click", () => { void finishStockAction(false); });
+
   ui.transferPrepare.addEventListener("click", () => { void previewTransfer(); });
   ui.transferConfirm.addEventListener("click", () => { void finishTransfer(true); });
   ui.transferCancel.addEventListener("click", () => { void finishTransfer(false); });
@@ -729,6 +843,8 @@
     ui.employee.textContent = profile.display_name + (profile.role === "admin" ? " · Admin" : "");
     canTransfer = profile.role === "admin" && profile.can_transfer === true;
     ui.transferMode.hidden = !canTransfer;
+    canStockActions = profile.role === "admin" && profile.can_stock_actions === true;
+    ui.actionMode.hidden = !canStockActions;
     ui.connection.textContent = "Təhlükəsiz bağlantı";
     ui.question.focus();
   }).catch(() => {
