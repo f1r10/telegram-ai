@@ -258,9 +258,7 @@ class MiniAppBackend:
         if not self.rate_guard.allow(actor.id):
             raise MiniAppRateLimited("Too many requests")
 
-    async def preview_stock_xlsx(
-        self, init_data: str, *, payload: bytes
-    ) -> dict[str, object]:
+    async def preview_stock_xlsx(self, init_data: str, *, payload: bytes) -> dict[str, object]:
         actor = await self.actor(init_data)
         if actor.role != UserRole.ADMIN:
             raise MiniAppAccessDenied("Administrator required")
@@ -268,9 +266,7 @@ class MiniAppBackend:
             raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
         return await self.stock_xlsx.preview(actor, payload)
 
-    async def confirm_stock_xlsx(
-        self, init_data: str, *, token: str
-    ) -> dict[str, object]:
+    async def confirm_stock_xlsx(self, init_data: str, *, token: str) -> dict[str, object]:
         actor = await self.actor(init_data)
         if actor.role != UserRole.ADMIN:
             raise MiniAppAccessDenied("Administrator required")
@@ -280,9 +276,7 @@ class MiniAppBackend:
             raise MiniAppServiceUnavailable("XLSX stock approval is disabled")
         return await self.stock_xlsx.confirm(actor, token)
 
-    async def cancel_stock_xlsx(
-        self, init_data: str, *, token: str
-    ) -> dict[str, object]:
+    async def cancel_stock_xlsx(self, init_data: str, *, token: str) -> dict[str, object]:
         actor = await self.actor(init_data)
         if actor.role != UserRole.ADMIN:
             raise MiniAppAccessDenied("Administrator required")
