@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from office_assistant.application.inventory import (
-    InventoryLedgerService,
     InventoryConflict,
+    InventoryLedgerService,
     InventoryValidationError,
     StockLocation,
     StockSnapshot,
