@@ -136,8 +136,7 @@ def _manifest_parent(target: Path) -> Path:
             if (
                 payload.get("schema") == 1
                 and payload.get("quiesced_by_operator") is True
-                and payload.get("contents")
-                == ["postgres_custom_dump", "original_file_storage"]
+                and payload.get("contents") == ["postgres_custom_dump", "original_file_storage"]
                 and payload.get("qdrant") == "derived_index_not_in_snapshot_rebuild_required"
                 and isinstance(payload.get("created_utc"), str)
             ):
@@ -217,13 +216,17 @@ def main() -> None:
     except (BackupPrerequisiteError, OSError, ValueError) as error:
         print(json.dumps({"status": "FAILED", "error_type": type(error).__name__}))
         raise SystemExit(1) from None
-    print(json.dumps({
-        "status": "SNAPSHOT_ARTIFACTS_VERIFIED",
-        "postgres_dump_toc_readable": True,
-        "database_restore_verified": False,
-        "qdrant_rebuild_verified": False,
-        "production_recovery_approved": False,
-    }))
+    print(
+        json.dumps(
+            {
+                "status": "SNAPSHOT_ARTIFACTS_VERIFIED",
+                "postgres_dump_toc_readable": True,
+                "database_restore_verified": False,
+                "qdrant_rebuild_verified": False,
+                "production_recovery_approved": False,
+            }
+        )
+    )
 
 
 if __name__ == "__main__":
