@@ -35,6 +35,51 @@ This tool submits the dump and storage in one Restic backup invocation.
 SNAPSHOT_WRITTEN is not RESTORE_VERIFIED. Temporary dumps are written ONLY to the private staging directory,
 with restrictive file permissions, and removed by the utility; failures are reported without private subprocess output.
 
+
+## Isolated artifact verification CLI (safe dry-run first)
+
+The repository now includes `office_assistant.scripts.verify_restic_backup`
+for a **non-destructive artifact-level check**, not a production restore.
+It requires a full 64-character hexadecimal snapshot ID and an absolute,
+private, operator-owned staging directory with mode 0700. The Restic
+password file must be regular, operator-owned, non-symlinked, and unreadable
+by group/others. The staging directory must not overlap the source
+storage or a local Restic repository.
+
+First list snapshot IDs on the trusted operator host with Restic's standard
+`snapshots` command; do not paste credentials into the shell history.
+Then verify prerequisites WITHOUT running Restic:
+
+    python -m office_assistant.scripts.verify_restic_backup \
+      --storage-root /absolute/private/storage \
+      --staging-root /secure/office-restore-stage \
+      --snapshot-id <full-64-character-snapshot-id>
+
+After separately checking available disk space and staging isolation,
+run the **explicit**, temporary restore:
+
+    python -m office_assistant.scripts.verify_restic_backup \
+      --storage-root /absolute/private/storage \
+      --staging-root /secure/office-restore-stage \
+      --snapshot-id <full-64-character-snapshot-id> \
+      --apply --confirm-isolated
+
+The command restores only into a NEW randomly named directory below
+staging, verifies exactly one matching backup manifest, confirms the
+expected storage directory exists, checks the PostgreSQL custom dump's
+PGDMP magic, and runs `pg_restore --list` with no database connection.
+Its subprocess stdout/stderr are suppressed, and the temporary restored
+data is deleted after the check. A failure prints only safe machine
+statuses, never private source content or Restic credentials.
+
+`SNAPSHOT_ARTIFACTS_VERIFIED` is intentionally **NOT**
+`DATABASE_RESTORE_VERIFIED`, `QDRANT_REBUILD_VERIFIED` or production
+recovery approval. It checks that the archive's artifacts can be read,
+not whether the schema can be imported, all catalog/reference links
+resolve, or queries recover exactly. The full disposable PostgreSQL
+restore and index rebuild described below are still mandatory. No
+production database or existing storage directory is modified.
+
 ## Isolated restore drill (required before production approval)
 
 Use a separate disposable Compose project, test database and empty storage
