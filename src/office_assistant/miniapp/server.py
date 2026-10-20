@@ -137,6 +137,7 @@ def main() -> None:
             bot_token=settings.telegram_bot_token.get_secret_value(),
             evidence=evidence,
             inventory=InventoryLedgerService(session_factory),
+            stock_transfer_enabled=settings.miniapp_stock_transfer_enabled,
             products=BusinessQueryService(session_factory),
             sales=SalesLedgerService(session_factory),
             file_delivery=SourceFileDeliveryService(

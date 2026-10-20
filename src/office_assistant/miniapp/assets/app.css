@@ -55,3 +55,13 @@
 
 /* Larger two-column targets improve mobile touch accessibility without hiding modes. */
 @media(max-width:620px){.mode{min-height:102px}.mode strong{font-size:13px}.mode small{font-size:11px}}
+
+
+/* Opt-in, administrator-only transfer review. No stock write on initial preview. */
+.mode[hidden],.transfer-panel[hidden]{display:none}
+.transfer-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
+.transfer-fields label{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:12px;font-weight:700;color:var(--navy)}
+.transfer-fields input{min-width:0;width:100%;padding:11px 12px;min-height:43px;color:var(--navy);background:var(--card);border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
+.transfer-fields input:focus-visible{outline:3px solid #80a7fb;outline-offset:2px}
+#transfer-details{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:620px){.transfer-fields{grid-template-columns:minmax(0,1fr)}}

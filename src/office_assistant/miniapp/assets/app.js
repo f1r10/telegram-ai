@@ -17,12 +17,19 @@
     jobsRefresh: $("jobs-refresh"), jobList: $("job-list"),
     photoPanel: $("photo-panel"), photoFile: $("photo-file"),
     photoSearch: $("photo-search"), photoFeedback: $("photo-feedback"),
-    photoResults: $("photo-results")
+    photoResults: $("photo-results"),
+    transferMode: $("transfer-mode"), transferPanel: $("transfer-panel"),
+    transferPreview: $("transfer-preview"), transferDetails: $("transfer-details"),
+    transferFeedback: $("transfer-feedback"), transferPrepare: $("transfer-prepare"),
+    transferConfirm: $("transfer-confirm"), transferCancel: $("transfer-cancel")
   };
   let scope = "chat";
   let busy = false;
   let active = false;
   let uploadTicket = null;
+  let transferTicket = null;
+  let transferBusy = false;
+  let canTransfer = false;
   const signed = typeof tg?.initData === "string" ? tg.initData : "";
   if (tg) {
     tg.ready();
@@ -64,7 +71,11 @@
       if (!response.ok) {
         if (response.status === 429) throw new Error("Çox sayda sorğu göndərildi. Bir qədər sonra yenidən cəhd edin.");
         if (response.status === 400) throw new Error("Məlumatı yoxlayın və yenidən yazın.");
-        if (response.status === 409) throw new Error("Başqa sənəd sessiyası açıqdır. Əvvəl Telegram botunda /saxla və ya /cancel edin.");
+        if (response.status === 409) throw new Error(
+          path.startsWith("/api/stock/transfer/")
+            ? "Anbar qalıqları və ya təsdiq dəyişib. Tarixçəni yoxlayıb yenidən önbaxış edin."
+            : "Başqa sənəd sessiyası açıqdır. Əvvəl Telegram botunda /saxla və ya /cancel edin."
+        );
         if (response.status === 410) throw new Error("Fayl təsdiqinin vaxtı bitib. Yenidən seçin.");
         throw new Error("Xidmət hazırda əlçatan deyil. Telegram botunda sual verməyə davam edə bilərsiniz.");
       }
@@ -200,6 +211,12 @@
       note: "Yalnız təsdiqlənmiş satış fakturaları; valyutalar qarışdırılmır. Qeyd yoxdursa sıfır satış faktı iddia edilmir.",
       samples: ["A şirkəti", "B şirkəti"]
     },
+    transfer: {
+      kicker: "ADMİN · ANBARLARARASI KÖÇÜRMƏ", title: "Köçürməni önbaxışda yoxlayın",
+      placeholder: "",
+      note: "Bu əməliyyat yalnız administratorun ayrıca təsdiqi ilə həyata keçirilir. Təsdiq zamanı stok yenidən yoxlanılır.",
+      samples: []
+    },
     upload: {
       kicker: "SƏNƏDİNİZİ ƏLAVƏ EDİN", title: "Faylınızı yoxlayın və təsdiqləyin",
       placeholder: "",
@@ -209,7 +226,7 @@
   };
 
   function selectScope(next) {
-    if (busy || !screens[next]) return;
+    if (busy || !screens[next] || (next === "transfer" && !canTransfer)) return;
     if (uploadTicket && next !== "upload") {
       ui.uploadFeedback.textContent = "Əvvəl faylı təsdiqləyin və ya ləğv edin.";
       return;
@@ -228,10 +245,11 @@
     ui.question.value = "";
     ui.salesFields.hidden = scope !== "sales";
     ui.photoPanel.hidden = scope !== "photo";
+    ui.transferPanel.hidden = scope !== "transfer";
     ui.uploadPanel.hidden = scope !== "upload";
     if (scope === "upload" && active) void refreshUploadJobs();
-    ui.composer.hidden = scope === "upload" || scope === "photo";
-    ui.suggestions.hidden = scope === "upload" || scope === "photo";
+    ui.composer.hidden = scope === "upload" || scope === "photo" || scope === "transfer";
+    ui.suggestions.hidden = scope === "upload" || scope === "photo" || scope === "transfer";
     if (scope === "sales" && !ui.salesYear.value) {
       ui.salesYear.value = String(new Date().getFullYear());
     }
@@ -580,6 +598,99 @@
     }
   }
 
+  function transferValue(id) {
+    return $(id).value.trim();
+  }
+
+  function transferState(message, failure = false) {
+    ui.transferFeedback.textContent = message;
+    ui.transferFeedback.classList.toggle("error", failure);
+  }
+
+  function clearTransferPreview() {
+    transferTicket = null;
+    ui.transferPreview.hidden = true;
+    ui.transferDetails.textContent = "";
+  }
+
+  async function previewTransfer() {
+    if (!active || !canTransfer || transferBusy) return;
+    transferBusy = true;
+    ui.transferPrepare.disabled = true;
+    clearTransferPreview();
+    transferState("Anbar və məhsul məlumatları yoxlanılır...");
+    try {
+      const unit = transferValue("transfer-unit");
+      const result = await request("/api/stock/transfer/preview", {
+        code: transferValue("transfer-code"),
+        source: transferValue("transfer-source"),
+        destination: transferValue("transfer-destination"),
+        quantity: transferValue("transfer-quantity"),
+        reference: transferValue("transfer-reference"),
+        unit: unit || null
+      });
+      if (!active) return;
+      transferTicket = result.token;
+      ui.transferDetails.textContent = [
+        "Məhsul: " + result.product_code,
+        "Mənbə: " + result.source + " → " + result.source_after_preview,
+        "Təyinat: " + result.destination + " → " + result.destination_after_preview,
+        "Miqdar: " + result.quantity + " " + (result.unit || "(vahid təsdiqlənməyib)"),
+        "Sənəd: " + result.reference,
+        result.warning
+      ].join("\n");
+      ui.transferPreview.hidden = false;
+      transferState("Önbaxış hazırdır. Təsdiq müddəti 2 dəqiqədir.");
+    } catch (error) {
+      if (active) transferState(error?.message || "Önbaxış alınmadı.", true);
+    } finally {
+      transferBusy = false;
+      ui.transferPrepare.disabled = !active;
+    }
+  }
+
+  async function finishTransfer(confirm) {
+    if (!active || !canTransfer || transferBusy || !transferTicket) return;
+    transferBusy = true;
+    ui.transferConfirm.disabled = true;
+    ui.transferCancel.disabled = true;
+    const token = transferTicket;
+    clearTransferPreview();
+    transferState(confirm ? "Köçürmə təsdiqlənir..." : "Təsdiq ləğv edilir...");
+    try {
+      const result = await request(
+        confirm ? "/api/stock/transfer/confirm" : "/api/stock/transfer/cancel",
+        {token}
+      );
+      if (!active) return;
+      if (confirm) {
+        transferState("Köçürmə təsdiqləndi. Sənəd: " + result.reference);
+        appendBubble([
+          "ANBAR KÖÇÜRMƏSİ TƏSDİQLƏNDİ",
+          "Məhsul: " + result.product_code,
+          "Mənbə: " + result.source + " · qalıq: " + result.source_balance_after,
+          "Təyinat: " + result.destination + " · qalıq: " + result.destination_balance_after,
+          "Sənəd: " + result.reference
+        ].join("\n"), "assistant");
+      } else {
+        transferState("Önbaxış ləğv edildi; anbar qalığı dəyişdirilmədi.");
+      }
+    } catch (error) {
+      if (active) transferState(
+        (error?.message || "Təsdiq alınmadı.") +
+        " Təkrar göndərməzdən əvvəl anbar tarixçəsini yoxlayın.", true
+      );
+    } finally {
+      transferBusy = false;
+      ui.transferConfirm.disabled = false;
+      ui.transferCancel.disabled = false;
+    }
+  }
+
+  ui.transferPrepare.addEventListener("click", () => { void previewTransfer(); });
+  ui.transferConfirm.addEventListener("click", () => { void finishTransfer(true); });
+  ui.transferCancel.addEventListener("click", () => { void finishTransfer(false); });
+
   ui.modes.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-scope]");
     if (button) selectScope(button.dataset.scope);
@@ -616,6 +727,8 @@
     active = true;
     ui.send.disabled = false;
     ui.employee.textContent = profile.display_name + (profile.role === "admin" ? " · Admin" : "");
+    canTransfer = profile.role === "admin" && profile.can_transfer === true;
+    ui.transferMode.hidden = !canTransfer;
     ui.connection.textContent = "Təhlükəsiz bağlantı";
     ui.question.focus();
   }).catch(() => {

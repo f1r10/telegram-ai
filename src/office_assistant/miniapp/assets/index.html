@@ -31,6 +31,7 @@
         <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
         <button class="mode" type="button" data-scope="photo" aria-pressed="false"><span aria-hidden="true">▧</span><strong>Şəkillə axtar</strong><small>Foto ilə namizədlər</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
+        <button class="mode" id="transfer-mode" type="button" data-scope="transfer" aria-pressed="false" hidden><span aria-hidden="true">⇄</span><strong>Anbar köçürməsi</strong><small>Admin təsdiqi ilə</small></button>
         <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
         <button class="mode" type="button" data-scope="upload" aria-pressed="false"><span aria-hidden="true">＋</span><strong>Sənəd əlavə et</strong><small>Bax və təsdiqlə</small></button>
       </nav>
@@ -55,6 +56,27 @@
           <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
           <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
+        <section class="upload-panel transfer-panel" id="transfer-panel" hidden aria-label="Administrator anbar köçürməsi">
+          <p class="muted">Yalnız administrator. Köçürmə əvvəlcə önbaxışda yoxlanır; stok yalnız ikinci təsdiqdən sonra dəyişir.</p>
+          <div class="transfer-fields">
+            <label for="transfer-code">Məhsul kodu<input id="transfer-code" type="text" maxlength="64" autocomplete="off" required></label>
+            <label for="transfer-source">Mənbə anbar<input id="transfer-source" type="text" maxlength="128" autocomplete="off" required></label>
+            <label for="transfer-destination">Təyinat anbar<input id="transfer-destination" type="text" maxlength="128" autocomplete="off" required></label>
+            <label for="transfer-quantity">Miqdar<input id="transfer-quantity" type="text" inputmode="decimal" maxlength="24" autocomplete="off" placeholder="1.000" required></label>
+            <label for="transfer-unit">Təsdiqli əsas vahid (olmadıqda boş saxlayın)<input id="transfer-unit" type="text" maxlength="8" autocomplete="off" placeholder="PCS, KG, L, BOX"></label>
+            <label for="transfer-reference">Sənəd nömrəsi<input id="transfer-reference" type="text" maxlength="128" autocomplete="off" required></label>
+          </div>
+          <button type="button" class="upload-primary" id="transfer-prepare">Köçürməni önbaxışda yoxla →</button>
+          <div id="transfer-preview" class="upload-preview" hidden>
+            <strong>Bu yalnız önbaxışdır — stok dəyişməyib</strong>
+            <p id="transfer-details" class="muted"></p>
+            <div class="upload-actions">
+              <button type="button" class="upload-primary" id="transfer-confirm">Köçürməni təsdiqlə</button>
+              <button type="button" class="upload-secondary" id="transfer-cancel">Ləğv et</button>
+            </div>
+          </div>
+          <p id="transfer-feedback" class="upload-feedback" role="status" aria-live="polite"></p>
+        </section>
         <section class="upload-panel" id="photo-panel" hidden aria-label="Şəkil ilə məhsul axtarışı">
           <label class="upload-picker" for="photo-file">Məhsulun şəklini seçin
             <input id="photo-file" type="file" accept="image/jpeg,image/png">

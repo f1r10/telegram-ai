@@ -28,7 +28,7 @@ from office_assistant.business_tools.models import (
     ToolStatus,
 )
 from office_assistant.business_tools.service import BusinessQueryService
-from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.internal_evidence.delivery import (
     DeliverableFile,
     FileDeliveryError,
@@ -38,6 +38,7 @@ from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.miniapp.auth import verify_telegram_init_data
 from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
+from office_assistant.miniapp.stock_transfer import MiniAppStockTransferReview
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ class MiniAppBackend:
         uploads: MiniAppUploadWorkflow | None = None,
         progress: MiniAppDocumentProgress | None = None,
         photo_lookup: MiniAppPhotoLookup | None = None,
+        stock_transfer_enabled: bool = False,
         rate_limit_per_minute: int = 12,
         request_timeout_seconds: float = 75.0,
     ) -> None:
@@ -99,6 +101,11 @@ class MiniAppBackend:
         self.bot_token = bot_token
         self.evidence = evidence
         self.inventory = inventory
+        self.stock_transfers = (
+            MiniAppStockTransferReview(inventory, enabled=stock_transfer_enabled)
+            if inventory is not None
+            else None
+        )
         self.products = products
         self.sales = sales
         self.file_delivery = file_delivery
@@ -123,11 +130,16 @@ class MiniAppBackend:
                 raise MiniAppAccessDenied("Only approved active office accounts can use the app")
             return actor
 
-    async def profile(self, init_data: str) -> dict[str, str]:
+    async def profile(self, init_data: str) -> dict[str, str | bool]:
         actor = await self.actor(init_data)
         return {
             "display_name": actor.first_name or "Əməkdaş",
             "role": "admin" if actor.role == "ADMIN" else "employee",
+            "can_transfer": (
+                self.stock_transfers is not None
+                and self.stock_transfers.enabled
+                and actor.role == UserRole.ADMIN
+            ),
         }
 
     async def answer(self, init_data: str, *, question: str, scope: str) -> ChatResponse:
@@ -212,6 +224,51 @@ class MiniAppBackend:
         if original.file_id != ticket.file_id:
             raise FileDeliveryError("Original citation has been superseded")
         return original
+
+    def _stock_review(self) -> MiniAppStockTransferReview:
+        if self.stock_transfers is None or not self.stock_transfers.enabled:
+            raise MiniAppServiceUnavailable("Stock approval is disabled")
+        return self.stock_transfers
+
+    async def prepare_stock_transfer(
+        self,
+        init_data: str,
+        *,
+        code: str,
+        source: str,
+        destination: str,
+        quantity: str,
+        reference: str,
+        unit: str | None,
+    ) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        return await self._stock_review().preview(
+            actor,
+            code=code,
+            source=source,
+            destination=destination,
+            quantity=quantity,
+            reference=reference,
+            unit=unit,
+        )
+
+    async def confirm_stock_transfer(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        return await self._stock_review().confirm(actor, token=token)
+
+    async def cancel_stock_transfer(self, init_data: str, *, token: str) -> dict[str, object]:
+        actor = await self.actor(init_data)
+        if actor.role != UserRole.ADMIN:
+            raise MiniAppAccessDenied("Administrator required")
+        return await self._stock_review().cancel(actor, token=token)
 
     async def stock(self, init_data: str, *, code: str) -> dict[str, object]:
         actor = await self.actor(init_data)

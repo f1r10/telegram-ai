@@ -150,6 +150,36 @@ class DummyBackend:
             "notice": "Təsdiqlənmiş hərəkət",
         }
 
+    async def prepare_stock_transfer(
+        self,
+        raw: str,
+        *,
+        code: str,
+        source: str,
+        destination: str,
+        quantity: str,
+        reference: str,
+        unit: str | None,
+    ) -> dict[str, object]:
+        self.calls.append("stock-preview:" + raw)
+        return {
+            "token": "approved-test-only-token-for-admin",
+            "product_code": code,
+            "source": source,
+            "destination": destination,
+            "quantity": quantity,
+            "reference": reference,
+            "unit": unit,
+        }
+
+    async def confirm_stock_transfer(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("stock-confirm:" + raw + ":" + token)
+        return {"status": "posted", "reference": "MOVE-007"}
+
+    async def cancel_stock_transfer(self, raw: str, *, token: str) -> dict[str, object]:
+        self.calls.append("stock-cancel:" + raw + ":" + token)
+        return {"status": "cancelled"}
+
     async def stock(self, raw: str, *, code: str) -> dict[str, object]:
         self.calls.append("stock:" + raw + ":" + code)
         return {
@@ -296,6 +326,49 @@ def test_stock_history_http_is_signed_and_read_only() -> None:
         )
         assert call(port, "POST", "/api/stock/history", body={"code": 10})[0] == 400
         assert backend.calls == ["history:pretend-signed-data:KA45"]
+
+
+def test_transfer_preview_confirm_and_cancel_http_are_signed_and_bounded() -> None:
+    fields = {
+        "code": "KA45",
+        "source": "Əsas",
+        "destination": "Kənar",
+        "quantity": "3",
+        "reference": "MOVE-007",
+        "unit": "PCS",
+    }
+    ticket = "approved-test-only-token-for-admin"
+    with serve() as (port, backend):
+        unsigned = call(port, "POST", "/api/stock/transfer/preview", body=fields, signed=None)
+        assert unsigned[0] == 401
+        forged = call(
+            port,
+            "POST",
+            "/api/stock/transfer/preview",
+            body=fields,
+            origin="https://attacker.example",
+        )
+        assert forged[0] == 403
+        invalid = call(port, "POST", "/api/stock/transfer/preview", body=fields | {"unit": 12})
+        assert invalid[0] == 400
+        assert backend.calls == []
+        status, _, payload = call(port, "POST", "/api/stock/transfer/preview", body=fields)
+        assert status == 200
+        assert json.loads(payload)["token"] == ticket
+        approved = call(port, "POST", "/api/stock/transfer/confirm", body={"token": ticket})
+        cancelled = call(port, "POST", "/api/stock/transfer/cancel", body={"token": ticket})
+        assert approved[0] == cancelled[0] == 200
+        assert backend.calls == [
+            "stock-preview:pretend-signed-data",
+            "stock-confirm:pretend-signed-data:" + ticket,
+            "stock-cancel:pretend-signed-data:" + ticket,
+        ]
+        bad_token = call(port, "POST", "/api/stock/transfer/confirm", body={"token": True})
+        assert bad_token[0] == 400
+        unsigned_cancel = call(
+            port, "POST", "/api/stock/transfer/cancel", body={"token": ticket}, signed=None
+        )
+        assert unsigned_cancel[0] == 401
 
 
 def test_malformed_json_and_path_guessing_fail_closed() -> None:
