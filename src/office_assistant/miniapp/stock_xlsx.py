@@ -62,6 +62,10 @@ class MiniAppStockXlsxReview:
             self._tickets[token] = WorkbookTicket(
                 actor.id, payload, summary, now + _TTL_SECONDS
             )
+            # Erase bytes at expiry even if no further requests arrive.
+            asyncio.get_running_loop().call_later(
+                _TTL_SECONDS, self._tickets.pop, token, None
+            )
         return {
             "token": token,
             **summary.safe_summary(),
