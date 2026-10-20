@@ -31,6 +31,7 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.models import ChunkingConfig
+from office_assistant.processing.ocr_replay import verified_raw_pdf
 from office_assistant.scripts.repair_legacy_index import searchable_chunks
 
 
@@ -104,15 +105,17 @@ def safe_artifacts(
 ) -> bool:
     """Only scan files within upload limits and a real zero-chunk normalized artifact."""
 
-    if not file_object.original_filename.lower().endswith(".pdf"):
-        return False
     if not run.normalized_storage_key or not file_object.storage_key:
         return False
     try:
-        path = storage.path_for_key(file_object.storage_key)
-        if not path.is_file() or not (0 < path.stat().st_size <= max_raw_bytes):
+        # Preflight must verify the same authoritative bytes as the OCR worker.
+        # Size/path existence alone is insufficient: a changed source is never
+        # eligible, not even for a harmless-looking dry-run.
+        if verified_raw_pdf(storage, file_object, max_raw_bytes) is None:
             return False
         derived = storage.path_for_key(run.normalized_storage_key)
+        if derived.is_symlink():
+            return False
         if not derived.is_file() or not 0 < derived.stat().st_size <= 32 * 1024 * 1024:
             return False
         artifact: object = json.loads(derived.read_text(encoding="utf-8"))
