@@ -19,15 +19,15 @@ from office_assistant.infrastructure.database.engine import create_database_engi
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
     DocumentParseRun,
+    DocumentProcessingStatus,
     FileObject,
     IngestionJob,
     IngestionSessionItem,
-    OcrReplayJob,
-    DocumentProcessingStatus,
     KnowledgeIndexJob,
     KnowledgeIndexJobStatus,
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
+    OcrReplayJob,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
