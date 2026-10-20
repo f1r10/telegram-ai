@@ -399,8 +399,11 @@ def test_stock_xlsx_binary_preview_auth_and_confirm_cancel() -> None:
             "xlsx-cancel:pretend-signed-data:" + token,
         ]
         unsigned = call(
-            port, "POST", "/api/stock/xlsx/confirm",
-            body={"token": token}, signed=None,
+            port,
+            "POST",
+            "/api/stock/xlsx/confirm",
+            body={"token": token},
+            signed=None,
         )
         assert unsigned[0] == 401
 
