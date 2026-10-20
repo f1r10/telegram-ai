@@ -48,8 +48,10 @@ def searchable_chunks(path: Path, *, file_id: int, run_id: int, config: Chunking
     """Use the production chunker, not an approximate 'has blocks' check."""
 
     try:
-        if path.is_symlink() or not path.is_file() or not (
-            0 < path.stat().st_size <= 32 * 1024 * 1024
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or not (0 < path.stat().st_size <= 32 * 1024 * 1024)
         ):
             return 0
         return len(
@@ -87,9 +89,7 @@ async def _verified_candidate(
     ):
         return False
     latest = await session.scalar(
-        select(func.max(DocumentParseRun.id)).where(
-            DocumentParseRun.file_object_id == file.id
-        )
+        select(func.max(DocumentParseRun.id)).where(DocumentParseRun.file_object_id == file.id)
     )
     if latest != run.id:
         return False
@@ -116,9 +116,7 @@ async def _verified_candidate(
         if verified_raw_pdf(storage, file, settings.max_upload_bytes) is None:
             return False
         artifact = storage.path_for_key(run.normalized_storage_key)
-        return searchable_chunks(
-            artifact, file_id=file.id, run_id=run.id, config=chunking
-        ) > 0
+        return searchable_chunks(artifact, file_id=file.id, run_id=run.id, config=chunking) > 0
     except (OSError, StorageError, ValueError, TypeError):
         return False
 
