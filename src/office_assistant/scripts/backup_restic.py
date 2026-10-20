@@ -20,20 +20,45 @@ class BackupPrerequisiteError(RuntimeError):
     """A backup cannot safely execute in this environment."""
 
 
+def _overlaps(a: Path, b: Path) -> bool:
+    return a == b or a in b.parents or b in a.parents
+
+
+def _local_repository_path(value: str) -> Path | None:
+    """Local, relative and local: repositories must not overlap backup sources."""
+    if not value:
+        return None
+    if value.startswith("local:"):
+        return Path(value.removeprefix("local:")).expanduser().resolve()
+    # Remote protocols have a colon: s3:, sftp:, rest:, rclone:, etc.
+    if ":" in value:
+        return None
+    return Path(value).expanduser().resolve()
+
+
 def prerequisites(
     storage_root: Path, environment: dict[str, str], staging_root: Path | None = None
 ) -> list[str]:
     """Return only safe, nonsecret labels."""
     problems: list[str] = []
-    if not storage_root.is_dir() or storage_root.is_symlink():
+    if (
+        not storage_root.is_absolute()
+        or not storage_root.is_dir()
+        or storage_root.is_symlink()
+    ):
         problems.append("storage_root_missing_or_linked")
-    if staging_root is None or not staging_root.is_dir() or staging_root.is_symlink():
+    if (
+        staging_root is None
+        or not staging_root.is_absolute()
+        or not staging_root.is_dir()
+        or staging_root.is_symlink()
+    ):
         problems.append("private_staging_missing")
     else:
         try:
             staging = staging_root.resolve(strict=True)
             source = storage_root.resolve()
-            if staging == source or staging in source.parents or source in staging.parents:
+            if _overlaps(staging, source):
                 problems.append("staging_overlaps_source")
             attributes = staging.stat()
             if attributes.st_uid != os.getuid() or S_IMODE(attributes.st_mode) & 0o077:
@@ -44,16 +69,27 @@ def prerequisites(
         if not environment.get(key):
             problems.append(f"missing_{key.lower()}")
     password_file = environment.get("RESTIC_PASSWORD_FILE")
-    if password_file and not Path(password_file).is_file():
-        problems.append("restic_password_file_missing")
-    repository = environment.get("RESTIC_REPOSITORY", "")
-    if repository.startswith("/"):
+    if password_file:
         try:
-            Path(repository).resolve().relative_to(storage_root.resolve())
-        except ValueError:
-            pass
-        else:
+            secret = Path(password_file)
+            if not secret.is_file() or secret.is_symlink():
+                problems.append("restic_password_file_missing")
+            else:
+                attributes = secret.stat()
+                if attributes.st_uid != os.getuid() or S_IMODE(attributes.st_mode) & 0o077:
+                    problems.append("restic_password_file_not_private")
+                source = storage_root.resolve()
+                if source == secret.resolve() or source in secret.resolve().parents:
+                    problems.append("restic_password_file_inside_source")
+        except OSError:
+            problems.append("restic_password_file_missing")
+    repository = _local_repository_path(environment.get("RESTIC_REPOSITORY", ""))
+    if repository is not None:
+        source = storage_root.resolve()
+        if _overlaps(repository, source):
             problems.append("repository_inside_source")
+        if staging_root is not None and _overlaps(repository, staging_root.resolve()):
+            problems.append("repository_overlaps_staging")
     for binary in ("pg_dump", "restic"):
         if shutil.which(binary) is None:
             problems.append(f"missing_{binary}")
