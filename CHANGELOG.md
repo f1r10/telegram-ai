@@ -4,6 +4,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### OCR replay preflight source-integrity enforcement (2026-10-20)
+
+- Verify ACTIVE PDF state, MIME, filename, size and original SHA-256
+  before marking a historical OCR replay eligible, even on dry-run.
+- A changed or revoked original is rejected before any new OCR job is
+  queued; the worker repeats the same check at execution time.
+- Add unit and PostgreSQL regression tests for tampered PDF source bytes.
+
+
 ### Verified partial-PDF reindex safeguards (2026-10-20)
 
 - Require verified ACTIVE original PDF bytes, correct ingestion lineage, latest
