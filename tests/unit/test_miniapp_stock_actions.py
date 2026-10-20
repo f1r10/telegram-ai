@@ -3,7 +3,7 @@
 import asyncio
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import cast
+from typing import TypedDict, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -52,7 +52,17 @@ def mock_ledger() -> SimpleNamespace:
     )
 
 
-def fields(kind: str = "DAMAGE") -> dict[str, str | None]:
+class StockFields(TypedDict):
+    kind: str
+    code: str
+    warehouse: str
+    quantity: str
+    reference: str
+    unit: str | None
+    reason: str | None
+
+
+def fields(kind: str = "DAMAGE") -> StockFields:
     return {
         "kind": kind,
         "code": "KA45",
@@ -136,9 +146,9 @@ def test_invalid_amount_reason_unit_and_missing_warehouse_fail_closed() -> None:
         )
         for patch in invalid:
             with pytest.raises(InventoryValidationError):
-                await review.preview(actor(), **(fields() | patch))
+                await review.preview(actor(), **cast(StockFields, fields() | patch))
         with pytest.raises(InventoryConflict):
-            await review.preview(actor(), **(fields() | {"warehouse": "Naməlum"}))
+            await review.preview(actor(), **cast(StockFields, fields() | {"warehouse": "Naməlum"}))
         assert ledger.adjust.await_count == ledger.reserve.await_count == 0
 
     asyncio.run(scenario())
