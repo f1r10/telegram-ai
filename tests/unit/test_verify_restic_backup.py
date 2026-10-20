@@ -11,7 +11,9 @@ from office_assistant.scripts import verify_restic_backup
 SNAPSHOT = "a" * 64
 
 
-def private_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, dict[str, str]]:
+def private_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path, dict[str, str]]:
     storage = tmp_path / "storage"
     staging = tmp_path / "staging"
     storage.mkdir(mode=0o700)
