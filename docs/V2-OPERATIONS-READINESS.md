@@ -22,7 +22,9 @@ sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.loca
 # sudo docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml exec -T app uv run --no-dev python -m office_assistant.scripts.repair_legacy_index --apply --limit 100
 ```
 
-The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing.
+The second command only queues eligible older documents for the existing indexing worker; it does not make OCR scans readable. **A repair candidate must have an ACTIVE, SHA-256-verified original PDF with a matching ingestion session/item, a current latest parse run, searchable bounded normalized text, no existing OCR replay job and no already successful nonempty vector record for that source.** The operator retry only requeues the target; successful vector records belonging to other files in the same ingestion session remain untouched. If the PDF has been replaced, deleted, superseded or handed to an OCR replay worker, this operation skips it. The command never automatically retries a failed OCR or Qdrant worker; those have their separate controlled retry command.
+
+Re-run the readiness check after the worker has completed indexing. If a job remains failed, inspect app/worker logs with credentials and personal data removed before sharing. A queued job is **not** evidence that OCR or Qdrant succeeded.
 
 ## Real read-only Telegram Mini App (experimental, default OFF)
 
