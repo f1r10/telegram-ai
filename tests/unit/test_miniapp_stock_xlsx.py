@@ -83,9 +83,7 @@ def test_same_actor_ticket_single_use_and_cancel_has_no_writes() -> None:
         assert sum(isinstance(x, dict) for x in rows) == 1
         assert fake.record_batch.await_count == 1
         next_preview = await review.preview(actor(), workbook())
-        assert await review.cancel(actor(), str(next_preview["token"])) == {
-            "status": "cancelled"
-        }
+        assert await review.cancel(actor(), str(next_preview["token"])) == {"status": "cancelled"}
         with pytest.raises(InventoryConflict):
             await review.confirm(actor(), str(next_preview["token"]))
 
