@@ -63,13 +63,15 @@ def seed_restored(target: Path, storage: Path, *, good: bool = True) -> None:
     archive = target / "staged" / "operator-private"
     archive.mkdir(parents=True)
     (archive / "manifest.json").write_text(
-        json.dumps({
-            "schema": 1,
-            "created_utc": datetime.now(UTC).isoformat(),
-            "contents": ["postgres_custom_dump", "original_file_storage"],
-            "quiesced_by_operator": True,
-            "qdrant": "derived_index_not_in_snapshot_rebuild_required",
-        }),
+        json.dumps(
+            {
+                "schema": 1,
+                "created_utc": datetime.now(UTC).isoformat(),
+                "contents": ["postgres_custom_dump", "original_file_storage"],
+                "quiesced_by_operator": True,
+                "qdrant": "derived_index_not_in_snapshot_rebuild_required",
+            }
+        ),
         encoding="utf-8",
     )
     (archive / "postgres.dump").write_bytes(b"PGDMP" if good else b"NOT_A_DUMP")
@@ -81,9 +83,7 @@ def test_restore_artifacts_are_inspected_without_pg_database_connection(
     storage, staging, env = private_layout(tmp_path, monkeypatch)
     commands: list[list[str]] = []
 
-    def fake_command(
-        args: list[str], *, timeout: int, environment: dict[str, str]
-    ) -> None:
+    def fake_command(args: list[str], *, timeout: int, environment: dict[str, str]) -> None:
         assert environment == env
         commands.append(args)
         if args[0] == "restic":
@@ -111,9 +111,7 @@ def test_corrupt_dump_is_rejected_and_temp_files_are_deleted(
     storage, staging, env = private_layout(tmp_path, monkeypatch)
     calls: list[str] = []
 
-    def fake_command(
-        args: list[str], *, timeout: int, environment: dict[str, str]
-    ) -> None:
+    def fake_command(args: list[str], *, timeout: int, environment: dict[str, str]) -> None:
         calls.append(args[0])
         if args[0] == "restic":
             seed_restored(Path(args[4]), storage, good=False)
@@ -141,9 +139,12 @@ def test_dry_run_never_executes_restore(
         "sys.argv",
         [
             "verify_restic_backup",
-            "--storage-root", str(storage),
-            "--staging-root", str(staging),
-            "--snapshot-id", SNAPSHOT,
+            "--storage-root",
+            str(storage),
+            "--staging-root",
+            str(staging),
+            "--snapshot-id",
+            SNAPSHOT,
         ],
     )
     verify_restic_backup.main()
