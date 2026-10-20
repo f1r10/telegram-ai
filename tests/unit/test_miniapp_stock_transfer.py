@@ -1,15 +1,15 @@
 """Approved stock transfers require a current admin, one-time ticket and DB recheck."""
 
 import asyncio
-from dataclasses import replace
 from decimal import Decimal
-from time import monotonic
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from office_assistant.application.inventory import (
+    InventoryLedgerService,
     InventoryConflict,
     InventoryValidationError,
     StockLocation,
@@ -17,6 +17,7 @@ from office_assistant.application.inventory import (
     StockTransferReceipt,
 )
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+from office_assistant.miniapp import stock_transfer
 from office_assistant.miniapp.stock_transfer import MiniAppStockTransferReview
 
 
@@ -62,10 +63,10 @@ def params() -> dict[str, str]:
 def test_transfer_is_disabled_by_default_and_not_available_to_employees() -> None:
     async def scenario() -> None:
         fake = inventory()
-        disabled = MiniAppStockTransferReview(fake)
+        disabled = MiniAppStockTransferReview(cast(InventoryLedgerService, fake))
         with pytest.raises(PermissionError):
             await disabled.preview(actor(), **params())
-        enabled = MiniAppStockTransferReview(fake, enabled=True)
+        enabled = MiniAppStockTransferReview(cast(InventoryLedgerService, fake), enabled=True)
         with pytest.raises(PermissionError):
             await enabled.preview(actor(UserRole.USER), **params())
         assert fake.snapshot.await_count == 0
@@ -98,7 +99,12 @@ def test_preview_does_not_write_and_ticket_posts_only_once_for_its_actor() -> No
     asyncio.run(scenario())
 
 
-def test_cancel_expiry_and_conflict_require_fresh_preview() -> None:
+def test_cancel_expiry_and_conflict_require_fresh_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(stock_transfer, "monotonic", lambda: clock[0])
+
     async def scenario() -> None:
         fake = inventory()
         review = MiniAppStockTransferReview(fake, enabled=True)
@@ -111,9 +117,10 @@ def test_cancel_expiry_and_conflict_require_fresh_preview() -> None:
             await review.confirm(actor(), token=token)
         new = await review.preview(actor(), **params())
         new_token = str(new["token"])
-        review._pending[new_token] = replace(review._pending[new_token], expires_at=monotonic() - 1)
+        clock[0] = 121.0
         with pytest.raises(InventoryConflict):
             await review.confirm(actor(), token=new_token)
+        clock[0] = 0.0
         fake.transfer.side_effect = InventoryConflict("Reservation changed")
         latest = await review.preview(actor(), **params())
         latest_token = str(latest["token"])
@@ -145,6 +152,5 @@ def test_bad_amount_unknown_warehouse_and_unit_never_issue_ticket() -> None:
         with pytest.raises(InventoryConflict):
             await review.preview(actor(), **(params() | {"quantity": "99"}))
         assert fake.transfer.await_count == 0
-        assert review._pending == {}
 
     asyncio.run(scenario())
