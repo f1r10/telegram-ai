@@ -26,7 +26,13 @@
     actionKind: $("stock-action-kind"), actionReasonField: $("stock-action-reason-field"),
     actionPreview: $("stock-action-preview"), actionDetails: $("stock-action-details"),
     actionFeedback: $("stock-action-feedback"), actionPrepare: $("stock-action-prepare"),
-    actionConfirm: $("stock-action-confirm"), actionCancel: $("stock-action-cancel")
+    actionConfirm: $("stock-action-confirm"), actionCancel: $("stock-action-cancel"),
+    xlsxMode: $("xlsx-mode"), xlsxPanel: $("stock-xlsx-panel"),
+    xlsxFile: $("stock-xlsx-file"), xlsxPrepare: $("stock-xlsx-prepare"),
+    xlsxPreview: $("stock-xlsx-preview"), xlsxSummary: $("stock-xlsx-summary"),
+    xlsxDigest: $("stock-xlsx-digest"), xlsxRows: $("stock-xlsx-rows"),
+    xlsxConfirm: $("stock-xlsx-confirm"), xlsxCancel: $("stock-xlsx-cancel"),
+    xlsxFeedback: $("stock-xlsx-feedback")
   };
   let scope = "chat";
   let busy = false;
@@ -38,6 +44,9 @@
   let canStockActions = false;
   let actionTicket = null;
   let actionBusy = false;
+  let canXlsx = false;
+  let xlsxBusy = false;
+  let xlsxTicket = null;
   const signed = typeof tg?.initData === "string" ? tg.initData : "";
   if (tg) {
     tg.ready();
@@ -219,6 +228,12 @@
       note: "Yalnız təsdiqlənmiş satış fakturaları; valyutalar qarışdırılmır. Qeyd yoxdursa sıfır satış faktı iddia edilmir.",
       samples: ["A şirkəti", "B şirkəti"]
     },
+    "stock-xlsx": {
+      kicker: "ADMİN · EXCEL STOK İDXALI", title: "Bütün sətirləri yoxlayıb təsdiqləyin",
+      placeholder: "",
+      note: "Yalnız 5 və ya 6 sütunlu təsdiqlənmiş stok şablonları. Cəmi 200 sətir. Təsdiqə qədər stok dəyişmir.",
+      samples: []
+    },
     "stock-action": {
       kicker: "ADMİN · STOK TƏSDİQİ", title: "Anbar əməliyyatını yoxlayın",
       placeholder: "",
@@ -241,7 +256,8 @@
 
   function selectScope(next) {
     if (busy || !screens[next] || (next === "transfer" && !canTransfer) ||
-        (next === "stock-action" && !canStockActions)) return;
+        (next === "stock-action" && !canStockActions) ||
+        (next === "stock-xlsx" && !canXlsx)) return;
     if (uploadTicket && next !== "upload") {
       ui.uploadFeedback.textContent = "Əvvəl faylı təsdiqləyin və ya ləğv edin.";
       return;
@@ -262,10 +278,11 @@
     ui.photoPanel.hidden = scope !== "photo";
     ui.transferPanel.hidden = scope !== "transfer";
     ui.actionPanel.hidden = scope !== "stock-action";
+    ui.xlsxPanel.hidden = scope !== "stock-xlsx";
     ui.uploadPanel.hidden = scope !== "upload";
     if (scope === "upload" && active) void refreshUploadJobs();
-    ui.composer.hidden = ["upload", "photo", "transfer", "stock-action"].includes(scope);
-    ui.suggestions.hidden = ["upload", "photo", "transfer", "stock-action"].includes(scope);
+    ui.composer.hidden = ["upload", "photo", "transfer", "stock-action", "stock-xlsx"].includes(scope);
+    ui.suggestions.hidden = ["upload", "photo", "transfer", "stock-action", "stock-xlsx"].includes(scope);
     if (scope === "sales" && !ui.salesYear.value) {
       ui.salesYear.value = String(new Date().getFullYear());
     }
@@ -797,6 +814,111 @@
       ui.actionCancel.disabled = false;
     }
   }
+  function xlsxState(message, failure = false) {
+    ui.xlsxFeedback.textContent = message;
+    ui.xlsxFeedback.classList.toggle("error", failure);
+  }
+  function clearXlsxPreview() {
+    xlsxTicket = null;
+    ui.xlsxPreview.hidden = true;
+    ui.xlsxRows.replaceChildren();
+    ui.xlsxFile.disabled = false;
+  }
+  async function previewXlsx() {
+    if (!active || !canXlsx || xlsxBusy || xlsxTicket) return;
+    const file = ui.xlsxFile.files?.[0];
+    if (!file || !file.name.toLowerCase().endsWith(".xlsx") ||
+        file.size < 1 || file.size > 5 * 1024 * 1024) {
+      xlsxState("Bir .xlsx seçin (maksimum 5 MB).", true);
+      return;
+    }
+    xlsxBusy = true;
+    ui.xlsxPrepare.disabled = true;
+    clearXlsxPreview();
+    xlsxState("Excel yalnız təhlükəsiz önbaxış üçün oxunur...");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      const response = await fetch("/api/stock/xlsx/preview", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "X-Telegram-Init-Data": signed,
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        },
+        body: file,
+        signal: controller.signal
+      });
+      if (response.status === 401) {
+        lock("Excel idxalı üçün administrator girişi lazımdır.");
+        throw new Error("Administrator icazəsi yoxdur.");
+      }
+      if (!response.ok) {
+        throw new Error(response.status === 413
+          ? "Excel 5 MB limitini aşır."
+          : "Excel yoxlanmadı. Şablonu, düsturları və sətirləri yenidən yoxlayın.");
+      }
+      const result = await response.json();
+      if (!active) return;
+      xlsxTicket = result.token;
+      ui.xlsxFile.disabled = true;
+      ui.xlsxSummary.textContent = "Sətir sayı: " + result.rows +
+        " · Açılış: " + result.openings +
+        " · Giriş: " + result.receipts +
+        " · Çıxış: " + result.issues;
+      ui.xlsxDigest.textContent = "Fayl SHA-256: " + result.sha256;
+      for (const item of result.items) {
+        const line = document.createElement("div");
+        line.className = "xlsx-row";
+        line.textContent = [
+          item.code, item.warehouse, item.kind,
+          item.quantity, item.unit || "vahid təsdiqsiz", item.reference
+        ].join(" | ");
+        ui.xlsxRows.append(line);
+      }
+      ui.xlsxPreview.hidden = false;
+      xlsxState("Önbaxış hazırdır. 2 dəqiqə ərzində bütün sətrləri yoxlayın.");
+    } catch (error) {
+      if (active) xlsxState(error?.message || "Önbaxış alınmadı.", true);
+    } finally {
+      clearTimeout(timeout);
+      xlsxBusy = false;
+      ui.xlsxPrepare.disabled = !active;
+    }
+  }
+  async function finishXlsx(confirm) {
+    if (!active || !canXlsx || xlsxBusy || !xlsxTicket) return;
+    xlsxBusy = true;
+    ui.xlsxConfirm.disabled = true;
+    ui.xlsxCancel.disabled = true;
+    const token = xlsxTicket;
+    clearXlsxPreview();
+    xlsxState(confirm ? "Bütün sətirlər atomik yazılır..." : "Ləğv edilir...");
+    try {
+      const result = await request(
+        confirm ? "/api/stock/xlsx/confirm" : "/api/stock/xlsx/cancel", {token}
+      );
+      if (!active) return;
+      xlsxState(confirm
+        ? result.count + " stok sətri təsdiqləndi. Faylın orijinalını məxfi arxivdə saxlayın."
+        : "Önbaxış ləğv edildi. Stok dəyişdirilmədi.");
+      ui.xlsxFile.value = "";
+    } catch (error) {
+      if (active) xlsxState(
+        (error?.message || "İdxal başa çatmadı.") +
+        " Təkrar idxaldan əvvəl hərəkət tarixçəsini yoxlayın.", true
+      );
+    } finally {
+      xlsxBusy = false;
+      ui.xlsxConfirm.disabled = false;
+      ui.xlsxCancel.disabled = false;
+    }
+  }
+  ui.xlsxPrepare.addEventListener("click", () => { void previewXlsx(); });
+  ui.xlsxConfirm.addEventListener("click", () => { void finishXlsx(true); });
+  ui.xlsxCancel.addEventListener("click", () => { void finishXlsx(false); });
+
   ui.actionPrepare.addEventListener("click", () => { void previewStockAction(); });
   ui.actionConfirm.addEventListener("click", () => { void finishStockAction(true); });
   ui.actionCancel.addEventListener("click", () => { void finishStockAction(false); });
@@ -845,6 +967,8 @@
     ui.transferMode.hidden = !canTransfer;
     canStockActions = profile.role === "admin" && profile.can_stock_actions === true;
     ui.actionMode.hidden = !canStockActions;
+    canXlsx = profile.role === "admin" && profile.can_stock_xlsx === true;
+    ui.xlsxMode.hidden = !canXlsx;
     ui.connection.textContent = "Təhlükəsiz bağlantı";
     ui.question.focus();
   }).catch(() => {
