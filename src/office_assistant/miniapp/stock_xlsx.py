@@ -53,19 +53,14 @@ class MiniAppStockXlsxReview:
             self._tickets = {
                 token: item for token, item in self._tickets.items() if item.expires_at > now
             }
-            if (
-                len(self._tickets) >= _MAX_PREVIEWS
-                or any(ticket.actor_id == actor.id for ticket in self._tickets.values())
+            if len(self._tickets) >= _MAX_PREVIEWS or any(
+                ticket.actor_id == actor.id for ticket in self._tickets.values()
             ):
                 raise InventoryConflict("Əvvəlki Excel önbaxışını təsdiqləyin və ya ləğv edin.")
             token = secrets.token_urlsafe(24)
-            self._tickets[token] = WorkbookTicket(
-                actor.id, payload, summary, now + _TTL_SECONDS
-            )
+            self._tickets[token] = WorkbookTicket(actor.id, payload, summary, now + _TTL_SECONDS)
             # Erase bytes at expiry even if no further requests arrive.
-            asyncio.get_running_loop().call_later(
-                _TTL_SECONDS, self._tickets.pop, token, None
-            )
+            asyncio.get_running_loop().call_later(_TTL_SECONDS, self._tickets.pop, token, None)
         return {
             "token": token,
             **summary.safe_summary(),
