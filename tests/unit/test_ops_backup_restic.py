@@ -149,9 +149,7 @@ def test_snapshot_refuses_public_password_and_secret_inside_backed_up_storage(
         "RESTIC_PASSWORD_FILE": str(secret),
         "PGDATABASE": "synthetic",
     }
-    assert "restic_password_file_not_private" in backup_restic.prerequisites(
-        storage, env, staging
-    )
+    assert "restic_password_file_not_private" in backup_restic.prerequisites(storage, env, staging)
     secret.chmod(0o600)
     assert backup_restic.prerequisites(storage, env, staging) == []
     saved_secret = storage / "password"
@@ -180,12 +178,8 @@ def test_relative_local_repositories_cannot_overlap_storage_or_private_staging(
         "RESTIC_PASSWORD_FILE": str(secret),
         "PGDATABASE": "synthetic",
     }
-    assert "repository_overlaps_staging" in backup_restic.prerequisites(
-        storage, env, staging
-    )
+    assert "repository_overlaps_staging" in backup_restic.prerequisites(storage, env, staging)
     env["RESTIC_REPOSITORY"] = str(storage / "restic-repository")
-    assert "repository_inside_source" in backup_restic.prerequisites(
-        storage, env, staging
-    )
+    assert "repository_inside_source" in backup_restic.prerequisites(storage, env, staging)
     env["RESTIC_REPOSITORY"] = str(tmp_path / "independent-repository")
     assert backup_restic.prerequisites(storage, env, staging) == []
