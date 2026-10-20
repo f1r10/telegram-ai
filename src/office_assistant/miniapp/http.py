@@ -349,10 +349,10 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._api_dispatch(method, path, signed, args)
         except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
             self._json(401, {"error": "unauthorized"})
-        except (ValueError, InventoryValidationError):
-            self._json(400, {"error": "invalid_request"})
         except InventoryConflict:
             self._json(409, {"error": "stock_approval_conflict"})
+        except (ValueError, InventoryValidationError):
+            self._json(400, {"error": "invalid_request"})
         except FileDeliveryError:
             self._json(404, {"error": "source_unavailable"})
         except UploadJobNotFound:
