@@ -4,6 +4,16 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Administrator review of stock transfers (2026-10-20)
+
+- Add a signed, administrator-only Mini App transfer preview, one-time
+  confirmation and cancellation interface, all OFF by default behind
+  MINIAPP_STOCK_TRANSFER_ENABLED. Tickets expire after 120 seconds and are
+  bound to the currently active administrator.
+- A confirmation rechecks all stock and reservation invariants inside the
+  existing auditable PostgreSQL transaction; failures never silently retry.
+- Include HTTP, backend, role, ticket replay and cancellation regression tests.
+
 ### Comparable unit safety for partial inventory (2026-10-19)
 
 - Refuse cross-warehouse arithmetic totals for legacy unknown-unit stock,
