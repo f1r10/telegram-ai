@@ -587,7 +587,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self.headers.get("Transfer-Encoding")
             or len(sizes) != 1
             or len(mimes) != 1
-            or mimes[0] not in {
+            or mimes[0]
+            not in {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 "application/octet-stream",
             }
@@ -611,9 +612,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                     raise ValueError("Truncated workbook")
                 chunks.append(part)
                 remaining -= len(part)
-            value = self._run(
-                backend.preview_stock_xlsx(signed, payload=b"".join(chunks))
-            )
+            value = self._run(backend.preview_stock_xlsx(signed, payload=b"".join(chunks)))
             assert isinstance(value, dict)
             self._json(200, cast(dict[str, object], value))
         except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
