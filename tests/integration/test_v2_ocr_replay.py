@@ -229,6 +229,15 @@ def test_replay_is_idempotent_fenced_and_preserves_other_session_documents() -> 
                     )
                 )
 
+            # Even a valid-looking replacement PDF is not eligible for queueing
+            # when its bytes differ from the signed original SHA-256 record.
+            original_pdf = storage.blob_root / "1-old-scan.pdf"
+            original_bytes = original_pdf.read_bytes()
+            original_pdf.write_bytes(b"%PDF-changed-same-file-id")
+            assert (await queue_legacy_scans(settings, apply=False, limit=20)).eligible == 0
+            assert (await queue_legacy_scans(settings, apply=True, limit=20)).queued == 0
+            original_pdf.write_bytes(original_bytes)
+
             preview = await queue_legacy_scans(settings, apply=False, limit=20)
             assert (preview.inspected, preview.eligible, preview.queued) == (1, 1, 0)
             queued = await queue_legacy_scans(settings, apply=True, limit=20)
