@@ -4,6 +4,17 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+
+### Restic snapshot credential and path isolation (2026-10-20)
+
+- Reject owner-mismatched, group/world-readable, symlinked and backed-up
+  Restic password files before invoking external backup commands.
+- Detect local/relative/`local:` repository paths overlapping original file
+  storage or private staging. Keep default dry-run and operator quiescence
+  requirements unchanged.
+- Add focused regression tests; successful snapshots still require isolated
+  artifact checks and a separate full PostgreSQL/Qdrant recovery drill.
+
 ### Isolated Restic snapshot artifact verification (2026-10-20)
 
 - Add operator-only opt-in `verify_restic_backup` to restore a full pinned
