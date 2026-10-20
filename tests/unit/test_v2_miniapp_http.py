@@ -342,13 +342,14 @@ def test_transfer_preview_confirm_and_cancel_http_are_signed_and_bounded() -> No
         unsigned = call(port, "POST", "/api/stock/transfer/preview", body=fields, signed=None)
         assert unsigned[0] == 401
         forged = call(
-            port, "POST", "/api/stock/transfer/preview",
-            body=fields, origin="https://attacker.example",
+            port,
+            "POST",
+            "/api/stock/transfer/preview",
+            body=fields,
+            origin="https://attacker.example",
         )
         assert forged[0] == 403
-        invalid = call(
-            port, "POST", "/api/stock/transfer/preview", body=fields | {"unit": 12}
-        )
+        invalid = call(port, "POST", "/api/stock/transfer/preview", body=fields | {"unit": 12})
         assert invalid[0] == 400
         assert backend.calls == []
         status, _, payload = call(port, "POST", "/api/stock/transfer/preview", body=fields)
