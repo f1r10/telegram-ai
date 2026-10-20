@@ -71,3 +71,9 @@
 #stock-action-panel .transfer-fields select,#stock-action-panel .transfer-fields textarea{min-width:0;width:100%;padding:11px 12px;min-height:43px;background:var(--card);color:var(--navy);border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px}
 #stock-action-panel .transfer-fields textarea{resize:vertical;min-height:84px}
 #stock-action-details{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Private, opt-in workbook approval. All rows remain inspectable before commit. */
+#xlsx-mode[hidden],#stock-xlsx-panel[hidden]{display:none}
+.xlsx-rows{margin:12px 0;display:grid;gap:5px;max-height:310px;overflow:auto;overscroll-behavior:contain}
+.xlsx-row{border:1px solid var(--line);padding:9px 11px;border-radius:8px;color:var(--navy);background:var(--bubble);font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+#stock-xlsx-digest{overflow-wrap:anywhere;user-select:text}
