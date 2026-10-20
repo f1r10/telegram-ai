@@ -34,14 +34,19 @@ def mock_ledger() -> SimpleNamespace:
         ),
         adjust=AsyncMock(
             return_value=StockAdjustmentReceipt(
-                "KA45", "Əsas", "DAMAGE", Decimal("9"), Decimal("8"),
-                Decimal("-1"), "ADJ-01"
+                "KA45", "Əsas", "DAMAGE", Decimal("9"), Decimal("8"), Decimal("-1"), "ADJ-01"
             )
         ),
         reserve=AsyncMock(
             return_value=StockReservationReceipt(
-                "KA45", "Əsas", "RES-01", Decimal("2"), "ACTIVE",
-                Decimal("9"), Decimal("2"), Decimal("7")
+                "KA45",
+                "Əsas",
+                "RES-01",
+                Decimal("2"),
+                "ACTIVE",
+                Decimal("9"),
+                Decimal("2"),
+                Decimal("7"),
             )
         ),
     )
