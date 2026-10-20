@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Excel stock journal Mini App approval (2026-10-20)
+
+- Add administrator-gated, bounded binary XLSX review showing ALL stock rows,
+  approved SHA-256 and counts, with 120-second one-use confirmation tickets.
+- Re-parse exact workbook bytes then commit all authorized stock movements
+  atomically; purge temporary in-memory files after expiration.
+- Require independent disabled-by-default stock XLSX flag and signed API.
+
 ### Admin-only stock adjustments and reservation approvals (2026-10-20)
 
 - Add two-stage Mini App confirmation for RESERVE, RETURN, DAMAGE,
