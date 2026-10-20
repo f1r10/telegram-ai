@@ -11,8 +11,8 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.models import ChunkingConfig
-from office_assistant.scripts.replay_scanned_pdfs import safe_artifacts
 from office_assistant.processing.ocr_replay import verified_raw_pdf
+from office_assistant.scripts.replay_scanned_pdfs import safe_artifacts
 
 
 def test_replay_refuses_tampered_pdf_and_oversized_source(tmp_path: Path) -> None:
