@@ -70,7 +70,7 @@ class MiniAppStockTransferReview:
         code = _text(code, limit=64)
         source = _text(source)
         destination = _text(destination)
-        reference = _text(reference)
+        reference = _text(reference, limit=123)
         if _location_key(source) == _location_key(destination):
             raise InventoryValidationError("Mənbə və təyinat anbarları fərqli olmalıdır.")
         if len(quantity) > _MAX_QUANTITY_TEXT:
@@ -110,7 +110,9 @@ class MiniAppStockTransferReview:
             self._pending = {
                 key: item for key, item in self._pending.items() if item.expires_at > now
             }
-            if len(self._pending) >= _MAX_PENDING:
+            if len(self._pending) >= _MAX_PENDING or sum(
+                item.actor_id == actor.id for item in self._pending.values()
+            ) >= 3:
                 raise InventoryConflict("Çox sayda açıq təsdiq var; bir qismini ləğv edin.")
             ticket = secrets.token_urlsafe(24)
             self._pending[ticket] = TransferTicket(actor.id, draft, now + _TICKET_TTL_SECONDS)
