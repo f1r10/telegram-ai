@@ -36,8 +36,13 @@ def inventory() -> SimpleNamespace:
         ),
         transfer=AsyncMock(
             return_value=StockTransferReceipt(
-                "KA45", "Əsas", "Kənar", Decimal("6"), Decimal("5"),
-                Decimal("3"), "MOVE-007",
+                "KA45",
+                "Əsas",
+                "Kənar",
+                Decimal("6"),
+                Decimal("5"),
+                Decimal("3"),
+                "MOVE-007",
             )
         ),
     )
