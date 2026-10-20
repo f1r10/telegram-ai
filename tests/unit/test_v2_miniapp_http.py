@@ -339,39 +339,35 @@ def test_transfer_preview_confirm_and_cancel_http_are_signed_and_bounded() -> No
     }
     ticket = "approved-test-only-token-for-admin"
     with serve() as (port, backend):
-        assert call(
-            port, "POST", "/api/stock/transfer/preview",
-            body=fields, signed=None,
-        )[0] == 401
-        assert call(
+        unsigned = call(port, "POST", "/api/stock/transfer/preview", body=fields, signed=None)
+        assert unsigned[0] == 401
+        forged = call(
             port, "POST", "/api/stock/transfer/preview",
             body=fields, origin="https://attacker.example",
-        )[0] == 403
-        assert call(
-            port, "POST", "/api/stock/transfer/preview",
-            body=fields | {"unit": 12},
-        )[0] == 400
+        )
+        assert forged[0] == 403
+        invalid = call(
+            port, "POST", "/api/stock/transfer/preview", body=fields | {"unit": 12}
+        )
+        assert invalid[0] == 400
         assert backend.calls == []
         status, _, payload = call(port, "POST", "/api/stock/transfer/preview", body=fields)
         assert status == 200
         assert json.loads(payload)["token"] == ticket
-        assert call(
-            port, "POST", "/api/stock/transfer/confirm", body={"token": ticket}
-        )[0] == 200
-        assert call(
-            port, "POST", "/api/stock/transfer/cancel", body={"token": ticket}
-        )[0] == 200
+        approved = call(port, "POST", "/api/stock/transfer/confirm", body={"token": ticket})
+        cancelled = call(port, "POST", "/api/stock/transfer/cancel", body={"token": ticket})
+        assert approved[0] == cancelled[0] == 200
         assert backend.calls == [
             "stock-preview:pretend-signed-data",
             "stock-confirm:pretend-signed-data:" + ticket,
             "stock-cancel:pretend-signed-data:" + ticket,
         ]
-        assert call(
-            port, "POST", "/api/stock/transfer/confirm", body={"token": True}
-        )[0] == 400
-        assert call(
+        bad_token = call(port, "POST", "/api/stock/transfer/confirm", body={"token": True})
+        assert bad_token[0] == 400
+        unsigned_cancel = call(
             port, "POST", "/api/stock/transfer/cancel", body={"token": ticket}, signed=None
-        )[0] == 401
+        )
+        assert unsigned_cancel[0] == 401
 
 
 def test_malformed_json_and_path_guessing_fail_closed() -> None:
