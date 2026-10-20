@@ -353,32 +353,33 @@ def test_stock_history_http_is_signed_and_read_only() -> None:
 
 def test_stock_action_http_requires_auth_origin_and_typed_payload() -> None:
     fields = {
-        "kind": "DAMAGE", "code": "KA45", "warehouse": "Əsas",
-        "quantity": "1", "reference": "ADJ-01", "unit": "PCS",
+        "kind": "DAMAGE",
+        "code": "KA45",
+        "warehouse": "Əsas",
+        "quantity": "1",
+        "reference": "ADJ-01",
+        "unit": "PCS",
         "reason": "Damaged item confirmed and signed",
     }
     ticket = "test-action-approval-token-123456"
     with serve() as (port, backend):
-        unsigned = call(
-            port, "POST", "/api/stock/action/preview", body=fields, signed=None
-        )
+        unsigned = call(port, "POST", "/api/stock/action/preview", body=fields, signed=None)
         assert unsigned[0] == 401
         origin = call(
-            port, "POST", "/api/stock/action/preview",
-            body=fields, origin="https://not-our-company.example",
+            port,
+            "POST",
+            "/api/stock/action/preview",
+            body=fields,
+            origin="https://not-our-company.example",
         )
         assert origin[0] == 403
-        invalid = call(
-            port, "POST", "/api/stock/action/preview", body=fields | {"unit": 22}
-        )
+        invalid = call(port, "POST", "/api/stock/action/preview", body=fields | {"unit": 22})
         assert invalid[0] == 400
         assert backend.calls == []
         created = call(port, "POST", "/api/stock/action/preview", body=fields)
         assert created[0] == 200
         assert json.loads(created[2])["token"] == ticket
-        committed = call(
-            port, "POST", "/api/stock/action/confirm", body={"token": ticket}
-        )
+        committed = call(port, "POST", "/api/stock/action/confirm", body={"token": ticket})
         aborted = call(port, "POST", "/api/stock/action/cancel", body={"token": ticket})
         assert committed[0] == aborted[0] == 200
         assert backend.calls == [
