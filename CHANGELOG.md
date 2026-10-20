@@ -4,6 +4,18 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Verified partial-PDF reindex safeguards (2026-10-20)
+
+- Require verified ACTIVE original PDF bytes, correct ingestion lineage, latest
+  parse attempt, safe bounded normalized artifact and no competing OCR replay
+  or newer successful index before legacy reindex queueing.
+- Re-check these conditions under database locks for explicit --apply, and
+  preserve healthy sibling vector records in a multi-document session.
+- Append privacy-safe operator audit event only after successful requeue.
+- Add disposable PostgreSQL tests for source tampering, superseding, OCR
+  ownership, safe sibling preservation and no duplicate repair submissions.
+
+
 ### Excel stock journal Mini App approval (2026-10-20)
 
 - Add administrator-gated, bounded binary XLSX review showing ALL stock rows,

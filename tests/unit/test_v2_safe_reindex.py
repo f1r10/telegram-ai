@@ -35,3 +35,19 @@ def test_repair_uses_real_chunker_only_for_existing_searchable_text(tmp_path: Pa
     assert searchable_chunks(scanned, file_id=23, run_id=4, config=config) == 0
     assert searchable_chunks(malformed, file_id=24, run_id=5, config=config) == 0
     assert searchable_chunks(tmp_path / "missing", file_id=25, run_id=6, config=config) == 0
+
+
+def test_repair_does_not_follow_normalized_symlinks_or_unbounded_artifacts(
+    tmp_path: Path,
+) -> None:
+    config = ChunkingConfig("v1-medium-1800-180", 1800, 180)
+    original = tmp_path / "text.json"
+    _write(original, [{"block_type": "page_text", "text": "Verified text from safe fixture"}])
+    alias = tmp_path / "alias.json"
+    alias.symlink_to(original)
+    assert searchable_chunks(alias, file_id=21, run_id=2, config=config) == 0
+
+    oversized = tmp_path / "oversized.json"
+    with oversized.open("wb") as handle:
+        handle.truncate(33 * 1024 * 1024)
+    assert searchable_chunks(oversized, file_id=21, run_id=2, config=config) == 0

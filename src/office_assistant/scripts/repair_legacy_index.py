@@ -11,22 +11,29 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
+    AuditEvent,
     DocumentParseRun,
     DocumentProcessingStatus,
+    FileObject,
+    IngestionJob,
+    IngestionSessionItem,
     KnowledgeIndexJob,
     KnowledgeIndexJobStatus,
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
+    OcrReplayJob,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
-from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.knowledge.chunking import chunk_normalized_artifact
 from office_assistant.knowledge.models import ChunkingConfig
+from office_assistant.processing.ocr_replay import verified_raw_pdf
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +47,13 @@ class RepairSummary:
 def searchable_chunks(path: Path, *, file_id: int, run_id: int, config: ChunkingConfig) -> int:
     """Use the production chunker, not an approximate 'has blocks' check."""
 
-    if not path.is_file():
-        return 0
     try:
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or not (0 < path.stat().st_size <= 32 * 1024 * 1024)
+        ):
+            return 0
         return len(
             chunk_normalized_artifact(
                 path, source_file_id=file_id, parse_run_id=run_id, config=config
@@ -50,6 +61,64 @@ def searchable_chunks(path: Path, *, file_id: int, run_id: int, config: Chunking
         )
     except (OSError, ValueError, KeyError, TypeError):
         return 0
+
+
+async def _verified_candidate(
+    session: AsyncSession,
+    run: DocumentParseRun,
+    storage: LocalFileStorage,
+    settings: Settings,
+    chunking: ChunkingConfig,
+) -> bool:
+    """Recheck source lineage, integrity and successful newer indexing before any write."""
+    if (
+        run.status != DocumentProcessingStatus.DEFERRED
+        or not run.normalized_storage_key
+        or run.session_item_id is None
+    ):
+        return False
+    file = await session.get(FileObject, run.file_object_id, with_for_update=True)
+    item = await session.get(IngestionSessionItem, run.session_item_id)
+    ingestion = await session.get(IngestionJob, run.ingestion_job_id)
+    if (
+        file is None
+        or item is None
+        or ingestion is None
+        or item.file_object_id != file.id
+        or item.session_id != ingestion.session_id
+    ):
+        return False
+    latest = await session.scalar(
+        select(func.max(DocumentParseRun.id)).where(DocumentParseRun.file_object_id == file.id)
+    )
+    if latest != run.id:
+        return False
+    # A separate OCR-replay job owns the source; do not race its worker or
+    # override an already reviewed OCR result with partially readable text.
+    replay = await session.scalar(
+        select(OcrReplayJob.id).where(OcrReplayJob.file_object_id == file.id).limit(1)
+    )
+    if replay is not None:
+        return False
+    already_good = await session.scalar(
+        select(KnowledgeIndexRecord.id)
+        .join(DocumentParseRun, DocumentParseRun.id == KnowledgeIndexRecord.parse_run_id)
+        .where(
+            DocumentParseRun.file_object_id == file.id,
+            KnowledgeIndexRecord.status == KnowledgeIndexRecordStatus.SUCCEEDED,
+            KnowledgeIndexRecord.chunk_count > 0,
+        )
+        .limit(1)
+    )
+    if already_good is not None:
+        return False
+    try:
+        if verified_raw_pdf(storage, file, settings.max_upload_bytes) is None:
+            return False
+        artifact = storage.path_for_key(run.normalized_storage_key)
+        return searchable_chunks(artifact, file_id=file.id, run_id=run.id, config=chunking) > 0
+    except (OSError, StorageError, ValueError, TypeError):
+        return False
 
 
 async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> RepairSummary:
@@ -64,51 +133,69 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
     scanned = eligible = applied = skipped = 0
     try:
         async with factory() as session:
-            rows = (
-                await session.execute(
-                    select(
-                        DocumentParseRun.id,
-                        DocumentParseRun.ingestion_job_id,
-                        DocumentParseRun.file_object_id,
-                        DocumentParseRun.normalized_storage_key,
+            ids = list(
+                (
+                    await session.scalars(
+                        select(DocumentParseRun.id)
+                        .where(
+                            DocumentParseRun.status == DocumentProcessingStatus.DEFERRED,
+                            DocumentParseRun.normalized_storage_key.is_not(None),
+                        )
+                        .order_by(DocumentParseRun.id)
+                        .limit(limit)
                     )
-                    .where(
-                        DocumentParseRun.status == DocumentProcessingStatus.DEFERRED,
-                        DocumentParseRun.normalized_storage_key.is_not(None),
-                    )
-                    .order_by(DocumentParseRun.id)
-                    .limit(limit)
-                )
-            ).all()
-        for run_id, ingestion_job_id, file_id, key in rows:
+                ).all()
+            )
+        for run_id in ids:
             scanned += 1
-            if not key:
-                skipped += 1
-                continue
-            path = storage.path_for_key(key)
-            if searchable_chunks(path, file_id=file_id, run_id=run_id, config=config) == 0:
-                skipped += 1
-                continue
-            eligible += 1
-            if not apply:
-                continue
             async with factory.begin() as session:
-                run = await session.get(DocumentParseRun, run_id, with_for_update=True)
-                if run is None or run.status != DocumentProcessingStatus.DEFERRED:
+                run = await session.get(DocumentParseRun, run_id, with_for_update=apply)
+                if run is None or not await _verified_candidate(
+                    session, run, storage, settings, config
+                ):
                     skipped += 1
                     continue
-                job = await session.scalar(
-                    select(KnowledgeIndexJob)
-                    .where(KnowledgeIndexJob.ingestion_job_id == ingestion_job_id)
-                    .with_for_update()
+                job_query = select(KnowledgeIndexJob).where(
+                    KnowledgeIndexJob.ingestion_job_id == run.ingestion_job_id
                 )
+                if apply:
+                    job_query = job_query.with_for_update()
+                job = await session.scalar(job_query)
                 if job is not None and job.status == KnowledgeIndexJobStatus.RUNNING:
+                    skipped += 1
+                    continue
+                # Never touch a sibling's completed vector record, or a worker
+                # that is independently processing the target record.
+                target = None
+                if job is not None:
+                    target = await session.scalar(
+                        select(KnowledgeIndexRecord).where(
+                            KnowledgeIndexRecord.knowledge_index_job_id == job.id,
+                            KnowledgeIndexRecord.parse_run_id == run.id,
+                        )
+                    )
+                    if target is not None and (
+                        target.status == KnowledgeIndexRecordStatus.RUNNING
+                        or (
+                            target.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                            and target.chunk_count > 0
+                        )
+                    ):
+                        skipped += 1
+                        continue
+                eligible += 1
+                if not apply:
+                    continue
+                # Verify after acquiring the index lock too: a parallel indexer
+                # can have completed this source during the operator's scan.
+                if not await _verified_candidate(session, run, storage, settings, config):
+                    eligible -= 1
                     skipped += 1
                     continue
                 run.status = DocumentProcessingStatus.SUCCEEDED
                 if job is None:
                     job = KnowledgeIndexJob(
-                        ingestion_job_id=ingestion_job_id,
+                        ingestion_job_id=run.ingestion_job_id,
                         status=KnowledgeIndexJobStatus.PENDING,
                         collection_alias=settings.qdrant_collection_alias,
                         collection_name=settings.qdrant_collection_name,
@@ -117,26 +204,14 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
                     )
                     session.add(job)
                 else:
-                    # Already valid nonempty records remain untouched; only false
-                    # zero-chunk successes must be reprocessed by the worker.
-                    records = (
-                        (
-                            await session.execute(
-                                select(KnowledgeIndexRecord).where(
-                                    KnowledgeIndexRecord.knowledge_index_job_id == job.id
-                                )
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    for record in records:
-                        if (
-                            record.status == KnowledgeIndexRecordStatus.SUCCEEDED
-                            and record.chunk_count == 0
-                        ):
-                            record.status = KnowledgeIndexRecordStatus.FAILED
-                            record.last_error = "Legacy zero-chunk success queued for repair"
+                    if (
+                        target is not None
+                        and target.status == KnowledgeIndexRecordStatus.SUCCEEDED
+                        and target.chunk_count == 0
+                    ):
+                        target.status = KnowledgeIndexRecordStatus.FAILED
+                        target.indexed_at = None
+                        target.last_error = "Legacy zero-chunk target queued for repair"
                     job.status = KnowledgeIndexJobStatus.PENDING
                     job.attempt_count = 0
                     job.available_at = datetime.now(UTC)
@@ -146,6 +221,18 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
                     job.lease_expires_at = None
                     job.worker_id = None
                     job.last_error = None
+                session.add(
+                    AuditEvent(
+                        actor_user_id=None,
+                        action="LEGACY_REINDEX_OPERATOR_QUEUED",
+                        entity_type="document_parse_run",
+                        entity_id=str(run.id),
+                        event_metadata={
+                            "source_parse_run_id": run.id,
+                            "ingestion_job_id": run.ingestion_job_id,
+                        },
+                    )
+                )
                 applied += 1
         return RepairSummary(scanned, eligible, applied, skipped)
     finally:
