@@ -157,35 +157,35 @@ def test_admin_transfer_requires_signing_and_current_admin_role() -> None:
         ),
         transfer=AsyncMock(
             return_value=SimpleNamespace(
-                product_code="KA45", source_warehouse="Əsas", destination_warehouse="Kənar",
-                source_balance_after=Decimal("6"), destination_balance_after=Decimal("5"),
-                quantity=Decimal("3"), reference="MOVE-007",
+                product_code="KA45",
+                source_warehouse="Əsas",
+                destination_warehouse="Kənar",
+                source_balance_after=Decimal("6"),
+                destination_balance_after=Decimal("5"),
+                quantity=Decimal("3"),
+                reference="MOVE-007",
             )
         ),
     )
     admin = User(id=1, telegram_user_id=123, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
-    backend, session = make_backend(
-        actor=admin, inventory=stock, stock_transfer_enabled=True
-    )
+    backend, session = make_backend(actor=admin, inventory=stock, stock_transfer_enabled=True)
     assert asyncio.run(backend.profile(signature(123)))["can_transfer"] is True
     draft = dict(
-        code="KA45", source="Əsas", destination="Kənar",
-        quantity="3", reference="MOVE-007", unit="PCS",
+        code="KA45",
+        source="Əsas",
+        destination="Kənar",
+        quantity="3",
+        reference="MOVE-007",
+        unit="PCS",
     )
     preview = asyncio.run(backend.prepare_stock_transfer(signature(123), **draft))
     assert stock.transfer.await_count == 0
-    session.actor = User(
-        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE
-    )
+    session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
     with pytest.raises(MiniAppAccessDenied):
-        asyncio.run(
-            backend.confirm_stock_transfer(signature(123), token=str(preview["token"]))
-        )
+        asyncio.run(backend.confirm_stock_transfer(signature(123), token=str(preview["token"])))
     assert stock.transfer.await_count == 0
     session.actor = admin
-    done = asyncio.run(
-        backend.confirm_stock_transfer(signature(123), token=str(preview["token"]))
-    )
+    done = asyncio.run(backend.confirm_stock_transfer(signature(123), token=str(preview["token"])))
     assert done["status"] == "posted"
     assert stock.transfer.await_count == 1
 
