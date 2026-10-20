@@ -107,6 +107,7 @@ def make_backend(
     file_delivery: object | None = None,
     progress: object | None = None,
     photo_lookup: object | None = None,
+    stock_transfer_enabled: bool = False,
 ) -> tuple[MiniAppBackend, Session]:
     user = (
         actor
@@ -124,6 +125,7 @@ def make_backend(
         file_delivery=cast(SourceFileDeliveryService | None, file_delivery),
         progress=cast(MiniAppDocumentProgress | None, progress),
         photo_lookup=cast(MiniAppPhotoLookup | None, photo_lookup),
+        stock_transfer_enabled=stock_transfer_enabled,
     )
     return backend, factory.session
 
@@ -133,6 +135,7 @@ def test_signed_user_profile_and_db_approval_are_distinct() -> None:
     assert asyncio.run(backend.profile(signature(123))) == {
         "display_name": "Əməkdaş",
         "role": "employee",
+        "can_transfer": False,
     }
     assert session.executions == 1
     with pytest.raises(MiniAppAuthenticationError):
@@ -140,6 +143,51 @@ def test_signed_user_profile_and_db_approval_are_distinct() -> None:
     session.actor = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.DISABLED)
     with pytest.raises(MiniAppAccessDenied):
         asyncio.run(backend.profile(signature(123)))
+
+
+def test_admin_transfer_requires_signing_and_current_admin_role() -> None:
+    stock = SimpleNamespace(
+        snapshot=AsyncMock(
+            return_value=StockSnapshot(
+                "KA45",
+                (StockLocation("Əsas", Decimal("9")), StockLocation("Kənar", Decimal("2"))),
+                Decimal("11"),
+                "PCS",
+            )
+        ),
+        transfer=AsyncMock(
+            return_value=SimpleNamespace(
+                product_code="KA45", source_warehouse="Əsas", destination_warehouse="Kənar",
+                source_balance_after=Decimal("6"), destination_balance_after=Decimal("5"),
+                quantity=Decimal("3"), reference="MOVE-007",
+            )
+        ),
+    )
+    admin = User(id=1, telegram_user_id=123, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
+    backend, session = make_backend(
+        actor=admin, inventory=stock, stock_transfer_enabled=True
+    )
+    assert asyncio.run(backend.profile(signature(123)))["can_transfer"] is True
+    draft = dict(
+        code="KA45", source="Əsas", destination="Kənar",
+        quantity="3", reference="MOVE-007", unit="PCS",
+    )
+    preview = asyncio.run(backend.prepare_stock_transfer(signature(123), **draft))
+    assert stock.transfer.await_count == 0
+    session.actor = User(
+        id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE
+    )
+    with pytest.raises(MiniAppAccessDenied):
+        asyncio.run(
+            backend.confirm_stock_transfer(signature(123), token=str(preview["token"]))
+        )
+    assert stock.transfer.await_count == 0
+    session.actor = admin
+    done = asyncio.run(
+        backend.confirm_stock_transfer(signature(123), token=str(preview["token"]))
+    )
+    assert done["status"] == "posted"
+    assert stock.transfer.await_count == 1
 
 
 def test_chat_and_company_base_reuse_existing_grounded_service() -> None:
