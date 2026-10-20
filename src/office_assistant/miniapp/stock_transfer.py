@@ -110,9 +110,10 @@ class MiniAppStockTransferReview:
             self._pending = {
                 key: item for key, item in self._pending.items() if item.expires_at > now
             }
-            if len(self._pending) >= _MAX_PENDING or sum(
-                item.actor_id == actor.id for item in self._pending.values()
-            ) >= 3:
+            if (
+                len(self._pending) >= _MAX_PENDING
+                or sum(item.actor_id == actor.id for item in self._pending.values()) >= 3
+            ):
                 raise InventoryConflict("Çox sayda açıq təsdiq var; bir qismini ləğv edin.")
             ticket = secrets.token_urlsafe(24)
             self._pending[ticket] = TransferTicket(actor.id, draft, now + _TICKET_TTL_SECONDS)
