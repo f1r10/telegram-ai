@@ -19,7 +19,7 @@ from typing import Any, cast
 from urllib.parse import quote, unquote, urlsplit
 
 from office_assistant.application.errors import AuthorizationDenied
-from office_assistant.application.inventory import InventoryValidationError
+from office_assistant.application.inventory import InventoryConflict, InventoryValidationError
 from office_assistant.internal_evidence.delivery import DeliverableFile, FileDeliveryError
 from office_assistant.miniapp.auth import MiniAppAuthenticationError
 from office_assistant.miniapp.backend import (
@@ -215,6 +215,43 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, dict)
         self._json(200, cast(dict[str, object], value))
 
+    def _api_transfer_preview(self, signed: str, args: dict[str, object]) -> None:
+        required = ("code", "source", "destination", "quantity", "reference")
+        if any(not isinstance(args.get(key), str) for key in required):
+            raise ValueError("Invalid warehouse transfer fields")
+        unit = args.get("unit")
+        if unit is not None and not isinstance(unit, str):
+            raise ValueError("Invalid stock unit")
+        value = self._run(
+            self._app().backend.prepare_stock_transfer(
+                signed,
+                code=cast(str, args["code"]),
+                source=cast(str, args["source"]),
+                destination=cast(str, args["destination"]),
+                quantity=cast(str, args["quantity"]),
+                reference=cast(str, args["reference"]),
+                unit=unit,
+            )
+        )
+        assert isinstance(value, dict)
+        self._json(200, cast(dict[str, object], value))
+
+    def _api_transfer_confirm(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid approval token")
+        result = self._run(self._app().backend.confirm_stock_transfer(signed, token=token))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
+    def _api_transfer_cancel(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid approval token")
+        result = self._run(self._app().backend.cancel_stock_transfer(signed, token=token))
+        assert isinstance(result, dict)
+        self._json(200, cast(dict[str, object], result))
+
     def _api_product(self, signed: str, args: dict[str, object]) -> None:
         query = args.get("query")
         if not isinstance(query, str):
@@ -283,6 +320,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             "/api/ask": self._api_ask,
             "/api/stock": self._api_stock,
             "/api/stock/history": self._api_stock_history,
+            "/api/stock/transfer/preview": self._api_transfer_preview,
+            "/api/stock/transfer/confirm": self._api_transfer_confirm,
+            "/api/stock/transfer/cancel": self._api_transfer_cancel,
             "/api/product": self._api_product,
             "/api/sales": self._api_sales,
             "/api/source": self._api_source,
@@ -311,6 +351,8 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             self._json(401, {"error": "unauthorized"})
         except (ValueError, InventoryValidationError):
             self._json(400, {"error": "invalid_request"})
+        except InventoryConflict:
+            self._json(409, {"error": "stock_approval_conflict"})
         except FileDeliveryError:
             self._json(404, {"error": "source_unavailable"})
         except UploadJobNotFound:
@@ -502,6 +544,9 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 "/api/ask",
                 "/api/stock",
                 "/api/stock/history",
+                "/api/stock/transfer/preview",
+                "/api/stock/transfer/confirm",
+                "/api/stock/transfer/cancel",
                 "/api/product",
                 "/api/sales",
                 "/api/source",
@@ -540,7 +585,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             if not isinstance(parsed, dict):
                 raise ValueError("Invalid input object")
             args = cast(dict[str, object], parsed)
-            if len(args) > 5:
+            if len(args) > (6 if path.path == "/api/stock/transfer/preview" else 5):
                 raise ValueError("Too many fields")
         except TimeoutError:
             self._json(408, {"error": "request_timeout"})
