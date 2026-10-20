@@ -78,7 +78,7 @@ def test_transfer_is_disabled_by_default_and_not_available_to_employees() -> Non
 def test_preview_does_not_write_and_ticket_posts_only_once_for_its_actor() -> None:
     async def scenario() -> None:
         fake = inventory()
-        review = MiniAppStockTransferReview(fake, enabled=True)
+        review = MiniAppStockTransferReview(cast(InventoryLedgerService, fake), enabled=True)
         summary = await review.preview(actor(), **params())
         assert summary["source_after_preview"] == "6"
         assert summary["destination_after_preview"] == "5"
@@ -107,7 +107,7 @@ def test_cancel_expiry_and_conflict_require_fresh_preview(
 
     async def scenario() -> None:
         fake = inventory()
-        review = MiniAppStockTransferReview(fake, enabled=True)
+        review = MiniAppStockTransferReview(cast(InventoryLedgerService, fake), enabled=True)
         preview = await review.preview(actor(), **params())
         token = str(preview["token"])
         with pytest.raises(InventoryConflict):
@@ -136,7 +136,7 @@ def test_cancel_expiry_and_conflict_require_fresh_preview(
 def test_bad_amount_unknown_warehouse_and_unit_never_issue_ticket() -> None:
     async def scenario() -> None:
         fake = inventory()
-        review = MiniAppStockTransferReview(fake, enabled=True)
+        review = MiniAppStockTransferReview(cast(InventoryLedgerService, fake), enabled=True)
         for change in (
             {"quantity": "-5"},
             {"quantity": "0"},
