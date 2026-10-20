@@ -31,6 +31,7 @@
         <button class="mode" type="button" data-scope="product" aria-pressed="false"><span aria-hidden="true">◈</span><strong>Məhsul tap</strong><small>Kod və ya ad</small></button>
         <button class="mode" type="button" data-scope="photo" aria-pressed="false"><span aria-hidden="true">▧</span><strong>Şəkillə axtar</strong><small>Foto ilə namizədlər</small></button>
         <button class="mode" type="button" data-scope="stock" aria-pressed="false"><span aria-hidden="true">▣</span><strong>Anbar qalığı</strong><small>Təsdiqli stok</small></button>
+        <button class="mode" id="xlsx-mode" type="button" data-scope="stock-xlsx" aria-pressed="false" hidden><span aria-hidden="true">▥</span><strong>Stok Excel</strong><small>Admin idxalı</small></button>
         <button class="mode" id="stock-action-mode" type="button" data-scope="stock-action" aria-pressed="false" hidden><span aria-hidden="true">▤</span><strong>Stok əməliyyatı</strong><small>Admin önbaxışı</small></button>
         <button class="mode" id="transfer-mode" type="button" data-scope="transfer" aria-pressed="false" hidden><span aria-hidden="true">⇄</span><strong>Anbar köçürməsi</strong><small>Admin təsdiqi ilə</small></button>
         <button class="mode" type="button" data-scope="sales" aria-pressed="false"><span aria-hidden="true">▥</span><strong>Satış hesabatı</strong><small>Faktura uçotu</small></button>
@@ -57,6 +58,24 @@
           <input id="sales-year" type="number" min="2000" max="2099" step="1" inputmode="numeric" aria-label="Satış hesabatının ili">
           <span>Müştərini aşağıdakı xanaya yazın. Məbləğlər valyutalara görə ayrılacaq.</span>
         </div>
+        <section class="upload-panel" id="stock-xlsx-panel" hidden aria-label="Administrator Excel stok idxalı">
+          <p class="muted">Yalnız təsdiqlənmiş stok əməliyyatı şablonu. Maksimum 5 MB, 200 sətir, bir vərəq. Bu idxal sənəd saxlama funksiyasından ayrıdır.</p>
+          <label class="upload-picker" for="stock-xlsx-file">Anbar Excel faylını seçin
+            <input id="stock-xlsx-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          </label>
+          <button id="stock-xlsx-prepare" type="button" class="upload-primary">Excel sətrlərini yoxla →</button>
+          <div id="stock-xlsx-preview" class="upload-preview" hidden>
+            <strong id="stock-xlsx-summary">Önbaxış</strong>
+            <p id="stock-xlsx-digest" class="muted"></p>
+            <div id="stock-xlsx-rows" class="xlsx-rows" aria-label="Bütün təsdiqlənəcək sətirlər"></div>
+            <p class="muted">Hər sətri ilkin fayl ilə tutuşdurun. Təsdiq olmadan stok dəyişmir.</p>
+            <div class="upload-actions">
+              <button id="stock-xlsx-confirm" type="button" class="upload-primary">Bütün sətrləri təsdiqlə</button>
+              <button id="stock-xlsx-cancel" type="button" class="upload-secondary">Ləğv et</button>
+            </div>
+          </div>
+          <p id="stock-xlsx-feedback" class="upload-feedback" role="status" aria-live="polite"></p>
+        </section>
         <section class="upload-panel transfer-panel" id="stock-action-panel" hidden aria-label="Administrator stok əməliyyatı">
           <p class="muted">Anbar düzəlişləri və yeni rezervasiyalar iki mərhələdə təsdiqlənir. Önbaxış heç nəyi dəyişmir.</p>
           <div class="transfer-fields">
