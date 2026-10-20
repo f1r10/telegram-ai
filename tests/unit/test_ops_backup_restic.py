@@ -39,6 +39,7 @@ def test_dry_run_never_invokes_pg_dump_or_restic(
     staging.mkdir(mode=0o700)
     secret = tmp_path / "password"
     secret.write_text("test-only", encoding="utf-8")
+    secret.chmod(0o600)
     environment = {
         "RESTIC_REPOSITORY": "s3:example/backups",
         "RESTIC_PASSWORD_FILE": str(secret),
@@ -68,6 +69,7 @@ def test_apply_requires_explicit_quiescence(
     staging.mkdir(mode=0o700)
     secret = tmp_path / "password"
     secret.write_text("test-only", encoding="utf-8")
+    secret.chmod(0o600)
     monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     monkeypatch.setattr(
         backup_restic.os,
@@ -117,6 +119,7 @@ def test_staging_requires_private_directory(
     staging.chmod(0o755)
     secret = tmp_path / "secret"
     secret.write_text("test-only", encoding="utf-8")
+    secret.chmod(0o600)
     monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
     env = {
         "RESTIC_REPOSITORY": "s3:example/backups",
@@ -127,3 +130,56 @@ def test_staging_requires_private_directory(
     staging.chmod(0o700)
     assert backup_restic.prerequisites(storage, env, staging) == []
     assert "staging_overlaps_source" in backup_restic.prerequisites(storage, env, storage)
+
+
+def test_snapshot_refuses_public_password_and_secret_inside_backed_up_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o700)
+    staging.chmod(0o700)
+    secret = tmp_path / "password"
+    secret.write_text("unit-test-only", encoding="utf-8")
+    secret.chmod(0o644)
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
+    env = {
+        "RESTIC_REPOSITORY": "s3:synthetic/repo",
+        "RESTIC_PASSWORD_FILE": str(secret),
+        "PGDATABASE": "synthetic",
+    }
+    assert "restic_password_file_not_private" in backup_restic.prerequisites(storage, env, staging)
+    secret.chmod(0o600)
+    assert backup_restic.prerequisites(storage, env, staging) == []
+    saved_secret = storage / "password"
+    saved_secret.write_text("unit-test-only", encoding="utf-8")
+    saved_secret.chmod(0o600)
+    env["RESTIC_PASSWORD_FILE"] = str(saved_secret)
+    assert "restic_password_file_inside_source" in backup_restic.prerequisites(
+        storage, env, staging
+    )
+
+
+def test_relative_local_repositories_cannot_overlap_storage_or_private_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = tmp_path / "storage"
+    staging = tmp_path / "staging"
+    storage.mkdir()
+    staging.mkdir(mode=0o700)
+    staging.chmod(0o700)
+    secret = tmp_path / "password"
+    secret.write_text("unit-test-only", encoding="utf-8")
+    secret.chmod(0o600)
+    monkeypatch.setattr(backup_restic.shutil, "which", mock_binary)
+    env = {
+        "RESTIC_REPOSITORY": "local:" + str(staging / "restic-repository"),
+        "RESTIC_PASSWORD_FILE": str(secret),
+        "PGDATABASE": "synthetic",
+    }
+    assert "repository_overlaps_staging" in backup_restic.prerequisites(storage, env, staging)
+    env["RESTIC_REPOSITORY"] = str(storage / "restic-repository")
+    assert "repository_inside_source" in backup_restic.prerequisites(storage, env, staging)
+    env["RESTIC_REPOSITORY"] = str(tmp_path / "independent-repository")
+    assert backup_restic.prerequisites(storage, env, staging) == []
