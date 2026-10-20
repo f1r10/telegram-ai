@@ -1,6 +1,7 @@
 """Bounded XLSX preview and actor-bound atomic stock approval."""
 
 import asyncio
+from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 from typing import cast
@@ -39,7 +40,7 @@ def ledger() -> SimpleNamespace:
     return SimpleNamespace(
         record_batch=AsyncMock(
             return_value=(
-                StockEntry("KA45", "Əsas", "OPENING", 2, 2, "OPEN-01"),
+                StockEntry("KA45", "Əsas", "OPENING", Decimal("2"), Decimal("2"), "OPEN-01"),
             )
         )
     )
