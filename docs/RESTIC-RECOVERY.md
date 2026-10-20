@@ -15,6 +15,11 @@ This tool submits the dump and storage in one Restic backup invocation.
 2. Set RESTIC_REPOSITORY, RESTIC_PASSWORD_FILE, PGDATABASE and the appropriate
    PGHOST, PGPORT, PGUSER, and PG passfile in the operator environment, not Git.
    No passwords may be placed on a command line or in CI logs.
+   The password file must be an operator-owned, non-symlinked, private file
+   (e.g. mode 0600), kept OUTSIDE the backed-up storage tree. Local
+   Restic repositories (absolute, relative, or `local:`) must not overlap
+   the private staging or source storage directories.
+
 3. Find the actual mounted original file-storage directory on the host. The
    operator needs read permissions for all blobs and image assets. Prepare a
    SEPARATE, operator-owned, private staging directory on an encrypted trusted
