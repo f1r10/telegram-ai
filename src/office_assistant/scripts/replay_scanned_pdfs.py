@@ -29,7 +29,7 @@ from office_assistant.infrastructure.database.models import (
     OcrReplayJob,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
-from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.processing.ocr_replay import verified_raw_pdf
 from office_assistant.scripts.repair_legacy_index import searchable_chunks
@@ -126,7 +126,7 @@ def safe_artifacts(
         return (
             searchable_chunks(derived, file_id=file_object.id, run_id=run.id, config=chunking) == 0
         )
-    except (OSError, ValueError, UnicodeError, TypeError):
+    except (OSError, StorageError, ValueError, UnicodeError, TypeError):
         return False
 
 
