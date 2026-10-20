@@ -47,9 +47,11 @@ class RepairSummary:
 def searchable_chunks(path: Path, *, file_id: int, run_id: int, config: ChunkingConfig) -> int:
     """Use the production chunker, not an approximate 'has blocks' check."""
 
-    if not path.is_file() or path.is_symlink() or not 0 < path.stat().st_size <= 32 * 1024 * 1024:
-        return 0
     try:
+        if path.is_symlink() or not path.is_file() or not (
+            0 < path.stat().st_size <= 32 * 1024 * 1024
+        ):
+            return 0
         return len(
             chunk_normalized_artifact(
                 path, source_file_id=file_id, parse_run_id=run_id, config=config
@@ -155,13 +157,12 @@ async def repair(settings: Settings, *, apply: bool, limit: int = 100) -> Repair
                 ):
                     skipped += 1
                     continue
-                job = await session.scalar(
-                    select(KnowledgeIndexJob)
-                    .where(KnowledgeIndexJob.ingestion_job_id == run.ingestion_job_id)
-                    .with_for_update() if apply else select(KnowledgeIndexJob).where(
-                        KnowledgeIndexJob.ingestion_job_id == run.ingestion_job_id
-                    )
+                job_query = select(KnowledgeIndexJob).where(
+                    KnowledgeIndexJob.ingestion_job_id == run.ingestion_job_id
                 )
+                if apply:
+                    job_query = job_query.with_for_update()
+                job = await session.scalar(job_query)
                 if job is not None and job.status == KnowledgeIndexJobStatus.RUNNING:
                     skipped += 1
                     continue
