@@ -1,5 +1,13 @@
 # Office Assistant
 
+**Windows/WSL2 staging alongside an existing qoder stack:** Use the separately
+namespaced `docker-compose.staging.yml`, never the default legacy
+`docker-compose.yml`. The two manifests have different container, network,
+volume and localhost port identities. Run the read-only
+`bash scripts/preflight_isolated_staging.sh` first. See
+[isolated WSL2 staging setup](docs/WSL2-STAGING-SETUP.md). Existing company
+volumes must not be removed, recreated or repurposed.
+
 **Fast delivery / staging:** The opt-in `miniapp` Docker Compose profile now
 launches the signed Telegram Web App separately from the bot, exposing only
 a host-loopback port for an operator-provisioned HTTPS reverse proxy. It is

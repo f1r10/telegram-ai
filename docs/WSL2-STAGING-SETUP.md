@@ -29,9 +29,23 @@ If `telegram-ai-staging` already exists, do **not** overwrite it with `git clone
 
 Preflight is deliberately read-only: checks for WSL2, Docker CLI/engine, Docker Compose V2, a Linux-native directory, private `.env` existence and unsafe write flags, space, **fixed** `qoder_*` container and volume name collisions. Share only its `PASS/WARN/FAIL/RESULT` text, not credentials or private `.env`. A clean preflight does not imply the Telegram bot, AI API, OCR, Qdrant or Mini App was tested.
 
-### Collision warning
+### Confirmed legacy installation: separate staging manifest REQUIRED
 
-The current `docker-compose.yml` uses fixed names (`qoder_app`, `qoder_postgres`, etc.), fixed Docker volumes (`qoder_postgres_data`, etc.), and host-only ports **5435** (PostgreSQL), **6335** (Qdrant), **18085** (SearXNG), and **18791** (opt-in Mini App). Some of these were chosen to coexist with an earlier instance. **If a preflight warning says an existing `qoder_*` container or volume was found, STOP.** Check whether it contains company data or an earlier stack. Do not run `up`, `down -v`, `prune` or remove a volume to resolve the collision. Resolve separation of stack names/volumes and backup ownership before launch.
+A legacy deployment may already have a `qoder_ai_assistand` project with `qoder_postgres`, `qoder_qdrant`, `qoder_searxng`, `qoder_worker` and named `qoder_*` volumes. Treat every such container and persistent volume as potentially production-owned or containing valuable company data, regardless of whether the service is healthy or restart-looping. Other Docker projects may also be present. **None may be stopped, replaced or removed during staging startup.**
+
+**Never invoke bare `docker compose up` in the new checkout**: the default `docker-compose.yml` uses the same fixed names and volumes as the legacy stack. Instead use **only** `docker-compose.staging.yml` with the exact `-f` argument shown below. This is a standalone Compose manifest, not an overlay on top of the legacy one, and keeps `tgstage_*` names, `tgstage_net` and `tgstage_*` volumes separated from all `qoder_*` resources.
+
+Its published listeners are local-only: staging PostgreSQL **55435**, Qdrant **16335**, SearXNG **18095**, opt-in Mini App **18793**. Container-side service ports remain unchanged. After pulling the dedicated manifest, run the **read-only** staging preflight:
+
+```bash
+cd ~/telegram-ai-staging
+git pull --ff-only origin main
+bash scripts/preflight_isolated_staging.sh
+```
+
+Expected: `RESULT STAGING_PRECHECK_OK`, with a warning about missing `.env` until that private file is configured. **Do not proceed** on a `STAGING_BLOCKED` result, an existing `tgstage_*` container/volume, or an occupied staging port. Diagnose the owner of that resource rather than deleting, pruning or overriding it. The earlier general preflight intentionally warns about existing legacy `qoder_*` resources, but those old resources are no longer the target of this separate manifest.
+
+Before any `up`, inspect `docker compose -f docker-compose.staging.yml --env-file .env config` privately and confirm the project name. Never allow `.env` from the old repo to be copied into this staging checkout.
 
 ## C. Prepare a PRIVATE staging environment — only after collision check
 
@@ -57,49 +71,49 @@ STRUCTURED_EXTRACTION_ENABLED=false
 
 The last setting simply postpones billable AI extraction during infrastructure smoke. Later restore it to `true` with an authorized test API key and a representative private corpus. Verify `OPENAI_DEFAULT_MODEL` using the account's model availability and the explicit diagnostic. No real source documents are required for initial startup.
 
-The Compose file injects `POSTGRES_HOST=postgres` and `QDRANT_URL=http://qdrant:6333` inside containers; the local `.env.example` uses `localhost` for host tools. Do not change these container endpoints blindly.
+The isolated staging Compose file injects `POSTGRES_HOST=postgres` and `QDRANT_URL=http://qdrant:6333` inside containers; the local `.env.example` uses `localhost` for host tools. Do not change these container endpoints blindly.
 
 ## D. Isolated infrastructure smoke
 
-Only if the preflight has no blocking conditions or ownership questions and the local `.env` was reviewed:
+Only after `STAGING_PRECHECK_OK` (no staging-resource collisions) and private staging `.env` validation, execute against the isolated manifest only:
 
 ```bash
-docker compose --env-file .env config --quiet
-docker compose --env-file .env up -d postgres qdrant searxng
-docker compose --env-file .env build app
-docker compose --env-file .env run --rm app uv run --no-dev alembic upgrade head
-docker compose --env-file .env up -d app worker
-docker compose --env-file .env ps
-docker compose --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_readiness
+docker compose -f docker-compose.staging.yml --env-file .env config --quiet
+docker compose -f docker-compose.staging.yml --env-file .env up -d postgres qdrant searxng
+docker compose -f docker-compose.staging.yml --env-file .env build app
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev alembic upgrade head
+docker compose -f docker-compose.staging.yml --env-file .env up -d app worker
+docker compose -f docker-compose.staging.yml --env-file .env ps
+docker compose -f docker-compose.staging.yml --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_readiness
 ```
 
-**Database migrations affect the selected staging DB**; never run against a production or unidentified PostgreSQL volume. If the readiness output is `NOT_READY` or `DEGRADED`, investigate rather than claiming acceptance. Check logs privately with `docker compose logs --tail=100 app worker`; log text may contain business data. Never paste entire logs with tokens/user content into the conversation.
+**Database migrations affect the selected staging DB**; never run against a production or unidentified PostgreSQL volume. If the readiness output is `NOT_READY` or `DEGRADED`, investigate rather than claiming acceptance. Check logs privately with `docker compose -f docker-compose.staging.yml logs --tail=100 app worker`; log text may contain business data. Never paste entire logs with tokens/user content into the conversation.
 
 Stopping containers without deleting persistent volumes (only after confirming this is your staging stack):
 
 ```bash
-docker compose --env-file .env stop app worker
+docker compose -f docker-compose.staging.yml --env-file .env stop app worker
 ```
 
-**Never** use `docker compose down -v`, `docker volume prune`, or reset a company database as a troubleshooting shortcut. The old `docs/V2-MANUAL-UAT.md` mentions `docker-compose.local.yml`, which is not in this repository; this procedure uses the actual existing `docker-compose.yml`.
+**Never** use `docker compose down -v`, `docker volume prune`, or reset a company database as a troubleshooting shortcut. The old `docs/V2-MANUAL-UAT.md` mentions `docker-compose.local.yml`, which is not in this repository; this procedure uses the dedicated `docker-compose.staging.yml`, never the legacy `docker-compose.yml`.
 
 ## E. Enable the test Telegram bot, and then the Mini App separately
 
 After an approved infrastructure health check and test-only credentials, set `TELEGRAM_POLLING_ENABLED=true`, recreate **only the staging app** and verify a single active poller:
 
 ```bash
-docker compose --env-file .env up -d --no-deps --force-recreate app
+docker compose -f docker-compose.staging.yml --env-file .env up -d --no-deps --force-recreate app
 ```
 
 Use `/start` and `/menu` with **two dedicated test Telegram accounts**. Proceed with synthetic TXT/PDF/DOCX/XLSX, source downloads, rejection of unknown stock and explicit /saxla. Run the OpenAI diagnostic on the staging app before declaring chat healthy:
 
 ```bash
-docker compose --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_openai
+docker compose -f docker-compose.staging.yml --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_openai
 ```
 
 This makes small billable API requests if an OpenAI key is configured. Do not trigger it without approval.
 
-The Telegram **Mini App requires a real HTTPS public origin**, a test bot, an operator-owned TLS reverse proxy to `127.0.0.1:18791` and valid Telegram-signed `initData`; plain `localhost` is not a real-phone HTTPS acceptance URL. It remains OFF during basic bot smoke. Once HTTPS is verified and approved, refer to `docs/DELIVERY-RUNBOOK-2026-10-21.md` to enable the explicit `miniapp` Compose profile and run the local-only `smoke_miniapp` script. All stock-write flags remain OFF until explicit separate signoff.
+The Telegram **Mini App requires a real HTTPS public origin**, a test bot, an operator-owned TLS reverse proxy to `127.0.0.1:18793` (staging host port; container port 18791) and valid Telegram-signed `initData`; plain `localhost` is not a real-phone HTTPS acceptance URL. It remains OFF during basic bot smoke. Once HTTPS is verified and approved, refer to `docs/DELIVERY-RUNBOOK-2026-10-21.md` to enable the explicit `miniapp` Compose profile and run the local-only `smoke_miniapp` script. All stock-write flags remain OFF until explicit separate signoff.
 
 ## F. Evidence required for customer handoff
 
