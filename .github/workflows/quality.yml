@@ -34,6 +34,8 @@ jobs:
           trap 'rm -f .env' EXIT
           docker compose config --format json > /tmp/office-compose-default.json
           docker compose --profile miniapp config --format json > /tmp/office-compose-opt-in.json
+          docker compose -f docker-compose.staging.yml config --format json > /tmp/office-compose-staging.json
+          docker compose -f docker-compose.staging.yml --profile miniapp config --format json > /tmp/office-compose-staging-miniapp.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -52,6 +54,38 @@ jobs:
               not port.get("host_ip", "").startswith("0.0.0.0")
               for port in service["ports"]
           )
+          isolated = json.loads(Path("/tmp/office-compose-staging.json").read_text())
+          isolated_with_miniapp = json.loads(
+              Path("/tmp/office-compose-staging-miniapp.json").read_text()
+          )
+          assert isolated["name"] != baseline["name"], "Staging must be a separate Compose project"
+          assert "miniapp" not in isolated["services"], "Staging Mini App must be opt-in"
+          assert isolated_with_miniapp["services"]["miniapp"]["profiles"] == ["miniapp"]
+          assert isolated_with_miniapp["services"]["miniapp"]["environment"]["MINIAPP_ENABLED"] == "false"
+          assert isolated_with_miniapp["services"]["miniapp"]["environment"]["MINIAPP_STOCK_ACTIONS_ENABLED"] == "false"
+          assert isolated_with_miniapp["services"]["miniapp"]["environment"]["MINIAPP_STOCK_TRANSFER_ENABLED"] == "false"
+          assert isolated_with_miniapp["services"]["miniapp"]["environment"]["MINIAPP_STOCK_XLSX_ENABLED"] == "false"
+          for component in ("services", "volumes", "networks"):
+              old_values = baseline[component]
+              new_values = isolated[component]
+              for key in old_values.keys() & new_values.keys():
+                  if component == "services":
+                      old_name = old_values[key].get("container_name")
+                      new_name = new_values[key].get("container_name")
+                  else:
+                      old_name = old_values[key].get("name")
+                      new_name = new_values[key].get("name")
+                  assert old_name != new_name, (component, key, "legacy collision")
+          def published_ports(config):
+              return {
+                  (entry.get("host_ip"), int(entry["published"]))
+                  for service in config["services"].values()
+                  for entry in service.get("ports", [])
+              }
+          assert published_ports(staged).isdisjoint(
+              published_ports(isolated_with_miniapp)
+          ), "Staging host ports must not collide with legacy Docker project"
+          assert all(host == "127.0.0.1" for host, _ in published_ports(isolated_with_miniapp))
           PY
       - name: Run offline unit tests
         run: uv run --no-sync pytest -m "not integration"
