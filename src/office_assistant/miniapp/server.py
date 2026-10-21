@@ -171,8 +171,13 @@ def main() -> None:
             public_origin=settings.miniapp_public_origin,
             backend=backend,
             loop=loop,
+            bind_host="0.0.0.0" if settings.miniapp_container_bind else "127.0.0.1",
         ) as server:
-            logger.info("Mini App listening only on 127.0.0.1:%s", settings.miniapp_local_port)
+            logger.info(
+                "Mini App bound to %s:%s",
+                "container network" if settings.miniapp_container_bind else "host loopback",
+                settings.miniapp_local_port,
+            )
             server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         logger.info("Mini App shutdown requested")
