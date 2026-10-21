@@ -65,6 +65,7 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
         public_origin: str,
         backend: MiniAppBackend,
         loop: asyncio.AbstractEventLoop,
+        bind_host: str = "127.0.0.1",
     ) -> None:
         origin = urlsplit(public_origin)
         if (
@@ -78,12 +79,14 @@ class MiniAppHTTPServer(ThreadingHTTPServer):
         ):
             raise ValueError("Mini App requires a canonical HTTPS public origin")
         if port != 0 and (port < 1024 or port > 65535):
-            raise ValueError("Choose an unprivileged loopback listen port")
+            raise ValueError("Choose an unprivileged listen port")
+        if bind_host not in {"127.0.0.1", "0.0.0.0"}:
+            raise ValueError("Mini App must bind to an approved IPv4 address")
         self.public_origin = public_origin.rstrip("/")
         self.backend = backend
         self.loop = loop
         self.limiter = threading.BoundedSemaphore(16)
-        super().__init__(("127.0.0.1", port), MiniAppHandler)
+        super().__init__((bind_host, port), MiniAppHandler)
 
     def process_request(self, request: object, client_address: tuple[str, int]) -> None:
         if not self.limiter.acquire(blocking=False):
