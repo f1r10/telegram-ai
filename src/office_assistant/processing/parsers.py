@@ -582,12 +582,12 @@ class XlsxParser:
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         workbook = load_workbook(path, data_only=False)
         blocks: list[ContentBlock] = []
+        warnings: list[str] = []
         try:
             for sheet in workbook.worksheets:
-                self._parse_sheet(sheet, blocks)
+                self._parse_sheet(sheet, blocks, warnings)
         finally:
             workbook.close()
-        warnings: list[str] = []
         collected = _ExtractedImages(warnings)
         self._collect_images(path, collected)
         return ParsedDocument(
@@ -681,23 +681,41 @@ class XlsxParser:
         return sheets
 
     @staticmethod
-    def _parse_sheet(sheet: Worksheet, blocks: list[ContentBlock]) -> None:
+    def _parse_sheet(
+        sheet: Worksheet, blocks: list[ContentBlock], warnings: list[str]
+    ) -> None:
+        unlabeled_numeric_columns: set[str] = set()
         for row in sheet.iter_rows():
             non_empty = [cell for cell in row if cell.value is not None]
             if not non_empty:
                 continue
-            values = [cell.value for cell in non_empty]
-            formulas = [cell.data_type == TYPE_FORMULA for cell in non_empty]
-            start = non_empty[0].coordinate
-            end = non_empty[-1].coordinate
+            # Keep physical column positions, including empty cells between populated
+            # cells. Dropping them can silently attach an amount to the wrong field.
+            cells = row[non_empty[0].column - 1 : non_empty[-1].column]
+            values = [cell.value for cell in cells]
+            formulas = [cell.data_type == TYPE_FORMULA for cell in cells]
+            columns = [cell.column_letter for cell in cells]
+            for cell in non_empty:
+                if cell.row <= 1 or isinstance(cell.value, bool) or not isinstance(
+                    cell.value, (int, float)
+                ):
+                    continue
+                heading = sheet.cell(row=1, column=cell.column).value
+                if heading is None or not str(heading).strip():
+                    unlabeled_numeric_columns.add(cell.column_letter)
             blocks.append(
                 ContentBlock(
                     len(blocks) + 1,
                     "table_row",
-                    " | ".join(str(value) for value in values),
-                    {"sheet": sheet.title, "range": f"{start}:{end}"},
-                    {"values": values, "formulas": formulas},
+                    " | ".join("" if value is None else str(value) for value in values),
+                    {"sheet": sheet.title, "range": f"{cells[0].coordinate}:{cells[-1].coordinate}"},
+                    {"values": values, "formulas": formulas, "columns": columns},
                 )
+            )
+        for column in sorted(unlabeled_numeric_columns):
+            warnings.append(
+                f"Sheet {sheet.title}: column {column} contains numbers but its first-row "
+                "heading is blank; values need explicit business interpretation"
             )
 
 
