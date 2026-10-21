@@ -445,6 +445,7 @@ def test_one_logo_in_fifty_places_is_fifty_locators_and_one_copy_of_bytes() -> N
 
 def test_one_changed_image_byte_is_new_content_not_an_exact_duplicate() -> None:
     """Appearance does not decide byte identity or overwrite a distinct asset."""
+
     async def behavior(
         factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
     ) -> None:
