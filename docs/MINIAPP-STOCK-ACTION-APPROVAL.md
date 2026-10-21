@@ -6,6 +6,9 @@ for production deployment without isolated staging restore and owner signoff.
 
 An ACTIVE current database administrator can propose:
 `RESERVE`, `RETURN`, `DAMAGE`, `WRITE_OFF`, or signed `CORRECTION`.
+The same opt-in screen now offers `RESERVATION_CANCEL` and
+`RESERVATION_CONSUME` for **existing ACTIVE reservations**, using only
+the exact product code and original reservation document reference.
 All variants use the dedicated `/api/stock/action/preview`,
 `/api/stock/action/confirm`, and `/api/stock/action/cancel` routes.
 
