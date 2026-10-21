@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     telegram_polling_enabled: bool = False
     # Independent loopback HTTP service; disabled until operator-provisioned HTTPS TLS.
     miniapp_enabled: bool = False
+    # Only Docker Compose uses this to publish through a host-loopback port.
+    miniapp_container_bind: bool = False
     # Irreversible stock actions require a separate operator opt-in after staging/UAT.
     miniapp_stock_transfer_enabled: bool = False
     miniapp_stock_actions_enabled: bool = False
