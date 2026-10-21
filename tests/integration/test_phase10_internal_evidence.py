@@ -339,9 +339,7 @@ def test_real_postgres_qdrant_hybrid_conflict_and_secure_file_follow_up(
             )
             assert pinned.file_id == document_file_id
             with pytest.raises(FileDeliveryError):
-                await delivery.resolve_recent(
-                    ACTOR_TELEGRAM_ID, 2, expected_file_id=price_file_id
-                )
+                await delivery.resolve_recent(ACTOR_TELEGRAM_ID, 2, expected_file_id=price_file_id)
             with pytest.raises(FileDeliveryError):
                 await delivery.resolve_recent(
                     OTHER_TELEGRAM_ID, 2, expected_file_id=document_file_id
