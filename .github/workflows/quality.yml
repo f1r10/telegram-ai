@@ -23,6 +23,36 @@ jobs:
           enable-cache: true
       - name: Install locked dependencies
         run: uv sync --locked --dev
+      - name: Validate opt-in Docker Compose Mini App network isolation
+        env:
+          POSTGRES_DB: synthetic_test
+          POSTGRES_USER: synthetic_test
+          POSTGRES_PASSWORD: synthetic-placeholder-never-live
+          MINIAPP_ENABLED: "false"
+        run: |
+          touch .env
+          trap 'rm -f .env' EXIT
+          docker compose config --format json > /tmp/office-compose-default.json
+          docker compose --profile miniapp config --format json > /tmp/office-compose-opt-in.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          baseline = json.loads(Path("/tmp/office-compose-default.json").read_text())
+          staged = json.loads(Path("/tmp/office-compose-opt-in.json").read_text())
+          assert "miniapp" not in baseline["services"], "Mini App must be profile-gated"
+          service = staged["services"]["miniapp"]
+          assert service["profiles"] == ["miniapp"]
+          assert service["environment"]["MINIAPP_CONTAINER_BIND"] == "true"
+          assert service["environment"]["MINIAPP_ENABLED"] == "false"
+          assert service["command"][-1] == "office_assistant.miniapp.server"
+          assert len(service["ports"]) == 1
+          assert service["ports"][0]["host_ip"] == "127.0.0.1"
+          assert str(service["ports"][0]["target"]) == "18791"
+          assert all(
+              not port.get("host_ip", "").startswith("0.0.0.0")
+              for port in service["ports"]
+          )
+          PY
       - name: Run offline unit tests
         run: uv run --no-sync pytest -m "not integration"
       - name: Run Ruff lint
