@@ -49,7 +49,8 @@ The browser UI only displays values from the signed response with
 client have bounded payloads, invalid-input errors and no automatic
 posting from file ingestion.
 
-Remaining acceptance: disposable PostgreSQL complete workflow with
-real Telegram mobile UI, private test photos, staged restore, owner policy
-for reservation expiration, approval UI for reservation cancellation/
-consumption, and XSLX journal review.
+Remaining acceptance: full WSL staging restoration, real Telegram mobile
+confirmation of both reservation-finalization actions and two simultaneous
+administrators, owner policy for reservation expiration, and separate
+operational signoff for optional stock XLSX imports. Unit and disposable
+PostgreSQL regressions cannot replace this live acceptance.
