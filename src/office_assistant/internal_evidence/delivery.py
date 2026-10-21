@@ -61,43 +61,78 @@ class SourceFileDeliveryService:
         self.max_bytes = max_bytes
 
     async def resolve_recent(
-        self, actor_telegram_user_id: int, citation_index: int | None
+        self,
+        actor_telegram_user_id: int,
+        citation_index: int | None,
+        *,
+        expected_file_id: int | None = None,
     ) -> DeliverableFile:
+        """Return an ACTIVE original, optionally pinned to a server-issued source ticket.
+
+        Telegram's unpinned source command intentionally resolves the most recent
+        answer. A Mini App button pins both citation number and file ID: a newer
+        Telegram or Mini App answer must not silently retarget that button.
+        """
+        now = datetime.now(UTC)
         async with self.session_factory() as session:
             actor = await session.scalar(
                 select(User).where(User.telegram_user_id == actor_telegram_user_id)
             )
             if actor is None or actor.status != UserStatus.ACTIVE:
                 raise AuthorizationDenied("File delivery requires an ACTIVE actor")
-            latest_message_id = await session.scalar(
-                select(AIMessageSource.message_id)
-                .join(AIMessage, AIMessage.id == AIMessageSource.message_id)
-                .join(AIConversation, AIConversation.id == AIMessage.conversation_id)
-                .where(
-                    AIConversation.user_id == actor.id,
-                    AIConversation.mode.in_(("internal", "combined")),
-                    AIMessageSource.expires_at > datetime.now(UTC),
+            if expected_file_id is not None:
+                if expected_file_id <= 0 or citation_index is None:
+                    raise FileDeliveryError("Invalid pinned source citation")
+                # The ticket is application-issued and actor-bound, but recheck its
+                # evidence lineage in PostgreSQL on every download. Do not trust
+                # either a prior authorization or a now-revoked original file.
+                pinned_id = await session.scalar(
+                    select(AIMessageSource.file_id)
+                    .join(AIMessage, AIMessage.id == AIMessageSource.message_id)
+                    .join(AIConversation, AIConversation.id == AIMessage.conversation_id)
+                    .where(
+                        AIConversation.user_id == actor.id,
+                        AIConversation.mode.in_(("internal", "combined")),
+                        AIMessage.role == "assistant",
+                        AIMessageSource.expires_at > now,
+                        AIMessageSource.file_id == expected_file_id,
+                        AIMessageSource.citation_index == citation_index,
+                    )
+                    .limit(1)
+                )
+                if pinned_id != expected_file_id:
+                    raise FileDeliveryError("Pinned source is expired or is not owned by this user")
+                file_id = expected_file_id
+            else:
+                latest_message_id = await session.scalar(
+                    select(AIMessageSource.message_id)
+                    .join(AIMessage, AIMessage.id == AIMessageSource.message_id)
+                    .join(AIConversation, AIConversation.id == AIMessage.conversation_id)
+                    .where(
+                        AIConversation.user_id == actor.id,
+                        AIConversation.mode.in_(("internal", "combined")),
+                        AIMessageSource.expires_at > now,
+                        AIMessageSource.file_id.is_not(None),
+                    )
+                    .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
+                    .limit(1)
+                )
+                if latest_message_id is None:
+                    raise FileDeliveryError("No recent deliverable source exists")
+                statement = select(AIMessageSource).where(
+                    AIMessageSource.message_id == latest_message_id,
+                    AIMessageSource.expires_at > now,
                     AIMessageSource.file_id.is_not(None),
                 )
-                .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
-                .limit(1)
-            )
-            if latest_message_id is None:
-                raise FileDeliveryError("No recent deliverable source exists")
-            statement = select(AIMessageSource).where(
-                AIMessageSource.message_id == latest_message_id,
-                AIMessageSource.expires_at > datetime.now(UTC),
-                AIMessageSource.file_id.is_not(None),
-            )
-            if citation_index is not None:
-                statement = statement.where(AIMessageSource.citation_index == citation_index)
-            rows = list((await session.execute(statement)).scalars().all())
-            unique = {row.file_id: row for row in rows if row.file_id is not None}
-            if not unique:
-                raise FileDeliveryError("Requested source has no original file")
-            if len(unique) != 1:
-                raise FileDeliveryAmbiguous("Several recent files match; specify source number")
-            file_id = next(iter(unique))
+                if citation_index is not None:
+                    statement = statement.where(AIMessageSource.citation_index == citation_index)
+                rows = list((await session.execute(statement)).scalars().all())
+                unique = {row.file_id: row for row in rows if row.file_id is not None}
+                if not unique:
+                    raise FileDeliveryError("Requested source has no original file")
+                if len(unique) != 1:
+                    raise FileDeliveryAmbiguous("Several recent files match; specify source number")
+                file_id = next(iter(unique))
             file = await session.get(FileObject, file_id)
             if file is None or file.state != FileObjectState.ACTIVE:
                 raise FileDeliveryError("Original file is not active")
