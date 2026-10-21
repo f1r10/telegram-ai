@@ -220,9 +220,12 @@ def test_existing_reservation_consume_confirm_is_single_use_and_actor_bound() ->
         assert completed[0]["kind"] == "RESERVATION_CONSUME"
         assert completed[0]["on_hand"] == "7"
         assert completed[0]["reserved"] == "0"
-        ledger.reservation_action.assert_awaited_once_with(
-            actor(), product_code="KA45", reference="RES-01", action="CONSUME"
-        )
+        assert ledger.reservation_action.await_args.kwargs == {
+            "product_code": "KA45",
+            "reference": "RES-01",
+            "action": "CONSUME",
+        }
+        assert ledger.reservation_action.await_count == 1
 
     asyncio.run(scenario())
 
@@ -240,8 +243,11 @@ def test_finalization_cancel_discards_ticket_without_stock_writes() -> None:
         preview = await review.preview(actor(), **finalization_fields("RESERVATION_CANCEL"))
         result = await review.confirm(actor(), token=str(preview["token"]))
         assert result["kind"] == "RESERVATION_CANCEL"
-        ledger.reservation_action.assert_awaited_once_with(
-            actor(), product_code="KA45", reference="RES-01", action="CANCEL"
-        )
+        assert ledger.reservation_action.await_args.kwargs == {
+            "product_code": "KA45",
+            "reference": "RES-01",
+            "action": "CANCEL",
+        }
+        assert ledger.reservation_action.await_count == 1
 
     asyncio.run(scenario())
