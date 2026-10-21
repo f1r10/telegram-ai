@@ -243,7 +243,9 @@ class MiniAppBackend:
         if not self.rate_guard.allow(actor.id):
             raise MiniAppRateLimited("Too many requests")
         original = await self.file_delivery.resolve_recent(
-            actor.telegram_user_id, ticket.citation_number
+            actor.telegram_user_id,
+            ticket.citation_number,
+            expected_file_id=ticket.file_id,
         )
         if original.file_id != ticket.file_id:
             raise FileDeliveryError("Original citation has been superseded")
