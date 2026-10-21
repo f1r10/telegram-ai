@@ -118,9 +118,21 @@ class IngestionSessionService:
                     file_object.byte_size = byte_size
                     file_object.state = FileObjectState.STAGED
                     file_object.activated_at = None
-                else:
+                elif file_object.state in {FileObjectState.STAGED, FileObjectState.ACTIVE}:
+                    # Reuse exact original bytes, not merely a database hash. If an
+                    # earlier blob was lost or altered, fail closed rather than
+                    # claiming a byte-identical duplicate and citing corrupt data.
+                    previous = self.storage.path_for_key(file_object.storage_key)
+                    if (
+                        file_object.byte_size != byte_size
+                        or not previous.is_file()
+                        or self._hash(previous) != (sha256, byte_size)
+                    ):
+                        raise StorageError("Previously stored file failed content integrity check")
                     self.storage.delete(metadata.staging_key)
                     moved_staging = False
+                else:
+                    raise InvalidStateTransition("File content cannot be reused in this state")
 
                 sequence_no = await self._next_sequence(session, ingestion_session.id)
                 session.add(
