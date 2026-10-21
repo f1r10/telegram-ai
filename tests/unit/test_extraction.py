@@ -1,4 +1,7 @@
+import asyncio
 import re
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +11,8 @@ from office_assistant.extraction.benchmark import (
     CandidateObservation,
     score_extraction,
 )
+from office_assistant.application.errors import DomainConflict
+from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.extraction.schemas import StructuredExtractionResult
 from office_assistant.extraction.service import (
     EXTRACTION_POLICY,
@@ -15,6 +20,7 @@ from office_assistant.extraction.service import (
     validate_candidate_payload,
 )
 from office_assistant.extraction.sources import ExtractionSource, build_batches
+from office_assistant.infrastructure.database.models import StructuredExtractionCandidate
 
 
 def test_structured_schema_rejects_unknown_candidate_type_and_keys() -> None:
@@ -99,6 +105,22 @@ def test_only_explicit_selling_price_role_passes_business_role_gate() -> None:
     ) == []
     assert "price_role" in EXTRACTION_POLICY
     assert "unlabeled spreadsheet" in EXTRACTION_POLICY
+
+
+def test_old_persisted_price_without_role_cannot_be_applied_after_review() -> None:
+    """Older VALIDATED rows must not bypass the new commercial role boundary."""
+    review = ExtractionReviewService(cast(Any, None), cast(Any, None))
+    for value in (None, "UNKNOWN", "COST_PRICE", "QUOTE_PRICE"):
+        candidate = cast(
+            StructuredExtractionCandidate,
+            SimpleNamespace(
+                candidate_type="PRICE",
+                payload={"product_ref": "P1", "price_role": value},
+                source_refs=["S1"],
+            ),
+        )
+        with pytest.raises(DomainConflict, match="Price role"):
+            asyncio.run(review._apply_one(123, candidate, [], {}))  # pyright: ignore[reportPrivateUsage]
 
 
 def test_three_hundred_rows_are_bounded_and_compact() -> None:
