@@ -23,6 +23,7 @@ from office_assistant.miniapp.backend import (
 )
 from office_assistant.miniapp.http import MiniAppHTTPServer
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
+from office_assistant.scripts.smoke_miniapp import probe
 
 
 class DummyBackend:
@@ -287,6 +288,27 @@ def test_network_binding_is_explicit_and_loopback_by_default() -> None:
             assert container.server_address[0] == "0.0.0.0"
     finally:
         loop.close()
+
+
+def test_localhost_staging_smoke_verifies_assets_and_unsigned_denial() -> None:
+    with serve() as (port, backend):
+        passed, checks = asyncio.run(probe(port))
+        assert passed
+        assert [item.name for item in checks] == [
+            "static_html",
+            "static_js",
+            "static_css",
+            "unsigned_profile_denied",
+            "unsigned_stock_write_denied",
+        ]
+        assert all(item.passed for item in checks)
+        assert backend.calls == []
+
+
+def test_localhost_staging_smoke_fails_closed_when_service_is_absent() -> None:
+    # Invalid ports must not redirect the probe to an arbitrary public service.
+    with pytest.raises(ValueError, match="unprivileged localhost"):
+        asyncio.run(probe(80))
 
 
 def call(
