@@ -12,7 +12,6 @@ from typing import Any, cast
 
 from office_assistant.processing.parsers import PdfParser
 
-
 _MAX_PDF_BYTES = 25 * 1024 * 1024
 _MAX_EXTRACTED_CHARS = 8 * 1024 * 1024
 
