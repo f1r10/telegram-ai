@@ -681,9 +681,7 @@ class XlsxParser:
         return sheets
 
     @staticmethod
-    def _parse_sheet(
-        sheet: Worksheet, blocks: list[ContentBlock], warnings: list[str]
-    ) -> None:
+    def _parse_sheet(sheet: Worksheet, blocks: list[ContentBlock], warnings: list[str]) -> None:
         unlabeled_numeric_columns: set[str] = set()
         for row in sheet.iter_rows():
             non_empty = [cell for cell in row if cell.value is not None]
@@ -696,8 +694,10 @@ class XlsxParser:
             formulas = [cell.data_type == TYPE_FORMULA for cell in cells]
             columns = [get_column_letter(cell.column) for cell in cells]
             for cell in non_empty:
-                if cell.row <= 1 or isinstance(cell.value, bool) or not isinstance(
-                    cell.value, (int, float)
+                if (
+                    cell.row <= 1
+                    or isinstance(cell.value, bool)
+                    or not isinstance(cell.value, (int, float))
                 ):
                     continue
                 heading = sheet.cell(row=1, column=cell.column).value
