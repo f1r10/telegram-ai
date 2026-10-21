@@ -101,6 +101,29 @@ def test_explicit_confirmation_reuses_ingestion_and_fences_reviewed_session(tmp_
         asyncio.run(workflow.confirm(actor, token))
 
 
+def test_exact_duplicate_receipt_reports_no_new_original_copy(tmp_path: Path) -> None:
+    workflow, storage, ingestion, actor = setup(tmp_path)
+    path, key = write_staged(storage)
+    ingestion.add_file.return_value = UploadResult(
+        SessionSummary(session_id=18, file_count=1, instruction_count=0, duplicate_count=1),
+        duplicate=True,
+    )
+    preview = asyncio.run(
+        workflow.register(
+            actor,
+            key=key,
+            filename="renamed.pdf",
+            mime="application/pdf",
+            size=path.stat().st_size,
+        )
+    )
+    result = asyncio.run(workflow.confirm(actor, cast(str, preview["token"])))
+    assert result["status"] == "queued"
+    assert result["duplicate"] is True
+    assert "yeni orijinal nüsxə saxlanılmadı" in str(result["notice"])
+    ingestion.commit.assert_awaited_once()
+
+
 def test_existing_bot_session_blocks_preview_and_commit(tmp_path: Path) -> None:
     workflow, storage, ingestion, actor = setup(tmp_path)
     ingestion.has_open_session.return_value = True
