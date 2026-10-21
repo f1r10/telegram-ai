@@ -93,16 +93,19 @@ def test_supplier_cost_and_ambiguous_price_never_autovalidate(role: str | None) 
 
 
 def test_only_explicit_selling_price_role_passes_business_role_gate() -> None:
-    assert validate_candidate_payload(
-        "PRICE",
-        {
-            "product_ref": "P1",
-            "amount": "130.00",
-            "currency": "AZN",
-            "price_kind": "GENERAL",
-            "price_role": "SELLING_PRICE",
-        },
-    ) == []
+    assert (
+        validate_candidate_payload(
+            "PRICE",
+            {
+                "product_ref": "P1",
+                "amount": "130.00",
+                "currency": "AZN",
+                "price_kind": "GENERAL",
+                "price_role": "SELLING_PRICE",
+            },
+        )
+        == []
+    )
     assert "price_role" in EXTRACTION_POLICY
     assert "unlabeled spreadsheet" in EXTRACTION_POLICY
 
