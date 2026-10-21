@@ -31,7 +31,7 @@ Preflight is deliberately read-only: checks for WSL2, Docker CLI/engine, Docker 
 
 ### Confirmed legacy installation: separate staging manifest REQUIRED
 
-On the owner's WSL2 machine, the existing project `qoder_ai_assistand` lives in `/home/firon/telegram-ai/docker-compose.yml`. The legacy `qoder_postgres`, `qoder_qdrant` and `qoder_searxng` containers are healthy. `qoder_worker` is restart-looping. Existing `qoder_*` volumes **contain potentially valuable data** and must remain untouched. Two other unrelated Docker projects are also present.
+A legacy deployment may already have a `qoder_ai_assistand` project with `qoder_postgres`, `qoder_qdrant`, `qoder_searxng`, `qoder_worker` and named `qoder_*` volumes. Treat every such container and persistent volume as potentially production-owned or containing valuable company data, regardless of whether the service is healthy or restart-looping. Other Docker projects may also be present. **None may be stopped, replaced or removed during staging startup.**
 
 **Never invoke bare `docker compose up` in the new checkout**: the default `docker-compose.yml` uses the same fixed names and volumes as the legacy stack. Instead use **only** `docker-compose.staging.yml` with the exact `-f` argument shown below. This is a standalone Compose manifest, not an overlay on top of the legacy one, and keeps `tgstage_*` names, `tgstage_net` and `tgstage_*` volumes separated from all `qoder_*` resources.
 
