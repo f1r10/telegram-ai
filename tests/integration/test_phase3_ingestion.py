@@ -208,9 +208,7 @@ def test_exact_raw_bytes_reuse_one_blob_but_one_byte_change_is_new() -> None:
                 items = list(
                     (
                         await session.scalars(
-                            select(IngestionSessionItem).order_by(
-                                IngestionSessionItem.sequence_no
-                            )
+                            select(IngestionSessionItem).order_by(IngestionSessionItem.sequence_no)
                         )
                     ).all()
                 )
@@ -219,7 +217,9 @@ def test_exact_raw_bytes_reuse_one_blob_but_one_byte_change_is_new() -> None:
                 assert items[0].file_object_id == items[1].file_object_id
                 assert items[0].file_object_id != items[2].file_object_id
                 assert [item.submitted_filename for item in items] == [
-                    "original.pdf", "renamed.pdf", "original.pdf"
+                    "original.pdf",
+                    "renamed.pdf",
+                    "original.pdf",
                 ]
                 stored_bytes = {
                     storage.path_for_key(item.storage_key).read_bytes() for item in objects
