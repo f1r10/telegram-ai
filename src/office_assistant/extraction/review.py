@@ -355,8 +355,13 @@ class ExtractionReviewService:
         source_map: dict[str, ExtractionSource],
     ) -> tuple[str, str, bool]:
         payload = candidate.payload
-        provenance = _provenance(candidate.source_refs, source_map)
         kind = candidate.candidate_type
+        # Defense in depth for older persisted candidates that were VALIDATED before
+        # commercial roles were introduced. A run-level approve is not an authority
+        # to reinterpret acquisition costs or supplier quotations as sales prices.
+        if kind == "PRICE" and payload.get("price_role") != "SELLING_PRICE":
+            raise DomainConflict("Price role requires explicit business clarification")
+        provenance = _provenance(candidate.source_refs, source_map)
         if kind == "PRODUCT":
             existing = await self.products.find_product_by_code(str(payload["product_code"]))
             if existing is not None:
