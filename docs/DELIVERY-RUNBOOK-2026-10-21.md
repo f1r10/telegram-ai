@@ -110,7 +110,10 @@ checks only and investigate `SMOKE_BLOCKED` before rollout.
   final status, not simply queued or HTTP 200.
 - Verify the Mini App with active and revoked Telegram accounts, signed
   initData, Android/iOS, dark mode, slow network, timeout, restart and
-  session-isolated source downloads.
+  session-isolated source downloads. In particular, open a cited original,
+  ask a newer question that reuses the same citation number for another
+  original, and confirm that the earlier button never returns the newer file.
+  An expired/revoked older source must fail closed, not switch documents.
 - Evaluate a private, owner-labeled real photo corpus: different angles,
   clutter, look-alike products, no-match and revoked references; report
   false identity rate, candidate recall and abstentions. Never turn on
