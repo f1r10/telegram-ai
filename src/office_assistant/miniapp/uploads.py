@@ -192,7 +192,11 @@ class MiniAppUploadWorkflow:
             "session_id": summary.session_id,
             "file_count": summary.file_count,
             "job_id": summary.job_id,
+            "duplicate": result.duplicate,
             "notice": (
-                "Fayl təsdiqləndi və emal növbəsinə verildi. Emal bitməsi hələ təsdiqlənməyib."
+                "Bu faylın eyni baytları bazada artıq var; yeni orijinal nüsxə saxlanılmadı. "
+                "Göndərilmə tarixçəsi qorundu və emal növbəsinə verildi."
+                if result.duplicate
+                else "Fayl təsdiqləndi və emal növbəsinə verildi. Emal bitməsi hələ təsdiqlənməyib."
             ),
         }

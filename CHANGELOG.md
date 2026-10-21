@@ -4,6 +4,22 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Intelligent intake contract and verified byte-identity reuse (2026-10-21)
+
+- Record owner-required selective AI clarification, supplier-scoped approved
+  document mappings, separate source-specific prices, genuine image-to-row
+  provenance, audited correction and exact-byte-only deduplication.
+  See `docs/SMART-INTAKE-CLARIFICATION-AND-DEDUP.md`; the complete AI
+  clarification / template-approval workflow remains an open implementation gate.
+- Check the stored original file's current bytes and length before reusing its
+  SHA-256 `FileObject` on an identical upload; missing or corrupt blobs fail
+  closed instead of being silently marked as the same content.
+- Distinguish duplicate content from a new submission in the signed Mini App
+  upload response. Add disposable PostgreSQL regression tests for identical
+  originals, one-byte-different originals, damaged existing originals and
+  content-addressed image variants. No private source data committed.
+
+
 ### Supplier spreadsheet ambiguity and blank-column safety (2026-10-21)
 
 - Preserve physical worksheet column positions in parsed table-row metadata even

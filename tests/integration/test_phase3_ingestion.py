@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from shutil import rmtree
 
 import pytest
 from sqlalchemy import delete, select, update
@@ -30,7 +31,7 @@ from office_assistant.infrastructure.database.models import (
     UserStatus,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
-from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.miniapp.progress import MiniAppDocumentProgress, UploadJobNotFound
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 
@@ -165,6 +166,102 @@ def test_ingestion_session_duplicate_commit_and_cancel() -> None:
             assert not await service.cancel(user)
         finally:
             await engine.dispose()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(_reset(settings))
+
+
+def test_exact_raw_bytes_reuse_one_blob_but_one_byte_change_is_new() -> None:
+    """Synthetic source: filenames and appearances never override byte identity."""
+    settings = _settings_or_skip()
+    user = asyncio.run(_reset(settings))
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        factory = create_session_factory(engine)
+        storage = LocalFileStorage(Path(settings.file_storage_path) / "phase3-byte-dedup-test")
+        service = IngestionSessionService(factory, storage)
+        first_bytes = b"%PDF-1.4 synthetic product version A"
+        changed_bytes = b"%PDF-1.4 synthetic product version B"
+        assert len(first_bytes) == len(changed_bytes)
+        try:
+            first = await service.add_file(
+                user, _metadata(storage, first_bytes, 301, "original.pdf")
+            )
+            second = await service.add_file(
+                user, _metadata(storage, first_bytes, 302, "renamed.pdf")
+            )
+            third = await service.add_file(
+                user, _metadata(storage, changed_bytes, 303, "original.pdf")
+            )
+            assert not first.duplicate
+            assert second.duplicate
+            assert not third.duplicate
+            summary = await service.commit(user)
+            assert summary is not None
+            assert summary.file_count == 3
+            assert summary.duplicate_count == 1
+            async with factory() as session:
+                objects = list((await session.scalars(select(FileObject))).all())
+                items = list(
+                    (
+                        await session.scalars(
+                            select(IngestionSessionItem).order_by(IngestionSessionItem.sequence_no)
+                        )
+                    ).all()
+                )
+                assert len(objects) == 2
+                assert all(item.state == FileObjectState.ACTIVE for item in objects)
+                assert items[0].file_object_id == items[1].file_object_id
+                assert items[0].file_object_id != items[2].file_object_id
+                assert [item.submitted_filename for item in items] == [
+                    "original.pdf",
+                    "renamed.pdf",
+                    "original.pdf",
+                ]
+                stored_bytes = {
+                    storage.path_for_key(item.storage_key).read_bytes() for item in objects
+                }
+                assert stored_bytes == {first_bytes, changed_bytes}
+            assert len(tuple(storage.blob_root.iterdir())) == 2
+        finally:
+            await engine.dispose()
+            rmtree(storage.root, ignore_errors=True)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(_reset(settings))
+
+
+def test_same_digest_with_corrupted_existing_blob_fails_closed() -> None:
+    """A forged/stale stored file is never reported as a safe exact duplicate."""
+    settings = _settings_or_skip()
+    user = asyncio.run(_reset(settings))
+
+    async def scenario() -> None:
+        engine = create_database_engine(settings)
+        factory = create_session_factory(engine)
+        storage = LocalFileStorage(Path(settings.file_storage_path) / "phase3-integrity-test")
+        service = IngestionSessionService(factory, storage)
+        original = b"%PDF-1.4 synthetic immutable payload"
+        try:
+            await service.add_file(user, _metadata(storage, original, 401, "original.pdf"))
+            assert await service.commit(user) is not None
+            async with factory() as session:
+                stored = (await session.scalars(select(FileObject))).one()
+                path = storage.path_for_key(stored.storage_key)
+            path.write_bytes(b"!" + original[1:])
+            with pytest.raises(StorageError, match="integrity check"):
+                await service.add_file(user, _metadata(storage, original, 402, "copy.pdf"))
+            async with factory() as session:
+                assert len((await session.scalars(select(FileObject))).all()) == 1
+                assert len((await session.scalars(select(IngestionSessionItem))).all()) == 1
+        finally:
+            await engine.dispose()
+            rmtree(storage.root, ignore_errors=True)
 
     try:
         asyncio.run(scenario())
