@@ -443,6 +443,31 @@ def test_one_logo_in_fifty_places_is_fifty_locators_and_one_copy_of_bytes() -> N
     _scenario(behavior)
 
 
+def test_one_changed_image_byte_is_new_content_not_an_exact_duplicate() -> None:
+    """Appearance does not decide byte identity or overwrite a distinct asset."""
+    async def behavior(
+        factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
+    ) -> None:
+        original = _png(120, 60)
+        changed = original[:-1] + bytes([original[-1] ^ 1])
+        assert len(original) == len(changed)
+        async with factory.begin() as session:
+            registry = ImageAssetRegistry(session, storage)
+            first_id = await registry.ensure_content(original)
+            duplicate_id = await registry.ensure_content(original)
+            changed_id = await registry.ensure_content(changed)
+            assert first_id is not None
+            assert duplicate_id == first_id
+            assert changed_id is not None and changed_id != first_id
+
+        assert await _counts(factory) == (2, 0)
+        stored = [path for path in storage.image_asset_root.rglob("*") if path.is_file()]
+        assert len(stored) == 2
+        assert {path.read_bytes() for path in stored} == {original, changed}
+
+    _scenario(behavior)
+
+
 def test_shared_bytes_outlive_a_document_while_its_provenance_cascades() -> None:
     async def behavior(
         factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
