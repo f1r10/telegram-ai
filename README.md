@@ -1,5 +1,14 @@
 # Office Assistant
 
+**Fast delivery / staging:** The opt-in `miniapp` Docker Compose profile now
+launches the signed Telegram Web App separately from the bot, exposing only
+a host-loopback port for an operator-provisioned HTTPS reverse proxy. It is
+OFF until `MINIAPP_ENABLED=true` and an explicit profile are selected.
+See [Delivery runbook](docs/DELIVERY-RUNBOOK-2026-10-21.md) for exact staging
+commands, backup/restore proof, real-device acceptance and rollback.
+**Green GitHub CI is not company production acceptance.**
+
+
 Private internal company AI assistant foundation. The planned primary interface is a Telegram bot in Azerbaijani, backed by company data, documents, and controlled external search.
 
 ## Current status (2026-10-19)
