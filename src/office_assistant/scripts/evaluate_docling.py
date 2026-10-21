@@ -13,6 +13,10 @@ from typing import Any, cast
 from office_assistant.processing.parsers import PdfParser
 
 
+_MAX_PDF_BYTES = 25 * 1024 * 1024
+_MAX_EXTRACTED_CHARS = 8 * 1024 * 1024
+
+
 class DoclingEvaluationError(RuntimeError):
     """Safe diagnostic label; never emit private source content or file paths."""
 
@@ -57,10 +61,16 @@ def docling_pdf(pdf_path: Path, artifacts_root: Path) -> str:
     """Use preprovisioned local Docling model artifacts and disable remote services."""
     if not artifacts_root.is_dir() or artifacts_root.is_symlink():
         raise DoclingEvaluationError("local_models_missing")
-    if not pdf_path.is_file() or pdf_path.suffix.casefold() != ".pdf":
+    if pdf_path.is_symlink() or not pdf_path.is_file() or pdf_path.suffix.casefold() != ".pdf":
         raise DoclingEvaluationError("invalid_pdf")
-    if not 0 < pdf_path.stat().st_size <= 25 * 1024 * 1024:
+    if not 0 < pdf_path.stat().st_size <= _MAX_PDF_BYTES:
         raise DoclingEvaluationError("pdf_size_limit")
+    try:
+        with pdf_path.open("rb") as stream:
+            if stream.read(5) != b"%PDF-":
+                raise DoclingEvaluationError("invalid_pdf_header")
+    except OSError:
+        raise DoclingEvaluationError("invalid_pdf") from None
     if os.environ.get("HF_HUB_OFFLINE") != "1" or os.environ.get("TRANSFORMERS_OFFLINE") != "1":
         raise DoclingEvaluationError("offline_environment_required")
     try:
@@ -77,6 +87,8 @@ def docling_pdf(pdf_path: Path, artifacts_root: Path) -> str:
         output = converter.convert(str(pdf_path)).document.export_to_markdown()
         if not isinstance(output, str):
             raise DoclingEvaluationError("unsupported_output")
+        if len(output) > _MAX_EXTRACTED_CHARS:
+            raise DoclingEvaluationError("extracted_text_limit")
         return output
     except (ModuleNotFoundError, ImportError):
         raise DoclingEvaluationError("docling_not_installed") from None
@@ -93,11 +105,11 @@ def main() -> None:
     parser.add_argument("--local-models", type=Path, required=True)
     parser.add_argument("--evaluate", action="store_true")
     args = parser.parse_args()
-    if not args.pdf.is_file() or args.pdf.suffix.casefold() != ".pdf":
+    if args.pdf.is_symlink() or not args.pdf.is_file() or args.pdf.suffix.casefold() != ".pdf":
         raise SystemExit("Invalid PDF input")
     if not 0 < args.pdf.stat().st_size <= 25 * 1024 * 1024:
         raise SystemExit("PDF is outside size limit")
-    if not args.truth.is_file() or args.truth.stat().st_size > 64 * 1024:
+    if args.truth.is_symlink() or not args.truth.is_file() or args.truth.stat().st_size > 64 * 1024:
         raise SystemExit("Missing or oversized private labels")
     try:
         content = args.truth.read_bytes()
