@@ -41,8 +41,7 @@ async def probe(port: int = 18791) -> tuple[bool, list[SmokeCheck]]:
                     and response.headers.get("Cache-Control") == "no-store"
                     and response.headers.get("X-Content-Type-Options") == "nosniff"
                     and response.headers.get("Referrer-Policy") == "no-referrer"
-                    and "default-src 'none'"
-                    in response.headers.get("Content-Security-Policy", "")
+                    and "default-src 'none'" in response.headers.get("Content-Security-Policy", "")
                     and "Set-Cookie" not in response.headers
                     and len(response.content) > 0
                 )
