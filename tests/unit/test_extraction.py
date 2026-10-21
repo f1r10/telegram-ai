@@ -55,6 +55,7 @@ def test_decimal_currency_and_date_validation() -> None:
         {
             "amount": "125.2500",
             "currency": "AZN",
+            "price_role": "SELLING_PRICE",
             "effective_at": "2026-09-05T00:00:00+04:00",
         },
     )
@@ -64,6 +65,40 @@ def test_decimal_currency_and_date_validation() -> None:
     assert "invalid_paid_at" in validate_candidate_payload(
         "PAYMENT", {"amount": "1", "currency": "AZN", "paid_at": "not-a-date"}
     )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [None, "UNKNOWN", "COST_PRICE", "QUOTE_PRICE"],
+)
+def test_supplier_cost_and_ambiguous_price_never_autovalidate(role: str | None) -> None:
+    errors = validate_candidate_payload(
+        "PRICE",
+        {
+            "product_ref": "P1",
+            "amount": "130.00",
+            "currency": "AZN",
+            "price_kind": "GENERAL",
+            "price_role": role,
+        },
+    )
+    assert "price_role_requires_clarification" in errors
+    assert "invalid_business_value" not in errors
+
+
+def test_only_explicit_selling_price_role_passes_business_role_gate() -> None:
+    assert validate_candidate_payload(
+        "PRICE",
+        {
+            "product_ref": "P1",
+            "amount": "130.00",
+            "currency": "AZN",
+            "price_kind": "GENERAL",
+            "price_role": "SELLING_PRICE",
+        },
+    ) == []
+    assert "price_role" in EXTRACTION_POLICY
+    assert "unlabeled spreadsheet" in EXTRACTION_POLICY
 
 
 def test_three_hundred_rows_are_bounded_and_compact() -> None:
