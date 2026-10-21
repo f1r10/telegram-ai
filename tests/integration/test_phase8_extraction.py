@@ -84,6 +84,7 @@ class _FakeExtractionModel:
                         "currency": "AZN",
                         "effective_at": "2026-09-05T00:00:00+04:00",
                         "price_kind": "CUSTOMER_SPECIFIC",
+                        "price_role": "SELLING_PRICE",
                         "source_refs": [source],
                     },
                     {
@@ -120,6 +121,7 @@ class _FakeExtractionModel:
                         "amount": "999.0000",
                         "currency": "AZN",
                         "price_kind": "GENERAL",
+                        "price_role": "UNKNOWN",
                         "source_refs": ["S99"],
                     },
                     {
