@@ -1,5 +1,5 @@
 # Separate Windows/WSL2 staging stack. DO NOT deploy with the legacy
-# docker-compose.yml: legacy tgstage_* containers/volumes are real and may be live.
+# docker-compose.yml: legacy qoder-prefixed containers/volumes are real and may be live.
 # Every container, network, volume and published port below is independent.
 # Never use 'docker compose down -v' or remove production volumes.
 name: tgstage_ai_assistand
