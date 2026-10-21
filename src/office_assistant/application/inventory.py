@@ -992,9 +992,7 @@ class InventoryLedgerService:
             )
             if balance is None:
                 raise InventoryConflict("Təsdiqlənmiş anbar qalığı tapılmadı.")
-            reserved = await self._reserved_quantity(
-                session, product.id, reservation.location_key
-            )
+            reserved = await self._reserved_quantity(session, product.id, reservation.location_key)
             if reserved < reservation.quantity or balance.quantity < reserved:
                 raise InventoryConflict("Rezervasiya və stok balansı uyğun deyil.")
             approved_unit = await session.get(InventoryProductUnit, product.id)
