@@ -42,6 +42,9 @@ class ExtractedCandidate(_Strict):
     currency: str | None = None
     effective_at: str | None = None
     price_kind: Literal["GENERAL", "CUSTOMER_SPECIFIC"] | None = None
+    # The commercial meaning is separate from GENERAL vs CUSTOMER_SPECIFIC.
+    # Missing/unknown is intentionally unsafe for a business price mutation.
+    price_role: Literal["SELLING_PRICE", "COST_PRICE", "QUOTE_PRICE", "UNKNOWN"] | None = None
     paid_at: str | None = None
     event_type: (
         Literal[
