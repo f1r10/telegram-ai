@@ -51,14 +51,27 @@ def mock_ledger() -> SimpleNamespace:
         ),
         reservation_preview=AsyncMock(
             return_value=StockReservationReceipt(
-                "KA45", "Əsas", "RES-01", Decimal("2"), "ACTIVE",
-                Decimal("9"), Decimal("2"), Decimal("7"), "PCS",
+                "KA45",
+                "Əsas",
+                "RES-01",
+                Decimal("2"),
+                "ACTIVE",
+                Decimal("9"),
+                Decimal("2"),
+                Decimal("7"),
+                "PCS",
             )
         ),
         reservation_action=AsyncMock(
             return_value=StockReservationReceipt(
-                "KA45", "Əsas", "RES-01", Decimal("2"), "CONSUMED",
-                Decimal("7"), Decimal("0"), Decimal("7"),
+                "KA45",
+                "Əsas",
+                "RES-01",
+                Decimal("2"),
+                "CONSUMED",
+                Decimal("7"),
+                Decimal("0"),
+                Decimal("7"),
             )
         ),
     )
