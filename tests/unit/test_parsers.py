@@ -205,6 +205,50 @@ def test_xlsx_parser_skips_blank_regions_and_keeps_formulas(tmp_path: Path) -> N
     assert parsed.blocks[0].metadata["formulas"] == [False, False, True]
 
 
+def test_xlsx_parser_preserves_blank_columns_and_warns_on_ambiguous_prices(
+    tmp_path: Path,
+) -> None:
+    """Synthetic analogue of a supplier list with B=USD and an unnamed C value.
+
+    An unlabeled value must not silently become AZN, cost or retail price.
+    """
+    path = tmp_path / "supplier.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    assert sheet is not None
+    sheet.title = "Test catalog"
+    sheet["A1"] = "Maker"
+    sheet["B1"] = "Price(USD)"
+    # C1 is deliberately blank: there is no approved meaning for C's prices.
+    sheet["A2"] = "Demo SKU-11"
+    sheet["B2"] = 50
+    sheet["C2"] = 65
+    sheet["A3"] = "Demo SKU-22"
+    sheet["C3"] = 72
+    workbook.save(str(path))
+    workbook.close()
+
+    parsed = (
+        ParserRegistry()
+        .for_filename("supplier.xlsx")
+        .parse(
+            path,
+            source_file_id=88,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    )
+    row2 = next(block for block in parsed.blocks if block.locator["range"] == "A2:C2")
+    row3 = next(block for block in parsed.blocks if block.locator["range"] == "A3:C3")
+    assert row2.metadata["values"] == ["Demo SKU-11", 50, 65]
+    assert row2.metadata["columns"] == ["A", "B", "C"]
+    assert row3.metadata["values"] == ["Demo SKU-22", None, 72]
+    assert row3.metadata["columns"] == ["A", "B", "C"]
+    assert row3.text == "Demo SKU-22 |  | 72"
+    assert len(parsed.warnings) == 1
+    assert "column C" in parsed.warnings[0]
+    assert "heading is blank" in parsed.warnings[0]
+
+
 def _make_pdf(pages: list[str | None]) -> bytes:
     objects: list[bytes] = []
     page_ids: list[int] = []
