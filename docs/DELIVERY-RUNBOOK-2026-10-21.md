@@ -122,6 +122,9 @@ checks only and investigate `SMOKE_BLOCKED` before rollout.
   Only after separate company approval, explicitly enable one stock
   flag on **staging**, verify preview/cancel, replay refusal and ledger
   rollback. Test XLSX all-or-nothing writes and two concurrent admins.
+  Include reservation CANCEL vs CONSUME from the separate admin preview:
+  cancel must preserve on-hand, consume must append exactly one ISSUE,
+  and another actor/replayed/expired ticket must never mutate stock.
   Production flags remain OFF until written acceptance.
 
 ## 5. Decision, rollback and delivery
