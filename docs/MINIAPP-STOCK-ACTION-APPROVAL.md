@@ -6,6 +6,9 @@ for production deployment without isolated staging restore and owner signoff.
 
 An ACTIVE current database administrator can propose:
 `RESERVE`, `RETURN`, `DAMAGE`, `WRITE_OFF`, or signed `CORRECTION`.
+The same opt-in screen now offers `RESERVATION_CANCEL` and
+`RESERVATION_CONSUME` for **existing ACTIVE reservations**, using only
+the exact product code and original reservation document reference.
 All variants use the dedicated `/api/stock/action/preview`,
 `/api/stock/action/confirm`, and `/api/stock/action/cancel` routes.
 
@@ -26,17 +29,28 @@ request. Cancel discards an uncommitted ticket with no stock writes.
 
 No free-form LLM response, photo match, uploaded workbook, or ordinary
 employee access is allowed to mutate inventory through these APIs.
-Existing reservations can be consumed or cancelled via the domain
-service, but operator-facing approval for those finalizing actions is
-still separately gated. Excel bulk source audit and byte-exact preview
-approval are also still not connected to the Mini App.
+Existing reservations are now read through an administrator-checked,
+read-only `reservation_preview` in the canonical ledger. The response
+shows the exact original reference, warehouse, reserved quantity, confirmed
+unit when present, and on-hand/reserved/available amounts. It never claims
+these numbers are locked until confirmation. The same two-minute actor-bound
+single-use ticket calls the existing atomic `reservation_action` on
+confirmation; `CANCEL` releases reserved quantity without moving on-hand
+stock, while `CONSUME` posts a single ISSUE and retires the reservation.
+Preview cancellation never changes inventory. Old completed reservations
+cannot be previewed again, and repeated/cross-actor tokens are refused.
+This UI remains disabled in production until separate staging approval.
+
+The Excel bulk source approval is a separate optional feature with its own
+flag and review procedure; it is not coupled to this reservation flow.
 
 The browser UI only displays values from the signed response with
 `textContent`; server rechecks auth on EVERY step. Both server and
 client have bounded payloads, invalid-input errors and no automatic
 posting from file ingestion.
 
-Remaining acceptance: disposable PostgreSQL complete workflow with
-real Telegram mobile UI, private test photos, staged restore, owner policy
-for reservation expiration, approval UI for reservation cancellation/
-consumption, and XSLX journal review.
+Remaining acceptance: full WSL staging restoration, real Telegram mobile
+confirmation of both reservation-finalization actions and two simultaneous
+administrators, owner policy for reservation expiration, and separate
+operational signoff for optional stock XLSX imports. Unit and disposable
+PostgreSQL regressions cannot replace this live acceptance.

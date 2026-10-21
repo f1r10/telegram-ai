@@ -89,8 +89,8 @@
         if (response.status === 429) throw new Error("Çox sayda sorğu göndərildi. Bir qədər sonra yenidən cəhd edin.");
         if (response.status === 400) throw new Error("Məlumatı yoxlayın və yenidən yazın.");
         if (response.status === 409) throw new Error(
-          path.startsWith("/api/stock/transfer/")
-            ? "Anbar qalıqları və ya təsdiq dəyişib. Tarixçəni yoxlayıb yenidən önbaxış edin."
+          path.startsWith("/api/stock/")
+            ? "Stok və ya təsdiq dəyişib. Tarixçəni yoxlayıb yenidən önbaxış edin."
             : "Başqa sənəd sessiyası açıqdır. Əvvəl Telegram botunda /saxla və ya /cancel edin."
         );
         if (response.status === 410) throw new Error("Fayl təsdiqinin vaxtı bitib. Yenidən seçin.");
@@ -237,7 +237,7 @@
     "stock-action": {
       kicker: "ADMİN · STOK TƏSDİQİ", title: "Anbar əməliyyatını yoxlayın",
       placeholder: "",
-      note: "Rezervasiya, qaytarma, zədə, silinmə və düzəliş yalnız ayrıca administrator təsdiqi ilə yazılır.",
+      note: "Yeni rezervasiya, rezervasiyanın ləğvi/istifadəsi və stok düzəlişləri ayrıca admin təsdiqi tələb edir.",
       samples: []
     },
     transfer: {
@@ -729,10 +729,22 @@
     ui.actionPreview.hidden = true;
     ui.actionDetails.textContent = "";
   }
-  ui.actionKind.addEventListener("change", () => {
-    ui.actionReasonField.hidden = ui.actionKind.value === "RESERVE";
+  function updateActionFields() {
+    const kind = ui.actionKind.value;
+    const finalizing = kind === "RESERVATION_CANCEL" || kind === "RESERVATION_CONSUME";
+    for (const id of ["stock-action-warehouse", "stock-action-quantity", "stock-action-unit"]) {
+      const field = $(id);
+      field.closest("label").hidden = finalizing;
+      field.disabled = finalizing;
+    }
+    ui.actionReasonField.hidden = finalizing || kind === "RESERVE";
+    ui.actionPrepare.textContent = finalizing
+      ? "Rezervasiyanı önbaxışda yoxla →"
+      : "Əməliyyatı önbaxışda yoxla →";
     clearActionPreview();
-  });
+  }
+  ui.actionKind.addEventListener("change", updateActionFields);
+  updateActionFields();
   for (const field of ui.actionPanel.querySelectorAll("input, textarea, select")) {
     field.addEventListener("input", clearActionPreview);
   }
@@ -744,15 +756,16 @@
     actionState("Əməliyyatın önbaxışı yoxlanılır...");
     try {
       const kind = ui.actionKind.value;
+      const finalizing = kind === "RESERVATION_CANCEL" || kind === "RESERVATION_CONSUME";
       const unit = $("stock-action-unit").value.trim();
       const result = await request("/api/stock/action/preview", {
         kind,
         code: $("stock-action-code").value.trim(),
-        warehouse: $("stock-action-warehouse").value.trim(),
-        quantity: $("stock-action-quantity").value.trim(),
+        warehouse: finalizing ? "" : $("stock-action-warehouse").value.trim(),
+        quantity: finalizing ? "" : $("stock-action-quantity").value.trim(),
         reference: $("stock-action-reference").value.trim(),
-        unit: unit || null,
-        reason: kind === "RESERVE" ? null : $("stock-action-reason").value.trim()
+        unit: finalizing ? null : (unit || null),
+        reason: finalizing || kind === "RESERVE" ? null : $("stock-action-reason").value.trim()
       });
       if (!active) return;
       actionTicket = result.token;
@@ -764,6 +777,10 @@
         "Sənəd: " + result.reference,
         "Əvvəlki fiziki qalıq: " + result.on_hand_before,
         "Təxmini sonrakı fiziki qalıq: " + result.on_hand_after_if_approved,
+        ...(result.reserved_before === undefined ? [] : [
+          "Hazırkı rezerv: " + result.reserved_before,
+          "Hazırkı sərbəst stok: " + result.available_before
+        ]),
         result.warning
       ].join("\n");
       ui.actionPreview.hidden = false;
@@ -797,7 +814,8 @@
           "Sənəd: " + result.reference + "\n" +
           (result.available === undefined
             ? "Yeni qalıq: " + result.balance_after
-            : "Rezerv: " + result.reserved + " · Sərbəst: " + result.available),
+            : "Fiziki qalıq: " + result.on_hand +
+              " · Rezerv: " + result.reserved + " · Sərbəst: " + result.available),
           "assistant"
         );
       } else {

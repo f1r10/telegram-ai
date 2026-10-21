@@ -77,11 +77,13 @@
           <p id="stock-xlsx-feedback" class="upload-feedback" role="status" aria-live="polite"></p>
         </section>
         <section class="upload-panel transfer-panel" id="stock-action-panel" hidden aria-label="Administrator stok əməliyyatı">
-          <p class="muted">Anbar düzəlişləri və yeni rezervasiyalar iki mərhələdə təsdiqlənir. Önbaxış heç nəyi dəyişmir.</p>
+          <p class="muted">Anbar düzəlişləri, yeni rezervasiyalar və mövcud rezervasiyanın yekunu ayrıca önbaxışla təsdiqlənir. Önbaxış heç nəyi dəyişmir.</p>
           <div class="transfer-fields">
             <label for="stock-action-kind">Əməliyyat növü
               <select id="stock-action-kind">
                 <option value="RESERVE">Rezerv et</option>
+                <option value="RESERVATION_CANCEL">Mövcud rezervasiyanı ləğv et</option>
+                <option value="RESERVATION_CONSUME">Mövcud rezervasiyanı stokdan silərək yekunlaşdır</option>
                 <option value="RETURN">Qaytarma (stok artır)</option>
                 <option value="DAMAGE">Zədə (stok azaldır)</option>
                 <option value="WRITE_OFF">Silinmə (stok azaldır)</option>

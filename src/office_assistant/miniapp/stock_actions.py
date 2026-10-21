@@ -21,6 +21,7 @@ from office_assistant.application.inventory import (
 from office_assistant.infrastructure.database.models import User, UserRole
 
 KINDS = frozenset({"RETURN", "DAMAGE", "WRITE_OFF", "CORRECTION", "RESERVE"})
+FINALIZATION_KINDS = {"RESERVATION_CANCEL": "CANCEL", "RESERVATION_CONSUME": "CONSUME"}
 _TTL = 120
 _MAX_TICKETS = 32
 _MAX_PER_ACTOR = 3
@@ -28,9 +29,16 @@ _MAX_AMOUNT = Decimal("999999999999999.999")
 
 
 @dataclass(frozen=True, slots=True)
+class ReservationFinalizationDraft:
+    product_code: str
+    reference: str
+    action: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewTicket:
     actor_id: int
-    draft: StockAdjustmentDraft | StockReservationDraft
+    draft: StockAdjustmentDraft | StockReservationDraft | ReservationFinalizationDraft
     expires_at: float
 
 
@@ -78,6 +86,26 @@ class MiniAppStockActionReview:
         if not self.enabled or actor.role != UserRole.ADMIN:
             raise PermissionError("This stock operation is not enabled for the actor")
 
+    async def _issue_ticket(
+        self,
+        actor: User,
+        draft: StockAdjustmentDraft | StockReservationDraft | ReservationFinalizationDraft,
+    ) -> str:
+        async with self._lock:
+            now = monotonic()
+            self._tickets = {
+                token: item for token, item in self._tickets.items() if item.expires_at > now
+            }
+            if (
+                len(self._tickets) >= _MAX_TICKETS
+                or sum(item.actor_id == actor.id for item in self._tickets.values())
+                >= _MAX_PER_ACTOR
+            ):
+                raise InventoryConflict("Çox sayda açıq təsdiq var.")
+            token = secrets.token_urlsafe(24)
+            self._tickets[token] = ReviewTicket(actor.id, draft, now + _TTL)
+            return token
+
     async def preview(
         self,
         actor: User,
@@ -91,6 +119,44 @@ class MiniAppStockActionReview:
         reason: str | None,
     ) -> dict[str, object]:
         self._admin(actor)
+        if kind in FINALIZATION_KINDS:
+            if (
+                warehouse.strip()
+                or quantity.strip()
+                or unit is not None
+                or reason not in (None, "")
+            ):
+                raise InventoryValidationError(
+                    "Rezervasiya yekunu üçün yalnız məhsul və rezervasiya nömrəsi yazılmalıdır."
+                )
+            code = _field(code, maximum=64)
+            reference = _field(reference, maximum=124)
+            details = await self.ledger.reservation_preview(
+                actor, product_code=code, reference=reference
+            )
+            action = FINALIZATION_KINDS[kind]
+            token = await self._issue_ticket(
+                actor, ReservationFinalizationDraft(code, reference, action)
+            )
+            return {
+                "token": token,
+                "kind": kind,
+                "product_code": details.product_code,
+                "warehouse": details.warehouse,
+                "quantity": str(details.quantity),
+                "unit": details.unit_code,
+                "reference": details.reference,
+                "on_hand_before": str(details.on_hand),
+                "on_hand_after_if_approved": str(
+                    details.on_hand - details.quantity if action == "CONSUME" else details.on_hand
+                ),
+                "reserved_before": str(details.reserved),
+                "available_before": str(details.available),
+                "warning": (
+                    "Bu yalnız aktiv rezervasiyanın önbaxışıdır. Cari status, səlahiyyət "
+                    "və stok son təsdiqdə yenidən yoxlanılacaq."
+                ),
+            }
         if kind not in KINDS:
             raise InventoryValidationError("Əməliyyat növü düzgün deyil.")
         code = _field(code, maximum=64)
@@ -133,21 +199,8 @@ class MiniAppStockActionReview:
             raise InventoryConflict("Stok çıxışını qarşılamaq üçün təsdiqlənmiş qalıq yoxdur.")
         if location.quantity + delta > _MAX_AMOUNT:
             raise InventoryConflict("Stok maksimum qalıq limitini aşır.")
-        # A snapshot cannot prove how many reservations are ACTIVE. The ledger
-        # rechecks free stock and all invariants at confirmation time.
-        async with self._lock:
-            now = monotonic()
-            self._tickets = {
-                token: item for token, item in self._tickets.items() if item.expires_at > now
-            }
-            if (
-                len(self._tickets) >= _MAX_TICKETS
-                or sum(item.actor_id == actor.id for item in self._tickets.values())
-                >= _MAX_PER_ACTOR
-            ):
-                raise InventoryConflict("Çox sayda açıq təsdiq var.")
-            token = secrets.token_urlsafe(24)
-            self._tickets[token] = ReviewTicket(actor.id, draft, now + _TTL)
+        # Preview never commits stock. Confirmation revalidates ACTIVE reservations.
+        token = await self._issue_ticket(actor, draft)
         return {
             "token": token,
             "kind": kind,
@@ -176,6 +229,24 @@ class MiniAppStockActionReview:
                     "Təsdiq kodu etibarsız, vaxtı bitmiş və ya başqasına aiddir."
                 )
             del self._tickets[token]  # One-use, including an ambiguous HTTP failure
+        if isinstance(item.draft, ReservationFinalizationDraft):
+            receipt = await self.ledger.reservation_action(
+                actor,
+                product_code=item.draft.product_code,
+                reference=item.draft.reference,
+                action=item.draft.action,
+            )
+            return {
+                "status": receipt.status,
+                "kind": "RESERVATION_" + item.draft.action,
+                "product_code": receipt.product_code,
+                "warehouse": receipt.warehouse,
+                "reference": receipt.reference,
+                "quantity": str(receipt.quantity),
+                "on_hand": str(receipt.on_hand),
+                "reserved": str(receipt.reserved),
+                "available": str(receipt.available),
+            }
         if isinstance(item.draft, StockReservationDraft):
             receipt = await self.ledger.reserve(actor, item.draft)
             return {

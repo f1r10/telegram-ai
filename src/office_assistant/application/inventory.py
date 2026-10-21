@@ -141,6 +141,7 @@ class StockReservationReceipt:
     on_hand: Decimal
     reserved: Decimal
     available: Decimal
+    unit_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -959,6 +960,53 @@ class InventoryLedgerService:
                 )
         except IntegrityError as error:
             raise InventoryConflict("Rezervasiya təkrar edildi; heç nə dəyişmədi.") from error
+
+    async def reservation_preview(
+        self, actor: User, *, product_code: str, reference: str
+    ) -> StockReservationReceipt:
+        """Read an ACTIVE reservation before issuing a separate, expiring approval.
+
+        This is not a reservation mutation or a promise of future availability.
+        The confirming domain transaction rechecks role, status and balances.
+        """
+        reference_key = self._reservation_key(reference)
+        code = normalize_product_code(product_code)
+        async with self.session_factory() as session:
+            await self._authorize(session, actor, admin=True)
+            product = await self._product(session, code)
+            if not product.is_active:
+                raise InventoryConflict("Məhsul artıq aktiv deyil.")
+            reservation = await session.scalar(
+                select(InventoryReservation).where(
+                    InventoryReservation.product_id == product.id,
+                    InventoryReservation.reference_key == reference_key,
+                )
+            )
+            if reservation is None or reservation.status != "ACTIVE":
+                raise InventoryConflict("Aktiv rezervasiya tapılmadı.")
+            balance = await session.scalar(
+                select(InventoryBalance).where(
+                    InventoryBalance.product_id == product.id,
+                    InventoryBalance.location_key == reservation.location_key,
+                )
+            )
+            if balance is None:
+                raise InventoryConflict("Təsdiqlənmiş anbar qalığı tapılmadı.")
+            reserved = await self._reserved_quantity(session, product.id, reservation.location_key)
+            if reserved < reservation.quantity or balance.quantity < reserved:
+                raise InventoryConflict("Rezervasiya və stok balansı uyğun deyil.")
+            approved_unit = await session.get(InventoryProductUnit, product.id)
+            return StockReservationReceipt(
+                product.display_code,
+                balance.location_name,
+                reservation.reference_label,
+                reservation.quantity,
+                reservation.status,
+                balance.quantity,
+                reserved,
+                balance.quantity - reserved,
+                approved_unit.base_unit if approved_unit is not None else None,
+            )
 
     async def reservation_action(
         self, actor: User, *, product_code: str, reference: str, action: str

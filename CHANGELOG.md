@@ -4,6 +4,18 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Reviewed existing-reservation finalization in Mini App (2026-10-21)
+
+- Add signed admin-only previews for existing reservation CANCEL and CONSUME
+  using the canonical read-only ledger and exact product/reference identity.
+- Route a bounded, two-minute single-use ticket to the existing audited,
+  transactional reservation action; browser fields distinguish new reservations
+  from finalization and show physical/reserved/available balances.
+- Reuse the dedicated default-OFF Mini App stock-action flag; no automatic
+  chat/file/AI inventory mutations. Add unit and disposable PostgreSQL checks.
+  Real mobile staging, completeness and backup/restore remain required.
+
+
 ### Mini App source ticket stability (2026-10-21)
 
 - Resolve one-tap original-file downloads by the actor's still-valid, persisted
