@@ -4,6 +4,13 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Source price-role approval guard (2026-10-21)
+
+- Distinguish `SELLING_PRICE`, `COST_PRICE`, `QUOTE_PRICE`, and `UNKNOWN` in candidate extraction. A supplier purchase cost, quotation or unlabelled field is **not** an authorized selling price solely because an LLM saw a number and a currency.
+- Stage all non-selling and unspecified price roles as `NEEDS_REVIEW`; the old run-level approval must not apply them to official `ProductPrice` rows. Defense-in-depth blocks applying legacy validated rows with no price role.
+- Prompt the model to abstain on uncertain commercial roles and preserve source context; add offline regressions and adjust disposable PostgreSQL extraction fixtures. This is a safe blocker, **not** a completed per-field interactive clarification UI.
+
+
 ### Intelligent intake contract and verified byte-identity reuse (2026-10-21)
 
 - Record owner-required selective AI clarification, supplier-scoped approved
