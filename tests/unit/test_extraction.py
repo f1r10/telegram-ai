@@ -6,12 +6,12 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
+from office_assistant.application.errors import DomainConflict
 from office_assistant.extraction.benchmark import (
     SYNTHETIC_CASES,
     CandidateObservation,
     score_extraction,
 )
-from office_assistant.application.errors import DomainConflict
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.extraction.schemas import StructuredExtractionResult
 from office_assistant.extraction.service import (
