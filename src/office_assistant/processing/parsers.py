@@ -694,7 +694,7 @@ class XlsxParser:
             cells = row[non_empty[0].column - 1 : non_empty[-1].column]
             values = [cell.value for cell in cells]
             formulas = [cell.data_type == TYPE_FORMULA for cell in cells]
-            columns = [cell.column_letter for cell in cells]
+            columns = [get_column_letter(cell.column) for cell in cells]
             for cell in non_empty:
                 if cell.row <= 1 or isinstance(cell.value, bool) or not isinstance(
                     cell.value, (int, float)
@@ -702,13 +702,16 @@ class XlsxParser:
                     continue
                 heading = sheet.cell(row=1, column=cell.column).value
                 if heading is None or not str(heading).strip():
-                    unlabeled_numeric_columns.add(cell.column_letter)
+                    unlabeled_numeric_columns.add(get_column_letter(cell.column))
             blocks.append(
                 ContentBlock(
                     len(blocks) + 1,
                     "table_row",
                     " | ".join("" if value is None else str(value) for value in values),
-                    {"sheet": sheet.title, "range": f"{cells[0].coordinate}:{cells[-1].coordinate}"},
+                    {
+                        "sheet": sheet.title,
+                        "range": f"{cells[0].coordinate}:{cells[-1].coordinate}",
+                    },
                     {"values": values, "formulas": formulas, "columns": columns},
                 )
             )
