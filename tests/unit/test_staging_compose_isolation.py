@@ -43,8 +43,8 @@ def test_staging_host_ports_and_unsafe_write_defaults_do_not_overlap_legacy() ->
         assert line in STAGING
     for port in (5435, 6335, 18085):
         assert f'"127.0.0.1:{port}:' not in STAGING
-    assert 'MINIAPP_ENABLED: ${MINIAPP_ENABLED:-false}' in STAGING
-    assert 'TELEGRAM_POLLING_ENABLED: ${TELEGRAM_POLLING_ENABLED:-false}' in STAGING
+    assert "MINIAPP_ENABLED: ${MINIAPP_ENABLED:-false}" in STAGING
+    assert "TELEGRAM_POLLING_ENABLED: ${TELEGRAM_POLLING_ENABLED:-false}" in STAGING
     for flag in (
         "MINIAPP_STOCK_TRANSFER_ENABLED",
         "MINIAPP_STOCK_ACTIONS_ENABLED",
