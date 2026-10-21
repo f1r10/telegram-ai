@@ -86,6 +86,20 @@ real clients. A live HTTP process alone is not acceptance.
 
 ## 4. Mandatory read-only smoke and operator checkpoints
 
+From the **staging host**, after starting the Mini App profile,
+run the bounded **local-only** smoke probe. It never includes a token,
+company data or a stock mutation, and it must produce `SMOKE_PASS`:
+
+```sh
+uv run --no-sync python -m office_assistant.scripts.smoke_miniapp --port 18791
+```
+
+It checks HTML/JS/CSS, CSP/no-store/no-sniff headers and the rejection of
+unsigned profile/stock-write calls. A passing result is not Telegram
+authentication or real-device acceptance. Capture aggregate pass/fail
+checks only and investigate `SMOKE_BLOCKED` before rollout.
+
+
 - Execute `docker compose exec app uv run --no-dev python -m
   office_assistant.scripts.check_readiness` against the **staging**
   containers; capture the JSON readiness result privately. If it is
