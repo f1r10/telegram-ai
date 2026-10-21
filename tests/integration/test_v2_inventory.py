@@ -301,9 +301,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert booked.reserved == Decimal("2.000")
             assert booked.available == Decimal("5.250")
             with pytest.raises(AuthorizationDenied):
-                await ledger.reservation_preview(
-                    employee, product_code=CODE, reference="RES-001"
-                )
+                await ledger.reservation_preview(employee, product_code=CODE, reference="RES-001")
             preview = await ledger.reservation_preview(
                 admin, product_code=CODE, reference="RES-001"
             )
@@ -351,9 +349,7 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert cancelled.status == "CANCELLED"
             assert cancelled.reserved == Decimal("2.000")
             with pytest.raises(InventoryConflict, match="Aktiv"):
-                await ledger.reservation_preview(
-                    admin, product_code=CODE, reference="RES-003"
-                )
+                await ledger.reservation_preview(admin, product_code=CODE, reference="RES-003")
             again = await ledger.reservation_action(
                 admin, product_code=CODE, reference="RES-003", action="CANCEL"
             )
