@@ -4,6 +4,18 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Mini App source ticket stability (2026-10-21)
+
+- Resolve one-tap original-file downloads by the actor's still-valid, persisted
+  citation number **and** exact file ID, rather than whichever later Telegram
+  or Mini App reply happens to reuse the same citation number.
+- Reject revoked, expired, cross-user and mismatched targets without falling back
+  to another document. Telegram's ordinary unpinned latest-source commands retain
+  their existing behavior.
+- Cover the cross-answer collision with disposable PostgreSQL regression tests;
+  live Android/iOS file-download acceptance remains required.
+
+
 
 ### Restic snapshot credential and path isolation (2026-10-20)
 

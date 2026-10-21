@@ -533,7 +533,7 @@ def test_one_tap_original_source_binds_actor_index_and_file_id(tmp_path: Path) -
     assert number == 1 and len(token) >= 20
     result = asyncio.run(backend.source_file(signature(123), token=token))
     assert result.file_id == 9
-    delivery.resolve_recent.assert_awaited_once_with(123, 1)
+    delivery.resolve_recent.assert_awaited_once_with(123, 1, expected_file_id=9)
 
     # A newer answer may reuse source number 1 for a different file;
     # no old token may deliver that newer original.

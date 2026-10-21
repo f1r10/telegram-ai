@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -25,6 +25,7 @@ from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
 from office_assistant.infrastructure.database.models import (
     AIConversation,
+    AIMessage,
     AIMessageSource,
     AuditEvent,
     FileObject,
@@ -332,6 +333,60 @@ def test_real_postgres_qdrant_hybrid_conflict_and_secure_file_follow_up(
             structured_file = await delivery.resolve_recent(ACTOR_TELEGRAM_ID, 1)
             assert structured_file.filename == "price.xlsx"
             assert structured_file.path.read_bytes() == price_bytes
+            # A Mini App ticket pins the original file as well as its citation number.
+            pinned = await delivery.resolve_recent(
+                ACTOR_TELEGRAM_ID, 2, expected_file_id=document_file_id
+            )
+            assert pinned.file_id == document_file_id
+            with pytest.raises(FileDeliveryError):
+                await delivery.resolve_recent(ACTOR_TELEGRAM_ID, 2, expected_file_id=price_file_id)
+            with pytest.raises(FileDeliveryError):
+                await delivery.resolve_recent(
+                    OTHER_TELEGRAM_ID, 2, expected_file_id=document_file_id
+                )
+
+            # Another answer reuses citation 2 for a DIFFERENT original. The
+            # unpinned Telegram command resolves the new answer, but the old
+            # Mini App ticket must retain its own original or fail closed.
+            async with factory.begin() as session:
+                conversation = await session.scalar(
+                    select(AIConversation).where(
+                        AIConversation.user_id == actor_id,
+                        AIConversation.mode == "internal",
+                    )
+                )
+                assert conversation is not None
+                newer = AIMessage(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="Later answer",
+                    created_at=datetime.now(UTC) + timedelta(minutes=1),
+                )
+                session.add(newer)
+                await session.flush()
+                newer_id = newer.id
+                session.add(
+                    AIMessageSource(
+                        message_id=newer.id,
+                        citation_index=2,
+                        evidence_id="newer-citation",
+                        source_type="INTERNAL_DOCUMENT",
+                        file_id=price_file_id,
+                        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+                    )
+                )
+            assert (await delivery.resolve_recent(ACTOR_TELEGRAM_ID, 2)).file_id == price_file_id
+            assert (
+                await delivery.resolve_recent(
+                    ACTOR_TELEGRAM_ID, 2, expected_file_id=document_file_id
+                )
+            ).file_id == document_file_id
+            async with factory.begin() as session:
+                await session.execute(
+                    delete(AIMessageSource).where(AIMessageSource.message_id == newer_id)
+                )
+                await session.execute(delete(AIMessage).where(AIMessage.id == newer_id))
+
             with pytest.raises(FileDeliveryError):
                 await delivery.resolve_recent(OTHER_TELEGRAM_ID, 2)
             with pytest.raises(AuthorizationDenied):
