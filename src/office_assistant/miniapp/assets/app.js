@@ -512,7 +512,10 @@
       uploadStatus(result.notice || (confirm ? "Emal növbəsinə verildi." : "Ləğv edildi."));
       if (confirm) {
         appendBubble(
-          "Sənəd qəbul edildi. Emal işi №" + result.job_id +
+          (result.duplicate
+            ? "Eyni faylın baytları əvvəl saxlanılıb; yeni orijinal nüsxə yaradılmadı. "
+            : "Sənəd qəbul edildi. ") +
+          "Emal işi №" + result.job_id +
           " yaradıldı. Sənədin oxunması və axtarışa daxil edilməsi ayrıca davam edir.",
           "assistant"
         );
