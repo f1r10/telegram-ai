@@ -45,3 +45,65 @@ def test_no_model_download_allowed_without_explicit_offline_environment(
     monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     with pytest.raises(DoclingEvaluationError, match="offline_environment_required"):
         docling_pdf(pdf, models)
+
+
+def test_docling_rejects_symlinked_pdf_and_invalid_header_before_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = tmp_path / "models"
+    models.mkdir()
+    pdf = tmp_path / "original.pdf"
+    pdf.write_bytes(b"not really pdf content")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    with pytest.raises(DoclingEvaluationError, match="invalid_pdf_header"):
+        docling_pdf(pdf, models)
+    pdf.write_bytes(b"%PDF-safe-fixture")
+    alias = tmp_path / "alias.pdf"
+    alias.symlink_to(pdf)
+    with pytest.raises(DoclingEvaluationError, match="invalid_pdf"):
+        docling_pdf(alias, models)
+
+
+def test_docling_refuses_excessive_extracted_text_without_provider_egress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+    from typing import Any
+
+    from office_assistant.scripts import evaluate_docling
+
+    pdf = tmp_path / "sample.pdf"
+    pdf.write_bytes(b"%PDF-fixture")
+    models = tmp_path / "models"
+    models.mkdir()
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    document = SimpleNamespace(export_to_markdown=lambda: "a" * (8 * 1024 * 1024 + 1))
+
+    def convert(_path: str) -> SimpleNamespace:
+        return SimpleNamespace(document=document)
+
+    def make_converter(**_kwargs: Any) -> SimpleNamespace:
+        return SimpleNamespace(convert=convert)
+
+    def make_object(**_kwargs: Any) -> object:
+        return object()
+
+    def make_options(**_kwargs: Any) -> SimpleNamespace:
+        return SimpleNamespace()
+
+    module = SimpleNamespace(DocumentConverter=make_converter, PdfFormatOption=make_object)
+    options = SimpleNamespace(PdfPipelineOptions=make_options)
+    models_module = SimpleNamespace(InputFormat=SimpleNamespace(PDF="pdf"))
+
+    def fake_import(name: str) -> SimpleNamespace:
+        return {
+            "docling.datamodel.base_models": models_module,
+            "docling.datamodel.pipeline_options": options,
+            "docling.document_converter": module,
+        }[name]
+
+    monkeypatch.setattr(evaluate_docling, "import_module", fake_import)
+    with pytest.raises(DoclingEvaluationError, match="extracted_text_limit"):
+        docling_pdf(pdf, models)

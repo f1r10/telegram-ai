@@ -39,3 +39,8 @@ This is evaluation groundwork. Production integration must be proposed
 as a separate opt-in adapter with source preservation, a rollback flag,
 license/dependency review, synthetic and real corpus tests, and explicit
 operator acceptance. Until then the Telegram bot is unchanged.
+
+
+### Input/output safety (2026-10-21)
+
+The evaluator rejects symlinked PDF/truth files, rejects non-PDF magic bytes before importing the optional Docling library, requires local model artifacts and explicit offline environment flags, and caps extracted Markdown at 8 Mi characters. This is an offline diagnostic only and never promotes Docling to the production ingestion pipeline. A representative owner-labeled document set and manual comparison remain required for acceptance.
