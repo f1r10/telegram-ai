@@ -77,6 +77,53 @@ services:
       - app_storage:/data/storage
       - model_cache:/models
 
+  # Disabled unless explicitly requested with: docker compose --profile miniapp up -d miniapp
+  # MINIAPP_ENABLED must ALSO be true, with an HTTPS public origin and a real token.
+  # The app listens on the Docker bridge interface, but the published host port
+  # is loopback ONLY. Put a controlled HTTPS reverse proxy on this host.
+  miniapp:
+    profiles: ["miniapp"]
+    container_name: qoder_miniapp
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uv", "run", "--no-dev", "python", "-m", "office_assistant.miniapp.server"]
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      FILE_STORAGE_PATH: /data/storage
+      QDRANT_URL: http://qdrant:6333
+      EMBEDDING_CACHE_PATH: /models/cache
+      SEARXNG_BASE_URL: http://searxng:8080
+      MINIAPP_ENABLED: ${MINIAPP_ENABLED:-false}
+      MINIAPP_PUBLIC_ORIGIN: ${MINIAPP_PUBLIC_ORIGIN:-}
+      MINIAPP_LOCAL_PORT: ${MINIAPP_LOCAL_PORT:-18791}
+      MINIAPP_CONTAINER_BIND: "true"
+      MINIAPP_STOCK_TRANSFER_ENABLED: ${MINIAPP_STOCK_TRANSFER_ENABLED:-false}
+      MINIAPP_STOCK_ACTIONS_ENABLED: ${MINIAPP_STOCK_ACTIONS_ENABLED:-false}
+      MINIAPP_STOCK_XLSX_ENABLED: ${MINIAPP_STOCK_XLSX_ENABLED:-false}
+      VISUAL_SEMANTIC_ENABLED: ${VISUAL_SEMANTIC_ENABLED:-false}
+    ports:
+      - "127.0.0.1:${MINIAPP_HOST_PORT:-18791}:${MINIAPP_LOCAL_PORT:-18791}"
+    depends_on:
+      model-cache-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - app_storage:/data/storage
+      - model_cache:/models
+
   worker:
     container_name: qoder_worker
     restart: unless-stopped
