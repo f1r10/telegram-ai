@@ -148,9 +148,7 @@ class MiniAppStockActionReview:
                 "reference": details.reference,
                 "on_hand_before": str(details.on_hand),
                 "on_hand_after_if_approved": str(
-                    details.on_hand - details.quantity
-                    if action == "CONSUME"
-                    else details.on_hand
+                    details.on_hand - details.quantity if action == "CONSUME" else details.on_hand
                 ),
                 "reserved_before": str(details.reserved),
                 "available_before": str(details.available),
