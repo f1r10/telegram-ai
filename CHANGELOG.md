@@ -4,6 +4,18 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Supplier spreadsheet ambiguity and blank-column safety (2026-10-21)
+
+- Preserve physical worksheet column positions in parsed table-row metadata even
+  where intermediate cells are empty. Previously missing cells were compressed
+  away, losing price-to-column provenance.
+- Report numeric entries in first-row-unlabeled spreadsheet columns as a
+  nonfatal ingestion warning; do not assume these values are sale prices or
+  convertible currency. A synthetic multi-sheet supplier-style regression test
+  covers unlabelled third-column prices. No real customer price list is stored
+  in this repository.
+
+
 ### Reviewed existing-reservation finalization in Mini App (2026-10-21)
 
 - Add signed admin-only previews for existing reservation CANCEL and CONSUME
