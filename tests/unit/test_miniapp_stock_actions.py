@@ -49,6 +49,18 @@ def mock_ledger() -> SimpleNamespace:
                 Decimal("7"),
             )
         ),
+        reservation_preview=AsyncMock(
+            return_value=StockReservationReceipt(
+                "KA45", "Əsas", "RES-01", Decimal("2"), "ACTIVE",
+                Decimal("9"), Decimal("2"), Decimal("7"), "PCS",
+            )
+        ),
+        reservation_action=AsyncMock(
+            return_value=StockReservationReceipt(
+                "KA45", "Əsas", "RES-01", Decimal("2"), "CONSUMED",
+                Decimal("7"), Decimal("0"), Decimal("7"),
+            )
+        ),
     )
 
 
@@ -150,5 +162,86 @@ def test_invalid_amount_reason_unit_and_missing_warehouse_fail_closed() -> None:
         with pytest.raises(InventoryConflict):
             await review.preview(actor(), **cast(StockFields, fields() | {"warehouse": "Naməlum"}))
         assert ledger.adjust.await_count == ledger.reserve.await_count == 0
+
+    asyncio.run(scenario())
+
+
+def finalization_fields(kind: str) -> StockFields:
+    return {
+        "kind": kind,
+        "code": "KA45",
+        "warehouse": "",
+        "quantity": "",
+        "reference": "RES-01",
+        "unit": None,
+        "reason": None,
+    }
+
+
+def test_existing_reservation_preview_is_read_only_and_requires_admin() -> None:
+    async def scenario() -> None:
+        ledger = mock_ledger()
+        review = MiniAppStockActionReview(cast(InventoryLedgerService, ledger), enabled=True)
+        for kind in ("RESERVATION_CANCEL", "RESERVATION_CONSUME"):
+            with pytest.raises(PermissionError):
+                await review.preview(actor(UserRole.USER), **finalization_fields(kind))
+            with pytest.raises(InventoryValidationError):
+                await review.preview(
+                    actor(), **cast(StockFields, finalization_fields(kind) | {"quantity": "2"})
+                )
+            preview = await review.preview(actor(), **finalization_fields(kind))
+            assert preview["on_hand_before"] == "9"
+            assert preview["reserved_before"] == "2"
+            assert preview["available_before"] == "7"
+            assert preview["quantity"] == "2"
+            assert preview["unit"] == "PCS"
+        assert ledger.reservation_preview.await_count == 2
+        assert ledger.reservation_action.await_count == 0
+
+    asyncio.run(scenario())
+
+
+def test_existing_reservation_consume_confirm_is_single_use_and_actor_bound() -> None:
+    async def scenario() -> None:
+        ledger = mock_ledger()
+        review = MiniAppStockActionReview(cast(InventoryLedgerService, ledger), enabled=True)
+        preview = await review.preview(actor(), **finalization_fields("RESERVATION_CONSUME"))
+        token = str(preview["token"])
+        with pytest.raises(InventoryConflict):
+            await review.confirm(actor(id=45), token=token)
+        outcomes = await asyncio.gather(
+            review.confirm(actor(), token=token),
+            review.confirm(actor(), token=token),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(value, InventoryConflict) for value in outcomes) == 1
+        completed = [value for value in outcomes if isinstance(value, dict)]
+        assert len(completed) == 1
+        assert completed[0]["kind"] == "RESERVATION_CONSUME"
+        assert completed[0]["on_hand"] == "7"
+        assert completed[0]["reserved"] == "0"
+        ledger.reservation_action.assert_awaited_once_with(
+            actor(), product_code="KA45", reference="RES-01", action="CONSUME"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_finalization_cancel_discards_ticket_without_stock_writes() -> None:
+    async def scenario() -> None:
+        ledger = mock_ledger()
+        review = MiniAppStockActionReview(cast(InventoryLedgerService, ledger), enabled=True)
+        preview = await review.preview(actor(), **finalization_fields("RESERVATION_CANCEL"))
+        token = str(preview["token"])
+        assert await review.cancel(actor(), token=token) == {"status": "cancelled"}
+        with pytest.raises(InventoryConflict):
+            await review.confirm(actor(), token=token)
+        ledger.reservation_action.assert_not_awaited()
+        preview = await review.preview(actor(), **finalization_fields("RESERVATION_CANCEL"))
+        result = await review.confirm(actor(), token=str(preview["token"]))
+        assert result["kind"] == "RESERVATION_CANCEL"
+        ledger.reservation_action.assert_awaited_once_with(
+            actor(), product_code="KA45", reference="RES-01", action="CANCEL"
+        )
 
     asyncio.run(scenario())
