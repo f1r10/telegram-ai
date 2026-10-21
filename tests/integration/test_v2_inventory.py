@@ -300,6 +300,22 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             assert booked.on_hand == Decimal("7.250")
             assert booked.reserved == Decimal("2.000")
             assert booked.available == Decimal("5.250")
+            with pytest.raises(AuthorizationDenied):
+                await ledger.reservation_preview(
+                    employee, product_code=CODE, reference="RES-001"
+                )
+            preview = await ledger.reservation_preview(
+                admin, product_code=CODE, reference="RES-001"
+            )
+            assert preview.status == "ACTIVE"
+            assert preview.quantity == booked.quantity
+            assert preview.on_hand == booked.on_hand
+            assert preview.reserved == booked.reserved
+            assert preview.available == booked.available
+            with pytest.raises(InventoryConflict, match="Aktiv"):
+                await ledger.reservation_preview(
+                    admin, product_code=CODE, reference="UNKNOWN-RESERVATION"
+                )
             with pytest.raises(InventoryConflict, match="artıq"):
                 await ledger.reserve(admin, reserve_draft)
             with pytest.raises(InventoryConflict, match="sərbəst"):
@@ -334,6 +350,10 @@ def test_stock_opening_movements_retry_and_access_on_disposable_postgres() -> No
             )
             assert cancelled.status == "CANCELLED"
             assert cancelled.reserved == Decimal("2.000")
+            with pytest.raises(InventoryConflict, match="Aktiv"):
+                await ledger.reservation_preview(
+                    admin, product_code=CODE, reference="RES-003"
+                )
             again = await ledger.reservation_action(
                 admin, product_code=CODE, reference="RES-003", action="CANCEL"
             )
