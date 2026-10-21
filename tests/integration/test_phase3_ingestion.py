@@ -221,9 +221,10 @@ def test_exact_raw_bytes_reuse_one_blob_but_one_byte_change_is_new() -> None:
                 assert [item.submitted_filename for item in items] == [
                     "original.pdf", "renamed.pdf", "original.pdf"
                 ]
-                assert {storage.path_for_key(item.storage_key).read_bytes() for item in objects} == {
-                    first_bytes, changed_bytes
+                stored_bytes = {
+                    storage.path_for_key(item.storage_key).read_bytes() for item in objects
                 }
+                assert stored_bytes == {first_bytes, changed_bytes}
             assert len(tuple(storage.blob_root.iterdir())) == 2
         finally:
             await engine.dispose()
