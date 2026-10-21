@@ -120,7 +120,12 @@ class MiniAppStockActionReview:
     ) -> dict[str, object]:
         self._admin(actor)
         if kind in FINALIZATION_KINDS:
-            if warehouse.strip() or quantity.strip() or unit is not None or reason not in (None, ""):
+            if (
+                warehouse.strip()
+                or quantity.strip()
+                or unit is not None
+                or reason not in (None, "")
+            ):
                 raise InventoryValidationError(
                     "Rezervasiya yekunu üçün yalnız məhsul və rezervasiya nömrəsi yazılmalıdır."
                 )
