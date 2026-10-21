@@ -256,6 +256,39 @@ def serve(
         loop.close()
 
 
+def test_network_binding_is_explicit_and_loopback_by_default() -> None:
+    """No service may bind an arbitrary address through a config typo."""
+    loop = asyncio.new_event_loop()
+    backend = cast(MiniAppBackend, DummyBackend())
+    try:
+        with MiniAppHTTPServer(
+            port=0,
+            public_origin="https://assistant.example.org",
+            backend=backend,
+            loop=loop,
+        ) as local:
+            assert local.server_address[0] == "127.0.0.1"
+        for unapproved in ("localhost", "::", "8.8.8.8"):
+            with pytest.raises(ValueError, match="approved IPv4"):
+                MiniAppHTTPServer(
+                    port=0,
+                    public_origin="https://assistant.example.org",
+                    backend=backend,
+                    loop=loop,
+                    bind_host=unapproved,
+                )
+        with MiniAppHTTPServer(
+            port=0,
+            public_origin="https://assistant.example.org",
+            backend=backend,
+            loop=loop,
+            bind_host="0.0.0.0",
+        ) as container:
+            assert container.server_address[0] == "0.0.0.0"
+    finally:
+        loop.close()
+
+
 def call(
     port: int,
     method: str,
