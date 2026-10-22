@@ -1,5 +1,7 @@
 """Typed application settings loaded from environment variables."""
 
+from typing import Literal
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -43,6 +45,11 @@ class Settings(BaseSettings):
     miniapp_local_port: int = Field(default=18791, ge=1024, le=65535)
     miniapp_request_timeout_seconds: float = Field(default=75, ge=5, le=75)
     openai_api_key: SecretStr | None = None
+    # External AI calls are opt-in; the selected provider alone receives content.
+    ai_provider: Literal["openai", "gemini"] = "openai"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_vision_model: str = "gemini-2.5-flash"
     web_search_primary_provider: str = "searxng"
     searxng_base_url: str | None = "http://searxng:8080"
     searxng_request_timeout_seconds: float = 12.0
