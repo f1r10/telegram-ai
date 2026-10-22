@@ -1,6 +1,7 @@
 """Select one approved AI provider. Never silently send data to another vendor."""
 
-from office_assistant.ai.provider import GeminiLanguageModel, OpenAILanguageModel
+from office_assistant.ai.gemini_interactions import GeminiInteractionsLanguageModel
+from office_assistant.ai.provider import OpenAILanguageModel
 from office_assistant.core.settings import Settings
 
 
@@ -9,7 +10,7 @@ def create_language_model(
     *,
     for_extraction: bool = False,
     diagnostic: bool = False,
-) -> OpenAILanguageModel | GeminiLanguageModel | None:
+) -> OpenAILanguageModel | GeminiInteractionsLanguageModel | None:
     """None means no configured key; callers must degrade without AI guesses."""
     timeout_seconds = settings.openai_request_timeout_seconds
     max_output_tokens = (
@@ -26,7 +27,7 @@ def create_language_model(
             or not settings.gemini_api_key.get_secret_value().strip()
         ):
             return None
-        return GeminiLanguageModel(
+        return GeminiInteractionsLanguageModel(
             settings.gemini_api_key.get_secret_value(),
             default_model=settings.gemini_model,
             vision_model=settings.gemini_vision_model,
