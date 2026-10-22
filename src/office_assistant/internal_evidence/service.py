@@ -40,8 +40,8 @@ from office_assistant.internal_evidence.models import (
     UnifiedCitation,
 )
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
-from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.internal_evidence.router import EvidencePlanner
+from office_assistant.internal_evidence.short_answers import concise_document_answer
 
 logger = logging.getLogger(__name__)
 NOT_FOUND_INTERNAL_AZ = "Bu məlumat daxili sistemdə tapılmadı."
@@ -767,7 +767,8 @@ def _deterministic_summary(
             "etibarlı, dəqiq cavab hazırlamaq mümkün olmadı. "
             "Mənbəni yoxlaya və ya sualı daha konkret verə bilərsiniz."
         )
-    return message + (" " + " ".join(f"[{ref.number}]" for ref in citations) if citations else ""), citations
+    markers = " ".join(f"[{ref.number}]" for ref in citations)
+    return message + (f" {markers}" if markers else ""), citations
 
 
 def _ambiguity_answer(result: StructuredEvidence) -> str:
