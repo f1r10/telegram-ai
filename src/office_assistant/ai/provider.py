@@ -35,6 +35,7 @@ class ModelResponse:
     response_id: str | None
     usage: TokenUsage
     latency_ms: int
+    provider: str = "openai"
 
 
 class LanguageModel(Protocol):
@@ -172,6 +173,7 @@ class OpenAILanguageModel:
                     response_id=getattr(response, "id", None),
                     usage=_usage(response),
                     latency_ms=round((time.perf_counter() - started) * 1000),
+                    provider=self.provider_name,
                 )
             except ValidationError as error:
                 expanded_limit = _expanded_output_token_limit(output_token_limit)
@@ -202,6 +204,7 @@ class OpenAILanguageModel:
                             response_id=getattr(response, "id", None),
                             usage=_usage(response),
                             latency_ms=round((time.perf_counter() - started) * 1000),
+                            provider=self.provider_name,
                         )
                     except ValidationError:
                         logger.exception(
@@ -263,7 +266,100 @@ class OpenAILanguageModel:
         )
 
 
+class GeminiLanguageModel(OpenAILanguageModel):
+    """Gemini OpenAI-compatible *chat* adapter, not a Responses API alias.
+
+    Google's published compatibility API documents beta.chat.completions.parse
+    for Pydantic outputs and chat image_url blocks. OpenAI-specific Responses
+    arguments (store, user, text_format) must not be sent to this endpoint.
+    """
+
+    provider_name = "gemini"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        default_model: str,
+        vision_model: str | None = None,
+        timeout_seconds: float = 30.0,
+        max_output_tokens: int = 700,
+        max_retries: int = 2,
+        client: AsyncOpenAI | None = None,
+    ) -> None:
+        super().__init__(
+            api_key,
+            default_model=default_model,
+            strong_model=default_model,
+            vision_model=vision_model,
+            timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
+            max_retries=max_retries,
+            client=client
+            or AsyncOpenAI(
+                api_key=api_key.strip(),
+                base_url=self.BASE_URL,
+                timeout=timeout_seconds,
+                max_retries=0,
+            ),
+        )
+
+    async def describe_image(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        image_bytes: bytes,
+        media_type: str,
+        output_schema: type[T],
+        request_type: str,
+        user_id: int,
+    ) -> ModelResponse:
+        data_url = f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        return await self._generate_parsed(
+            model=self.vision_model,
+            instructions=instructions,
+            input_blocks=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            output_schema=output_schema,
+            request_type=request_type,
+            user_id=user_id,
+        )
+
+    async def _parse_once(
+        self,
+        *,
+        model: str,
+        instructions: str,
+        input_blocks: list[dict[str, Any]],
+        output_schema: type[T],
+        request_type: str,
+        user_id: int,
+        max_output_tokens: int,
+    ) -> Any:
+        del request_type, user_id
+        return await self._client.beta.chat.completions.parse(
+            model=model,
+            messages=[{"role": "system", "content": instructions}, *input_blocks],
+            response_format=output_schema,
+            max_completion_tokens=max_output_tokens,
+        )
+
+
 def _parsed_value(response: Any) -> BaseModel | None:
+    choices = getattr(response, "choices", [])
+    if choices:
+        parsed = getattr(getattr(choices[0], "message", None), "parsed", None)
+        if isinstance(parsed, BaseModel):
+            return parsed
     for item in getattr(response, "output", []):
         for content in getattr(item, "content", []):
             parsed = getattr(content, "parsed", None)
@@ -276,11 +372,17 @@ def _usage(response: Any) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage()
-    details = getattr(usage, "input_tokens_details", None)
+    input_details = getattr(usage, "input_tokens_details", None) or getattr(
+        usage, "prompt_tokens_details", None
+    )
     return TokenUsage(
-        input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
-        cached_input_tokens=int(getattr(details, "cached_tokens", 0) or 0),
-        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        input_tokens=int(
+            getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0
+        ),
+        cached_input_tokens=int(getattr(input_details, "cached_tokens", 0) or 0),
+        output_tokens=int(
+            getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0
+        ),
         total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
     )
 
