@@ -31,7 +31,10 @@ async def check() -> int:
                 request_type="diagnostic",
                 user_id=0,
             )
-            print(f"AI_CHECK=OK provider={result.provider} schema={schema.__name__} model={result.model}")
+            print(
+                f"AI_CHECK=OK provider={result.provider} "
+                f"schema={schema.__name__} model={result.model}"
+            )
         return 0
     except APIStatusError as error:
         print(
