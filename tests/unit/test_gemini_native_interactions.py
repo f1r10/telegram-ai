@@ -11,7 +11,7 @@ import pytest
 from office_assistant.ai.gemini_interactions import (
     GeminiInteractionsHTTPError,
     GeminiInteractionsLanguageModel,
-    _interaction_text,
+    extract_interaction_text,
 )
 from office_assistant.ai.schemas import GeneralModelOutput, ImageTranscriptionOutput
 
@@ -208,21 +208,21 @@ def test_native_retry_is_bounded_for_503_but_not_403(
     asyncio.run(forbidden_case())
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"status": "incomplete", "steps": []},
-        {"status": "failed", "steps": []},
-        {"status": "completed", "steps": []},
-        {"status": "completed", "steps": [{"type": "thought", "content": []}]},
-        [],
-    ],
-)
+INVALID_RESPONSES: list[object] = [
+    {"status": "incomplete", "steps": []},
+    {"status": "failed", "steps": []},
+    {"status": "completed", "steps": []},
+    {"status": "completed", "steps": [{"type": "thought", "content": []}]},
+    [],
+]
+
+
+@pytest.mark.parametrize("payload", INVALID_RESPONSES)
 def test_native_incomplete_or_unexpected_response_never_creates_business_facts(
     payload: object,
 ) -> None:
     with pytest.raises(ValueError):
-        _interaction_text(payload)
+        extract_interaction_text(payload)
 
 
 def test_native_schema_mismatch_fails_closed() -> None:
