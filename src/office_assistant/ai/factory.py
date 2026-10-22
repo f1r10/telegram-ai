@@ -11,17 +11,15 @@ def create_language_model(
     diagnostic: bool = False,
 ) -> OpenAILanguageModel | GeminiLanguageModel | None:
     """None means no configured key; callers must degrade without AI guesses."""
-    limits = {
-        "timeout_seconds": settings.openai_request_timeout_seconds,
-        "max_output_tokens": (
-            128
-            if diagnostic
-            else settings.structured_extraction_max_output_tokens
-            if for_extraction
-            else settings.openai_max_output_tokens
-        ),
-        "max_retries": 0 if diagnostic else 2,
-    }
+    timeout_seconds = settings.openai_request_timeout_seconds
+    max_output_tokens = (
+        128
+        if diagnostic
+        else settings.structured_extraction_max_output_tokens
+        if for_extraction
+        else settings.openai_max_output_tokens
+    )
+    max_retries = 0 if diagnostic else 2
     if settings.ai_provider == "gemini":
         if (
             settings.gemini_api_key is None
@@ -32,7 +30,9 @@ def create_language_model(
             settings.gemini_api_key.get_secret_value(),
             default_model=settings.gemini_model,
             vision_model=settings.gemini_vision_model,
-            **limits,
+            timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
+            max_retries=max_retries,
         )
     if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value().strip():
         return None
