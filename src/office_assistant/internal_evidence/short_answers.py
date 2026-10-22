@@ -11,7 +11,7 @@ from office_assistant.internal_evidence.models import EvidenceBundle, UnifiedCit
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
 
 _PRODUCT_CODE = re.compile(
-    r"(?<![A-Za-z0-9-])([A-Za-z]{1,8}(?:[- ][A-Za-z]{1,8})?[- ]?\\d{1,8}[A-Za-z0-9-]*)"
+    r"(?<![A-Za-z0-9-])([A-Za-z]{1,8}(?:[- ][A-Za-z]{1,8})?[- ]?\d{1,8}[A-Za-z0-9-]*)"
     r"(?![A-Za-z0-9-])"
 )
 _DECIMAL = re.compile(r"\d+(?:[.,]\d{1,4})?")
