@@ -7,6 +7,7 @@ Reports only model IDs and safe HTTP/error categories.
 import asyncio
 import json
 import logging
+from typing import cast
 
 import httpx
 
@@ -24,12 +25,17 @@ RECOMMENDED = (
 
 def available_generation_models(payload: object) -> set[str]:
     """Keep only published generation-capable model identifiers."""
-    if not isinstance(payload, dict) or not isinstance(payload.get("models"), list):
+    if not isinstance(payload, dict):
+        raise ValueError("Malformed Gemini model catalog")
+    fields = cast(dict[str, object], payload)
+    rows = fields.get("models")
+    if not isinstance(rows, list):
         raise ValueError("Malformed Gemini model catalog")
     result: set[str] = set()
-    for model in payload["models"]:
-        if not isinstance(model, dict):
+    for row in cast(list[object], rows):
+        if not isinstance(row, dict):
             continue
+        model = cast(dict[str, object], row)
         name = model.get("name")
         methods = model.get("supportedGenerationMethods")
         if (
