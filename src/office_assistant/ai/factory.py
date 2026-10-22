@@ -32,8 +32,8 @@ def create_language_model(
             default_model=settings.gemini_model,
             vision_model=settings.gemini_vision_model,
             timeout_seconds=timeout_seconds,
-            max_output_tokens=max_output_tokens,
-            max_retries=max_retries,
+            max_output_tokens=max(max_output_tokens, 512),
+            max_retries=2 if diagnostic else max_retries,
         )
     if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value().strip():
         return None
