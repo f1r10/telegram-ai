@@ -73,7 +73,7 @@ The last setting simply postpones billable AI extraction during infrastructure s
 
 ### Optional Gemini instead of OpenAI — use synthetic test data first
 
-Google Gemini offers an OpenAI-library-compatible **Chat Completions** API, but it is not equivalent to the OpenAI Responses API. The application contains a separate Gemini adapter. Do not enter the Google key into `OPENAI_API_KEY`. The operator may edit `.env` privately to add/change these lines (do not post the key or contents of `.env`):
+Google Gemini supports an OpenAI-compatible Chat Completions API, but Google recommends its native **Interactions API** for new models. The application now uses native `/v1beta/interactions` for Gemini, the endpoint used by Google's documented `google.genai.Client().interactions.create()` example. Chat Completions or `generateContent` succeeding/failing does not establish that Interactions structured outputs are operational. Do not enter the Google key into `OPENAI_API_KEY`. The operator may edit `.env` privately to add/change these lines (do not post the key or contents of `.env`):
 
 ```text
 AI_PROVIDER=gemini
@@ -91,7 +91,7 @@ docker compose -f docker-compose.staging.yml --env-file .env build app worker
 docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_ai
 ```
 
-Expect `AI_CHECK=OK provider=gemini` for two Pydantic schemas. If the diagnostic fails, do not enable the bot's AI chat or auto-extraction. In particular, Google now restricts **Gemini 2.5 model access for newly created projects**; Google recommends newer Flash models. A Gemini `404` can mean that the configured model is not available to this project, **not necessarily that the key is invalid**. List accessible models through the official *read-only* catalog endpoint, without uploading a prompt:
+Expect `AI_CHECK=OK provider=gemini` for two Pydantic schemas. The native implementation sends `store=false`, validates the returned JSON against Pydantic, uses only the selected vendor, and performs at most two bounded retries on temporary 503/429/5xx responses. If the diagnostic still returns `503`, **do not change or expose credentials**: retry at a later time or review the Gemini service status. If the diagnostic fails, do not enable the bot's AI chat or auto-extraction. In particular, Google now restricts **Gemini 2.5 model access for newly created projects**; Google recommends newer Flash models. A Gemini `404` can mean that the configured model is not available to this project, **not necessarily that the key is invalid**. List accessible models through the official *read-only* catalog endpoint, without uploading a prompt:
 
 ```bash
 docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_gemini_models
