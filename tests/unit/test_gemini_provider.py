@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 from pydantic import SecretStr
 
 from office_assistant.ai.factory import create_language_model
+from office_assistant.ai.gemini_interactions import GeminiInteractionsLanguageModel
 from office_assistant.ai.provider import GeminiLanguageModel
 from office_assistant.ai.schemas import GeneralModelOutput, ImageTranscriptionOutput
 from office_assistant.core.settings import Settings
@@ -117,7 +118,7 @@ def test_provider_selection_never_falls_back_to_other_vendor() -> None:
             openai_api_key=SecretStr("other-vendor-test-only"),
         )
     )
-    assert isinstance(gemini, GeminiLanguageModel)
+    assert isinstance(gemini, GeminiInteractionsLanguageModel)
     asyncio.run(gemini.close())
 
 
