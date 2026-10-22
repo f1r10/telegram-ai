@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Gemini native Interactions adapter and transient 503 handling (2026-10-22)
+
+- Route `AI_PROVIDER=gemini` via Google's native `/v1beta/interactions` REST endpoint instead of the OpenAI-compatibility chat gateway; preserve OpenAI's existing path unchanged and never silently fail over between vendors.
+- Use `store=false`, separate policy/system instructions, local Pydantic JSON-schema validation, native inline image blocks, explicit model-response/usage provenance and safe HTTP status handling. Avoid logging request bodies, headers, image data, API keys or response contents.
+- Retry only transient 408/429/5xx responses and bounded connection errors, max two retries; respect bounded numeric `Retry-After`. Fail closed on incomplete or malformed model outputs. Add offline contract tests with HTTP mocks.
+- **No live Gemini structured output or production data accepted until operator's two-schema `check_ai` passes**. A user-visible 503 does not mean credentials are invalid; Google documents overload and retry/backoff mitigation.
+
+
 ### Gemini new-project 404 model-access fix (2026-10-22)
 
 - Google now restricts Gemini 2.5 API access for new projects even though it remains a published model. Switch Gemini default text/vision model to documented `gemini-3.8-flash` while keeping every operator-configured model override explicit.
