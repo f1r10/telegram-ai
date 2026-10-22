@@ -151,3 +151,23 @@ def test_synthesis_fallback_never_dumps_authoritative_business_json() -> None:
     assert "{" not in answer
     assert "mənbə tapıldı" in answer or "mənbə" in answer
     assert len(cites) == 1
+
+
+def test_authoritative_data_disables_document_price_fallback() -> None:
+    from office_assistant.internal_evidence.models import StructuredEvidence
+
+    question = "QA-XLSX-951 məhsulunun maya dəyəri və satış qiyməti neçə AZN-dir?"
+    bundle = build_evidence_bundle(
+        [
+            StructuredEvidence(
+                tool_name="resolve_product_price",
+                status="OK",
+                data={"status": "OK", "price": {"selling_price": 101.0}},
+            )
+        ],
+        [_doc("test.xlsx", 951, XLSX)],
+    )
+    answer, _ = _deterministic_summary(bundle, question)
+    assert "96,50 AZN" not in answer
+    assert "71,25 AZN" not in answer
+    assert "mənbə tapıldı" in answer
