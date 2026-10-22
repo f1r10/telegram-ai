@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     # External AI calls are opt-in; the selected provider alone receives content.
     ai_provider: Literal["openai", "gemini"] = "openai"
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_vision_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_vision_model: str = "gemini-3.8-flash"
     web_search_primary_provider: str = "searxng"
     searxng_base_url: str | None = "http://searxng:8080"
     searxng_request_timeout_seconds: float = 12.0
