@@ -40,6 +40,7 @@ from office_assistant.internal_evidence.models import (
     UnifiedCitation,
 )
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
+from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.internal_evidence.router import EvidencePlanner
 
 logger = logging.getLogger(__name__)
@@ -182,6 +183,20 @@ class InternalEvidenceService:
                 router_usage=router_usage,
                 tool_calls=tool_calls,
             )
+        # Exact, explicitly labelled facts do not require generative rephrasing.
+        # Only document evidence (not unapproved catalog/stock values) is eligible.
+        concise = concise_document_answer(question, bundle)
+        if concise is not None and not usable_structured:
+            answer, cited = concise
+            await self._persist_turn(actor.id, question, answer, cited)
+            return InternalAnswer(
+                answer=answer,
+                route=plan.category,
+                citations=tuple(cited),
+                conflicts=tuple(bundle.conflicts),
+                router_usage=router_usage,
+                tool_calls=tool_calls,
+            )
         try:
             response = await self.language_model.generate(
                 instructions=SYNTHESIS_POLICY,
@@ -206,7 +221,7 @@ class InternalEvidenceService:
             model = response.model
         except Exception as error:
             logger.warning("Internal synthesis fallback | error_type=%s", type(error).__name__)
-            answer, cited = _deterministic_summary(bundle)
+            answer, cited = _deterministic_summary(bundle, question)
             synthesis_usage = TokenUsage()
             model = None
             response = None
@@ -393,7 +408,7 @@ class InternalEvidenceService:
                 AIUsage(
                     user_id=user_id,
                     conversation_id=conversation.id if conversation else None,
-                    provider="openai",
+                    provider=response.provider,
                     model=response.model,
                     request_type=request_type,
                     input_tokens=usage.input_tokens,
@@ -727,25 +742,32 @@ def _validated_synthesis(
 
 
 def _deterministic_summary(
-    bundle: EvidenceBundle,
+    bundle: EvidenceBundle, question: str
 ) -> tuple[str, tuple[UnifiedCitation, ...]]:
-    lines: list[str] = []
-    for result in bundle.structured_results:
-        if result.status in {"OK", "CONFLICT"}:
-            lines.append(
-                f"Biznes bazası ({result.tool_name}): "
-                f"{json.dumps(result.data, ensure_ascii=False, default=str)}"
-            )
-    for item in bundle.document_results:
-        lines.append(f"Sənəd ({item.filename}): {item.text[:500]}")
-    for item in bundle.image_results:
-        read_text = item.text or item.description
-        lines.append(f"Şəkildəki mətn ({item.filename}): {read_text[:500]}")
+    """Never dump raw JSON, entire Excel rows or source paragraphs into a chat.
+
+    When synthesis fails, answer only facts deterministically proven from
+    labelled source data; otherwise return a transparent incomplete answer.
+    """
+    exact = concise_document_answer(question, bundle)
+    if exact is not None:
+        return exact
+    citations = tuple(
+        reference.model_copy(update={"number": number})
+        for number, reference in enumerate(bundle.citations[:2], start=1)
+    )
     if bundle.conflicts:
-        lines.append("Mənbələr arasında fərq və ya konflikt var.")
-    citations = tuple(bundle.citations)
-    markers = " ".join(f"[{item.number}]" for item in citations)
-    return "\n".join(lines) + (f"\n{markers}" if markers else ""), citations
+        message = (
+            "Mənbələrdə fərqli məlumatlar var. "
+            "Hansı dəyərin düzgün olduğu təsdiqlənməyib."
+        )
+    else:
+        message = (
+            "Sorğuya uyğun mənbə tapıldı, lakin hazırda bu suala "
+            "etibarlı, dəqiq cavab hazırlamaq mümkün olmadı. "
+            "Mənbəni yoxlaya və ya sualı daha konkret verə bilərsiniz."
+        )
+    return message + (" " + " ".join(f"[{ref.number}]" for ref in citations) if citations else ""), citations
 
 
 def _ambiguity_answer(result: StructuredEvidence) -> str:
