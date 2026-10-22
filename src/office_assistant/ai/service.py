@@ -202,7 +202,7 @@ class GroundedAnswerService:
                 AIUsage(
                     user_id=user_id,
                     conversation_id=conversation.id,
-                    provider="openai",
+                    provider=response.provider,
                     model=response.model,
                     request_type=mode,
                     input_tokens=usage.input_tokens,
