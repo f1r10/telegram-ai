@@ -757,10 +757,7 @@ def _deterministic_summary(
         for number, reference in enumerate(bundle.citations[:2], start=1)
     )
     if bundle.conflicts:
-        message = (
-            "Mənbələrdə fərqli məlumatlar var. "
-            "Hansı dəyərin düzgün olduğu təsdiqlənməyib."
-        )
+        message = "Mənbələrdə fərqli məlumatlar var. Hansı dəyərin düzgün olduğu təsdiqlənməyib."
     else:
         message = (
             "Sorğuya uyğun mənbə tapıldı, lakin hazırda bu suala "
