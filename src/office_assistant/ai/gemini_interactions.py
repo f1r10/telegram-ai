@@ -185,10 +185,14 @@ class GeminiInteractionsLanguageModel:
         model: str,
     ) -> ModelResponse:
         started = time.perf_counter()
+        # Thinking tokens count toward the native model's completion budget.
+        # A small 700-token budget can truncate otherwise valid cited JSON.
         token_budget = (
-            max(self.max_output_tokens, 1400)
+            max(self.max_output_tokens, 2400)
             if request_type
             in {
+                "internal_synthesis",
+                "internal_router",
                 "internet_synthesis",
                 "combined_search_synthesis",
                 "image_transcription",
