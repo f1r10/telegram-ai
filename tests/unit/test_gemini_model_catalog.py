@@ -13,7 +13,10 @@ def test_catalog_keeps_only_gemini_generate_content_models() -> None:
                 "supportedGenerationMethods": ["generateContent", "countTokens"],
             },
             {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["countTokens"]},
-            {"name": "models/gemini-3.5-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+            {
+                "name": "models/gemini-3.5-flash-lite",
+                "supportedGenerationMethods": ["generateContent"],
+            },
             {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
             {"name": "models/gemini-unknown", "supportedGenerationMethods": ["embedContent"]},
             {"name": "models/gemini-invalid", "supportedGenerationMethods": "generateContent"},
