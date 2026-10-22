@@ -215,7 +215,9 @@ class GeminiInteractionsLanguageModel:
                             response.status_code,
                             attempt + 1,
                         )
-                        await asyncio.sleep(_backoff_seconds(attempt, response.headers.get("retry-after")))
+                        await asyncio.sleep(
+                            _backoff_seconds(attempt, response.headers.get("retry-after"))
+                        )
                         continue
                     raise GeminiInteractionsHTTPError(response.status_code)
                 text, interaction_id, usage = _interaction_text(response.json())
