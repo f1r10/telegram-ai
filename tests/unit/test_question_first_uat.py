@@ -92,12 +92,18 @@ def test_excel_prices_have_separate_explicit_roles_and_unapproved_state() -> Non
 
 def test_no_value_crossing_to_another_sku() -> None:
     only_other = build_evidence_bundle([], [_doc("other.xlsx", 952, XLSX)])
-    assert concise_document_answer(
-        "QA-XLSX-953 məhsulunun maya dəyəri və satış qiyməti neçədir?", only_other
-    ) is None
-    assert concise_document_answer(
-        "QA-OTHER-951 məhsulunun maya dəyəri və satış qiyməti neçədir?", only_other
-    ) is None
+    assert (
+        concise_document_answer(
+            "QA-XLSX-953 məhsulunun maya dəyəri və satış qiyməti neçədir?", only_other
+        )
+        is None
+    )
+    assert (
+        concise_document_answer(
+            "QA-OTHER-951 məhsulunun maya dəyəri və satış qiyməti neçədir?", only_other
+        )
+        is None
+    )
 
 
 def test_ambiguity_and_mislabelled_columns_fail_closed() -> None:
