@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from openai import AsyncOpenAI
+from pydantic import SecretStr
 
 from office_assistant.ai.factory import create_language_model
 from office_assistant.ai.provider import GeminiLanguageModel
@@ -104,15 +105,14 @@ def test_gemini_sends_images_as_chat_url_blocks_and_never_logs_bytes(
 
 
 def test_provider_selection_never_falls_back_to_other_vendor() -> None:
-    assert create_language_model(Settings(ai_provider="gemini", gemini_api_key="")) is None
-    assert create_language_model(Settings(ai_provider="openai", openai_api_key="")) is None
+    assert create_language_model(Settings(ai_provider="gemini", gemini_api_key=SecretStr(""))) is None
+    assert create_language_model(Settings(ai_provider="openai", openai_api_key=SecretStr(""))) is None
 
     gemini = create_language_model(
         Settings(
-            _env_file=None,
             ai_provider="gemini",
-            gemini_api_key="test-only",
-            openai_api_key="other-vendor-test-only",
+            gemini_api_key=SecretStr("test-only"),
+            openai_api_key=SecretStr("other-vendor-test-only"),
         )
     )
     assert isinstance(gemini, GeminiLanguageModel)
