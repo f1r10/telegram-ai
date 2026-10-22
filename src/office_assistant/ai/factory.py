@@ -23,7 +23,10 @@ def create_language_model(
         "max_retries": 0 if diagnostic else 2,
     }
     if settings.ai_provider == "gemini":
-        if settings.gemini_api_key is None or not settings.gemini_api_key.get_secret_value().strip():
+        if (
+            settings.gemini_api_key is None
+            or not settings.gemini_api_key.get_secret_value().strip()
+        ):
             return None
         return GeminiLanguageModel(
             settings.gemini_api_key.get_secret_value(),
