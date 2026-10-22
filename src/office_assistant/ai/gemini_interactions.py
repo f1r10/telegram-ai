@@ -37,7 +37,12 @@ def _as_object(value: object) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _interaction_text(payload: object) -> tuple[str, str | None, TokenUsage]:
+def _usage_count(value: object) -> int:
+    """Only use nonnegative JSON integer counters, never coerce arbitrary objects."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def extract_interaction_text(payload: object) -> tuple[str, str | None, TokenUsage]:
     obj = _as_object(payload)
     if obj.get("status") != "completed":
         raise ValueError("Gemini interaction is not completed")
@@ -64,10 +69,10 @@ def _interaction_text(payload: object) -> tuple[str, str | None, TokenUsage]:
         "".join(output),
         interaction_id if isinstance(interaction_id, str) else None,
         TokenUsage(
-            input_tokens=int(usage.get("total_input_tokens") or 0),
-            cached_input_tokens=int(usage.get("total_cached_tokens") or 0),
-            output_tokens=int(usage.get("total_output_tokens") or 0),
-            total_tokens=int(usage.get("total_tokens") or 0),
+            input_tokens=_usage_count(usage.get("total_input_tokens")),
+            cached_input_tokens=_usage_count(usage.get("total_cached_tokens")),
+            output_tokens=_usage_count(usage.get("total_output_tokens")),
+            total_tokens=_usage_count(usage.get("total_tokens")),
         ),
     )
 
@@ -221,7 +226,7 @@ class GeminiInteractionsLanguageModel:
                         )
                         continue
                     raise GeminiInteractionsHTTPError(response.status_code)
-                text, interaction_id, usage = _interaction_text(response.json())
+                text, interaction_id, usage = extract_interaction_text(response.json())
                 parsed = output_schema.model_validate_json(text)
                 return ModelResponse(
                     parsed=parsed,
