@@ -78,8 +78,8 @@ Google Gemini offers an OpenAI-library-compatible **Chat Completions** API, but 
 ```text
 AI_PROVIDER=gemini
 GEMINI_API_KEY=<your-test-project-key>
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_VISION_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_VISION_MODEL=gemini-3.8-flash
 STRUCTURED_EXTRACTION_ENABLED=false
 TELEGRAM_POLLING_ENABLED=false
 ```
