@@ -45,5 +45,7 @@ def create_language_model(
         ),
         strong_model=settings.openai_strong_model,
         vision_model=settings.vision_model,
-        **limits,
+        timeout_seconds=timeout_seconds,
+        max_output_tokens=max_output_tokens,
+        max_retries=max_retries,
     )
