@@ -749,9 +749,7 @@ def _deterministic_summary(
     When synthesis fails, answer only facts deterministically proven from
     labelled source data; otherwise return a transparent incomplete answer.
     """
-    has_authoritative = any(
-        item.status in {"OK", "CONFLICT"} for item in bundle.structured_results
-    )
+    has_authoritative = any(item.status in {"OK", "CONFLICT"} for item in bundle.structured_results)
     exact = None if has_authoritative else concise_document_answer(question, bundle)
     if exact is not None:
         return exact
