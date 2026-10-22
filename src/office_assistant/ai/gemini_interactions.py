@@ -182,7 +182,8 @@ class GeminiInteractionsLanguageModel:
         started = time.perf_counter()
         token_budget = (
             max(self.max_output_tokens, 1400)
-            if request_type in {
+            if request_type
+            in {
                 "internet_synthesis",
                 "combined_search_synthesis",
                 "image_transcription",
