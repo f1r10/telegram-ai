@@ -104,14 +104,8 @@ def test_gemini_sends_images_as_chat_url_blocks_and_never_logs_bytes(
 
 
 def test_provider_selection_never_falls_back_to_other_vendor() -> None:
-    assert (
-        create_language_model(Settings(ai_provider="gemini", gemini_api_key=""))
-        is None
-    )
-    assert (
-        create_language_model(Settings(ai_provider="openai", openai_api_key=""))
-        is None
-    )
+    assert create_language_model(Settings(ai_provider="gemini", gemini_api_key="")) is None
+    assert create_language_model(Settings(ai_provider="openai", openai_api_key="")) is None
 
     gemini = create_language_model(
         Settings(
