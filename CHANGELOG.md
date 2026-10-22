@@ -4,6 +4,13 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Gemini new-project 404 model-access fix (2026-10-22)
+
+- Google now restricts Gemini 2.5 API access for new projects even though it remains a published model. Switch Gemini default text/vision model to documented `gemini-3.8-flash` while keeping every operator-configured model override explicit.
+- Add read-only model-catalog diagnostic `python -m office_assistant.scripts.check_gemini_models` using a private `x-goog-api-key` header. Lists accessible generation models only, without sending business documents or echoing keys. Add a safe 404 diagnostic hint and offline model-list parsing regressions.
+- Do **not** infer that the live Gemini API was successfully tested by CI. The operator must set both model values in an existing private `.env` and run the two-schema live `check_ai` probe. No existing `tgstage_*` or `qoder_*` runtime resources have been modified by this code change.
+
+
 ### Optional Gemini API provider for isolated staging (2026-10-22)
 
 - Allow explicitly selecting `AI_PROVIDER=gemini` with a private `GEMINI_API_KEY`. Implement a separate Gemini Chat Completions Pydantic/vision adapter instead of assuming the existing OpenAI Responses API works by replacing a key. OpenAI remains the default and backwards-compatible provider.
