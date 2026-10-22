@@ -27,11 +27,14 @@ _BOX = re.compile(
 
 
 def _exact_identifier(identifier: str, text: str) -> bool:
-    return re.search(
-        rf"(?<![A-Za-z0-9-]){re.escape(identifier)}(?![A-Za-z0-9-])",
-        text,
-        flags=re.IGNORECASE,
-    ) is not None
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9-]){re.escape(identifier)}(?![A-Za-z0-9-])",
+            text,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
 
 
 def _field_price(row: list[str], headings: list[str], field: str) -> str | None:
@@ -86,9 +89,7 @@ def concise_document_answer(
     None means synthesis is still needed. Conflicting claims are never silently
     resolved by this fast path.
     """
-    if bundle.conflicts or any(
-        result.status == "CONFLICT" for result in bundle.structured_results
-    ):
+    if bundle.conflicts or any(result.status == "CONFLICT" for result in bundle.structured_results):
         return None
     ids = {match.group(1).upper() for match in _PRODUCT_CODE.finditer(question)}
     if len(ids) != 1:
@@ -96,9 +97,7 @@ def concise_document_answer(
     identifier = next(iter(ids))
     norm = normalize_user_query(question)
     wants_warranty = "zemanet" in norm and "muddet" in norm
-    wants_box = "qutu" in norm and any(
-        word in norm for word in ("eded", "say", "nece")
-    )
+    wants_box = "qutu" in norm and any(word in norm for word in ("eded", "say", "nece"))
     wants_prices = "maya" in norm and "satis" in norm and "qiymet" in norm
     if not (wants_warranty or wants_box or wants_prices):
         return None
