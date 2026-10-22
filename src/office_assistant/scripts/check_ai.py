@@ -6,6 +6,7 @@ import logging
 from openai import APIStatusError
 
 from office_assistant.ai.factory import create_language_model
+from office_assistant.ai.gemini_interactions import GeminiInteractionsHTTPError
 from office_assistant.ai.provider import error_code
 from office_assistant.ai.schemas import GeneralModelOutput, GroundedModelOutput
 from office_assistant.core.settings import load_settings
@@ -36,6 +37,13 @@ async def check() -> int:
                 f"schema={schema.__name__} model={result.model}"
             )
         return 0
+    except GeminiInteractionsHTTPError as error:
+        print(f"AI_CHECK=FAILED provider=gemini status={error.status_code}")
+        if error.status_code == 503:
+            print("AI_HINT=Gemini is temporarily overloaded; native Interactions retries exhausted")
+        elif error.status_code == 404:
+            print("AI_HINT=Check the selected model with check_gemini_models")
+        return 1
     except APIStatusError as error:
         print(
             f"AI_CHECK=FAILED provider={settings.ai_provider} "
