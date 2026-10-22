@@ -8,11 +8,12 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from office_assistant.internal_evidence.models import EvidenceBundle, UnifiedCitation
-from office_assistant.internal_evidence.query_normalization import (
-    normalize_user_query,
-    strong_identifiers,
-)
+from office_assistant.internal_evidence.query_normalization import normalize_user_query
 
+_PRODUCT_CODE = re.compile(
+    r"(?<![A-Za-z0-9-])([A-Za-z]{1,8}(?:[- ][A-Za-z]{1,8})?[- ]?\\d{1,8}[A-Za-z0-9-]*)"
+    r"(?![A-Za-z0-9-])"
+)
 _DECIMAL = re.compile(r"\d+(?:[.,]\d{1,4})?")
 _WARRANTY = re.compile(
     r"z[əe]man[əe]t\s+m[üu]dd[əe]ti\s*[:|]?\s*(\d{1,3})\s*(ay|il)\b",
@@ -26,7 +27,11 @@ _BOX = re.compile(
 
 
 def _exact_identifier(identifier: str, text: str) -> bool:
-    return identifier in strong_identifiers(text)
+    return re.search(
+        rf"(?<![A-Za-z0-9-]){re.escape(identifier)}(?![A-Za-z0-9-])",
+        text,
+        flags=re.IGNORECASE,
+    ) is not None
 
 
 def _field_price(row: list[str], headings: list[str], field: str) -> str | None:
@@ -64,7 +69,7 @@ def _spreadsheet_price(text: str, code: str) -> tuple[str, str] | None:
             continue
         if not headers or len(columns) != len(headers):
             continue
-        if code not in strong_identifiers(columns[0]):
+        if columns[0].casefold() != code.casefold():
             continue
         selling = _field_price(columns, headers, "satis qiymeti")
         cost = _field_price(columns, headers, "maya deyeri")
@@ -85,10 +90,10 @@ def concise_document_answer(
         result.status == "CONFLICT" for result in bundle.structured_results
     ):
         return None
-    ids = strong_identifiers(question)
+    ids = {match.group(1).upper() for match in _PRODUCT_CODE.finditer(question)}
     if len(ids) != 1:
         return None
-    identifier = ids[0]
+    identifier = next(iter(ids))
     norm = normalize_user_query(question)
     wants_warranty = "zemanet" in norm and "muddet" in norm
     wants_box = "qutu" in norm and any(
