@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Optional Gemini API provider for isolated staging (2026-10-22)
+
+- Allow explicitly selecting `AI_PROVIDER=gemini` with a private `GEMINI_API_KEY`. Implement a separate Gemini Chat Completions Pydantic/vision adapter instead of assuming the existing OpenAI Responses API works by replacing a key. OpenAI remains the default and backwards-compatible provider.
+- Route selected vendor to Telegram chat and the candidate-first worker; preserve unknown-source review and fail-closed provider selection. Add a synthetic-only selected-provider `scripts.check_ai` diagnostic and distinguish provider in AI-usage audit.
+- Extend independent Docker staging/legacy worker environment configuration, add offline adapter tests, and document free-tier privacy limits. No customer data, private keys or live Gemini calls are included in GitHub CI.
+- **Still requires real API probe and representative authorized image/Excel UAT** before calling Gemini production ready; free-tier vendor policy must be evaluated before uploading company data.
+
+
 ### Source price-role approval guard (2026-10-21)
 
 - Distinguish `SELLING_PRICE`, `COST_PRICE`, `QUOTE_PRICE`, and `UNKNOWN` in candidate extraction. A supplier purchase cost, quotation or unlabelled field is **not** an authorized selling price solely because an LLM saw a number and a currency.
