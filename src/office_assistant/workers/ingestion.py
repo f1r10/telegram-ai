@@ -4,7 +4,7 @@ import asyncio
 import logging
 import signal
 
-from office_assistant.ai.provider import OpenAILanguageModel
+from office_assistant.ai.factory import create_language_model
 from office_assistant.core.clock import SystemClock
 from office_assistant.core.logging import configure_logging
 from office_assistant.core.settings import load_settings
@@ -67,19 +67,14 @@ async def run() -> None:
         clock=SystemClock(),
         lease_seconds=settings.worker_lease_seconds,
     )
-    if settings.structured_extraction_enabled and settings.openai_api_key is not None:
-        extraction_model = OpenAILanguageModel(
-            settings.openai_api_key.get_secret_value(),
-            default_model=settings.structured_extraction_model,
-            strong_model=settings.openai_strong_model,
-            timeout_seconds=settings.openai_request_timeout_seconds,
-            max_output_tokens=settings.structured_extraction_max_output_tokens,
-        )
+    if settings.structured_extraction_enabled:
+        extraction_model = create_language_model(settings, for_extraction=True)
+    if extraction_model is not None:
         extractor = StructuredExtractionService(
             factory,
             LocalFileStorage(settings.file_storage_path),
             extraction_model,
-            model=settings.structured_extraction_model,
+            model=extraction_model.default_model,
             max_chars=settings.structured_extraction_max_input_chars,
             batch_size=settings.structured_extraction_batch_size,
             review_ttl_hours=settings.structured_review_ttl_hours,

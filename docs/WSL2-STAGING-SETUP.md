@@ -55,7 +55,7 @@ chmod 600 .env
 nano .env
 ```
 
-Required initially: a unique, strong `POSTGRES_PASSWORD`, separate test-only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ACCESS_PASSWORD` **when ready for bot testing**, a private `SEARXNG_SECRET`, and an OpenAI API key only when a billable AI test is approved. Do not copy a production `.env` to staging.
+Required initially: a unique, strong `POSTGRES_PASSWORD`, separate test-only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ACCESS_PASSWORD` **when ready for bot testing**, a private `SEARXNG_SECRET`, and **one explicitly selected AI provider** for optional model tests. Supported providers are `AI_PROVIDER=openai` with `OPENAI_API_KEY`, or `AI_PROVIDER=gemini` with `GEMINI_API_KEY`; never silently fall back between vendors. Do not copy a production `.env` to staging.
 
 Keep these exact safe choices for the first infrastructure pass:
 
@@ -69,7 +69,33 @@ VISUAL_SEMANTIC_ENABLED=false
 STRUCTURED_EXTRACTION_ENABLED=false
 ```
 
-The last setting simply postpones billable AI extraction during infrastructure smoke. Later restore it to `true` with an authorized test API key and a representative private corpus. Verify `OPENAI_DEFAULT_MODEL` using the account's model availability and the explicit diagnostic. No real source documents are required for initial startup.
+The last setting simply postpones billable AI extraction during infrastructure smoke. Later restore it to `true` with an authorized test API key and a representative private corpus. No real source documents are required for initial startup.
+
+### Optional Gemini instead of OpenAI — use synthetic test data first
+
+Google Gemini offers an OpenAI-library-compatible **Chat Completions** API, but it is not equivalent to the OpenAI Responses API. The application contains a separate Gemini adapter. Do not enter the Google key into `OPENAI_API_KEY`. The operator may edit `.env` privately to add/change these lines (do not post the key or contents of `.env`):
+
+```text
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<your-test-project-key>
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_VISION_MODEL=gemini-2.5-flash
+STRUCTURED_EXTRACTION_ENABLED=false
+TELEGRAM_POLLING_ENABLED=false
+```
+
+The first diagnostics use **synthetic English text** only, not company documents or photos:
+
+```bash
+docker compose -f docker-compose.staging.yml --env-file .env build app worker
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_ai
+```
+
+Expect `AI_CHECK=OK provider=gemini` for two Pydantic schemas. If the diagnostic fails, do not enable the bot's AI chat or auto-extraction. Verify key, model availability, provider quotas, structured response compatibility and errors in the provider console. Live Gemini support remains **unverified until this operator test passes**.
+
+**Data governance:** Google's free-tier Gemini API can use submitted content to improve products; never send confidential supplier lists, original photos or company finance data to the free tier. Obtain documented company approval and an appropriate data-protection tier before real uploads. The normal, deterministic PDF/Excel/Word parsing and local Qdrant projection can operate without a language-model API; AI conversational answers and vision/structured extraction cannot. Do not enable `STRUCTURED_EXTRACTION_ENABLED=true` until an approved data-handling plan and real validation exist.
+
+For OpenAI, continue using `AI_PROVIDER=openai` with `OPENAI_API_KEY`; `OPENAI_DEFAULT_MODEL` is configured separately. Both providers use the same app/worker feature flags and consent boundary.
 
 The isolated staging Compose file injects `POSTGRES_HOST=postgres` and `QDRANT_URL=http://qdrant:6333` inside containers; the local `.env.example` uses `localhost` for host tools. Do not change these container endpoints blindly.
 
@@ -105,10 +131,10 @@ After an approved infrastructure health check and test-only credentials, set `TE
 docker compose -f docker-compose.staging.yml --env-file .env up -d --no-deps --force-recreate app
 ```
 
-Use `/start` and `/menu` with **two dedicated test Telegram accounts**. Proceed with synthetic TXT/PDF/DOCX/XLSX, source downloads, rejection of unknown stock and explicit /saxla. Run the OpenAI diagnostic on the staging app before declaring chat healthy:
+Use `/start` and `/menu` with **two dedicated test Telegram accounts**. Proceed with synthetic TXT/PDF/DOCX/XLSX, source downloads, rejection of unknown stock and explicit /saxla. Run the selected-provider diagnostic on the staging app before declaring chat healthy:
 
 ```bash
-docker compose -f docker-compose.staging.yml --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_openai
+docker compose -f docker-compose.staging.yml --env-file .env exec -T app uv run --no-dev python -m office_assistant.scripts.check_ai
 ```
 
 This makes small billable API requests if an OpenAI key is configured. Do not trigger it without approval.

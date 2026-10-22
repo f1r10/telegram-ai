@@ -4,7 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from office_assistant.ai.provider import OpenAILanguageModel
+from office_assistant.ai.factory import create_language_model
 from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
@@ -62,6 +62,7 @@ def bootstrap(settings: Settings | None = None) -> Settings:
             resolved_settings.telegram_bot_token,
             resolved_settings.telegram_access_password,
             resolved_settings.openai_api_key,
+            resolved_settings.gemini_api_key,
             resolved_settings.tavily_api_key,
             resolved_settings.exa_api_key,
         )
@@ -99,22 +100,14 @@ def main() -> None:
             ttl_hours=settings.pending_session_ttl_hours,
             max_upload_bytes=settings.max_upload_bytes,
         )
-        language_model = None
+        language_model = create_language_model(settings)
         image_reader = None
         qdrant_store = None
         retrieval = None
         internal_service = None
         web_service = None
         web_clients: list[object] = []
-        if settings.openai_api_key is not None:
-            language_model = OpenAILanguageModel(
-                settings.openai_api_key.get_secret_value(),
-                default_model=settings.openai_default_model,
-                strong_model=settings.openai_strong_model,
-                vision_model=settings.vision_model,
-                timeout_seconds=settings.openai_request_timeout_seconds,
-                max_output_tokens=settings.openai_max_output_tokens,
-            )
+        if language_model is not None:
             image_reader = ImageVisionExtractor(
                 language_model,
                 max_image_bytes=settings.vision_max_image_bytes,

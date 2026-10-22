@@ -249,7 +249,7 @@ class StructuredExtractionService:
                     user_id=run.owner_user_id,
                     conversation_id=None,
                     extraction_run_id=run.id,
-                    provider="openai",
+                    provider=response.provider,
                     model=response.model,
                     request_type="structured_extraction",
                     input_tokens=response.usage.input_tokens,
