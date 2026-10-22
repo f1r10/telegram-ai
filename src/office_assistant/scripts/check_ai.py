@@ -41,6 +41,11 @@ async def check() -> int:
             f"AI_CHECK=FAILED provider={settings.ai_provider} "
             f"status={error.status_code} code={error_code(error)}"
         )
+        if settings.ai_provider == "gemini" and error.status_code == 404:
+            print(
+                "AI_HINT=Model might be unavailable to this project; "
+                "run office_assistant.scripts.check_gemini_models"
+            )
         return 1
     except Exception as error:
         # Never print SDK exception bodies (could include private prompt/headers).

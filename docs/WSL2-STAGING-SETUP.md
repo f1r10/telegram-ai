@@ -78,8 +78,8 @@ Google Gemini offers an OpenAI-library-compatible **Chat Completions** API, but 
 ```text
 AI_PROVIDER=gemini
 GEMINI_API_KEY=<your-test-project-key>
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_VISION_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_VISION_MODEL=gemini-3.8-flash
 STRUCTURED_EXTRACTION_ENABLED=false
 TELEGRAM_POLLING_ENABLED=false
 ```
@@ -91,7 +91,15 @@ docker compose -f docker-compose.staging.yml --env-file .env build app worker
 docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_ai
 ```
 
-Expect `AI_CHECK=OK provider=gemini` for two Pydantic schemas. If the diagnostic fails, do not enable the bot's AI chat or auto-extraction. Verify key, model availability, provider quotas, structured response compatibility and errors in the provider console. Live Gemini support remains **unverified until this operator test passes**.
+Expect `AI_CHECK=OK provider=gemini` for two Pydantic schemas. If the diagnostic fails, do not enable the bot's AI chat or auto-extraction. In particular, Google now restricts **Gemini 2.5 model access for newly created projects**; Google recommends newer Flash models. A Gemini `404` can mean that the configured model is not available to this project, **not necessarily that the key is invalid**. List accessible models through the official *read-only* catalog endpoint, without uploading a prompt:
+
+```bash
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_gemini_models
+```
+
+This prints only safe model IDs and whether the chosen `GEMINI_MODEL` is accessible; the API key remains private. For a new account, `gemini-3.8-flash` is the documented default, with `gemini-3.5-flash-lite` an alternative when that model is available on the user's tier. Change both `GEMINI_MODEL` and `GEMINI_VISION_MODEL` in the local `.env`, then rerun `check_ai`. Model listing alone does **not** prove that Pydantic parsing or vision calls work.
+
+If `GEMINI_MODELS=FAILED`, inspect only HTTP status, local project API restrictions, region, billing/free-tier availability, or DNS; never paste API credentials or full headers. Live Gemini support remains **unverified until the selected-provider operator test passes**.
 
 **Data governance:** Google's free-tier Gemini API can use submitted content to improve products; never send confidential supplier lists, original photos or company finance data to the free tier. Obtain documented company approval and an appropriate data-protection tier before real uploads. The normal, deterministic PDF/Excel/Word parsing and local Qdrant projection can operate without a language-model API; AI conversational answers and vision/structured extraction cannot. Do not enable `STRUCTURED_EXTRACTION_ENABLED=true` until an approved data-handling plan and real validation exist.
 
