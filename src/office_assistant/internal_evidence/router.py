@@ -97,6 +97,19 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             use_document_search=True,
             reason_code="document_wording_requested",
         )
+    if product and (
+        ("qutu" in text and any(word in text for word in ("eded", "say", "nece")))
+        or ("komplekt" in text and "eded" in text)
+    ):
+        # Pack/box quantities are documented packaging facts, not stock movements.
+        # Avoid an extra AI planner call for this common explicit question.
+        return EvidencePlan(
+            category=RoutingCategory.INTERNAL_DOCUMENT,
+            intent="DOCUMENT_PACKAGING_QUANTITY",
+            use_structured_tools=False,
+            use_document_search=True,
+            reason_code="document_package_units_requested",
+        )
     if any(word in text for word in ("odenis", "odeyib", "odedi", "payment")):
         customer = _customer_prefix(question)
         arguments: dict[str, object] = {"customer": customer}
