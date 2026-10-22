@@ -37,8 +37,8 @@ def _adapter(parsed: object) -> tuple[GeminiLanguageModel, AsyncMock]:
     return (
         GeminiLanguageModel(
             "unused",
-            default_model="gemini-2.5-flash",
-            vision_model="gemini-2.5-flash",
+            default_model="gemini-3.8-flash",
+            vision_model="gemini-3.8-flash",
             client=client,
         ),
         parse,
@@ -70,7 +70,7 @@ def test_gemini_uses_structured_chat_parse_without_openai_only_arguments() -> No
         {"role": "user", "content": "Salam"},
     ]
     assert args["response_format"] is GeneralModelOutput
-    assert args["model"] == "gemini-2.5-flash"
+    assert args["model"] == "gemini-3.8-flash"
     assert args["max_completion_tokens"] == 700
     assert "store" not in args and "user" not in args and "text_format" not in args
 
@@ -132,6 +132,6 @@ def test_gemini_sdk_is_pinned_to_google_base_url(monkeypatch: pytest.MonkeyPatch
 
     sdk = FakeSDK()
     monkeypatch.setattr("office_assistant.ai.provider.AsyncOpenAI", sdk)
-    GeminiLanguageModel("  fake-key  ", default_model="gemini-2.5-flash")
+    GeminiLanguageModel("  fake-key  ", default_model="gemini-3.8-flash")
     assert sdk.kwargs["api_key"] == "fake-key"
     assert sdk.kwargs["base_url"] == GeminiLanguageModel.BASE_URL
