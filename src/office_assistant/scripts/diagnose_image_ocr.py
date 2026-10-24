@@ -43,7 +43,9 @@ def expected_text_flags(
 
     return {
         "ocr_code_exact": exact(code),
-        "ocr_code_normalized": re.sub(r"[-\s]+", "", code).upper() in strong_identifiers(text),
+        "ocr_policy_identifier_overlap": bool(
+            set(strong_identifiers(code)) & set(strong_identifiers(text))
+        ),
         "ocr_quantity_present": (
             re.search(rf"(?<!\d){quantity}(?!\d)", text) is not None
             if quantity is not None
