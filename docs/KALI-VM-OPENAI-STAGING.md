@@ -193,3 +193,20 @@ docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run
 Existing assets, original bytes, session associations and original parse-run records are preserved. Replay creates new parse provenance and reuses the durable job/index mechanism; it never silently approves catalog or inventory changes. Historical `DEFERRED` records remain auditable but do not keep readiness degraded after a successful new parse. Never manually delete Docker volumes to clear a warning.
 
 **Distinct tests:** (1) Send a printed-label PNG as a **document** and save it; wait until indexed, then ask `/baza QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?` and check the source filename. (2) For on-demand **OpenAI Vision**, send the picture as a Telegram **photo with the `/baza ...` question in the same message's caption**; a separate later `/baza Şəkildəki ...` message has no attached image and cannot implicitly refer to the earlier file. These are different features. If local OCR cannot read stylized handwriting or nontext visuals, do not infer stock or product identity. Use only synthetic samples until private-data handling is approved.
+
+## J. Debugging an indexed image that the bot cannot find
+
+A report of `READY`, `indexed_chunks=1` or `historical_pdf_ocr_replay indexed=1` confirms that the pipeline completed, **not** that Tesseract correctly read a label. Before adjusting the model or relevance threshold, run the built-in **read-only, content-redacted** test against one synthetic image:
+
+```bash
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app \
+  uv run --no-dev python -m office_assistant.scripts.diagnose_image_ocr \
+  --filename QA_IMG_682_sintetik_etiket.png --code QA-IMG-682 \
+  --quantity 8 --lot L-731 --probe-search
+```
+
+The output contains only statuses, counts and exact-token Boolean flags, never the image, raw OCR text, user messages, credentials or a provider API request. `ocr_code_exact=false` indicates local OCR could not read the exact target identifier; a higher-confidence search threshold cannot repair that. `ocr_code_exact=true` with `target_top10_hits=0` indicates retrieval/ranking problems. `target_filtered_hits>0` with `target_filtered_accepted=0` indicates the relevance gate rejected a result. Diagnostic commands must not alter or fabricate official product/catalog identities.
+
+For **on-demand OpenAI Vision** the picture must be included in the *same turn* as the question: send a photo **with a caption** beginning `/baza ...`, or **reply directly to the existing photo/document message** with `/baza Şəkildəki məhsul kodu və partiya nədir?`. Sending `/baza Şəkildəki ...` as a new, unrelated text message gives the bot no image context. Vision sends only the image attached to that explicit question to the configured provider; it is not an ingestion action.
+
+Operator caution: run Kali under a dedicated unprivileged user, not the `root` desktop account, for routine staging operations. Docker group access remains root-equivalent and requires trusted local operators.

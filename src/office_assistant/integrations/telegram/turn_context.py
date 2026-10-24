@@ -10,6 +10,11 @@ from enum import StrEnum
 
 from telegram import Message
 
+from office_assistant.internal_evidence.query_normalization import (
+    normalize_user_query,
+    strong_identifiers,
+)
+
 IMAGE_MEDIA_TYPES = frozenset({"image/jpeg", "image/jpg", "image/png"})
 
 
@@ -92,3 +97,10 @@ def build_turn_context(message: Message, *, text: str) -> TurnContext:
     for item in media:
         unique.setdefault(item.file_id, item)
     return TurnContext(text=text, media=tuple(unique.values()))
+
+
+def needs_an_attached_picture(question: str) -> bool:
+    """A deictic image question with no SKU cannot identify an earlier upload."""
+    normalized = normalize_user_query(question)
+    markers = ("sekildeki", "fotodaki", "bu sekil", "bu foto", "sekilin uzerindeki")
+    return not strong_identifiers(question) and any(item in normalized for item in markers)
