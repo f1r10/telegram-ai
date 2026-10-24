@@ -187,7 +187,7 @@ NO_OPEN_SESSION = "Açıq yadda saxlama sessiyanız yoxdur. Əvvəlcə fayl gön
 SAVE_SUCCESS = (
     "Yadda saxlama sessiyası qəbul edildi.\n"
     "Fayllar: {files}\nTəlimatlar: {instructions}\n"
-    "Dublikat fayllar: {duplicates}\nEmal statusu: növbədə"
+    "Bu sessiyada təkrarlanan fayllar: {duplicates}\nEmal statusu: növbədə"
 )
 SAVE_NO_SESSION = "Yadda saxlamaq üçün açıq sessiya yoxdur."
 CANCEL_SUCCESS = "Açıq yadda saxlama sessiyası ləğv edildi."
