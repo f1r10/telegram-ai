@@ -335,6 +335,13 @@ REFERENCE_IMAGE_SAVE_CONFLICT = (
     "Yadda saxlama dayandırıldı: bu şəkil artıq {code} məhsulu ilə təsdiqlənib. "
     "Sessiyada heç nə yadda saxlanılmadı; /cancel ilə imtina edə bilərsiniz."
 )
+IMAGE_CONTEXT_MISSING = (
+    "Bu sualda konkret şəkil göstərilməyib. Şəkli foto kimi göndərin və eyni mesajın "
+    "açıqlamasına /baza sualınızı yazın, yaxud əvvəl göndərdiyiniz şəkil mesajına "
+    "«Reply/Cavabla» edərək /baza sualını göndərin. "
+    "Şəkilsiz sorğuda hansı faylın nəzərdə tutulduğunu müəyyən edə bilmirəm."
+)
+
 REFERENCE_IMAGE_UNREADABLE = (
     "Göndərilən şəkil oxunmadı; yadda saxlama dayandırıldı və heç nə yadda saxlanılmadı. "
     "Zəhmət olmasa şəkili yenidən göndərin."
