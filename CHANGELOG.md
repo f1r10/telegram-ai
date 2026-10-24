@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Telegram OCR evidence routing and caption label answers (2026-10-25)
+
+- Route code-specific packaging and batch questions to Qdrant document/OCR evidence before catalog-only lookup; do not promote label text to approved product or stock facts.
+- Preserve separate attached-image evidence, tolerate OCR bullet/Markdown field formatting, enforce identifier matching and refuse conflicting source values.
+- Prevent combined quantity/batch questions from returning only one partial fact; add redacted routing and image-read counters.
+- Add synthetic offline `/baza` indexed-image OCR and photo-caption Vision regressions. **Live Kali bot acceptance and rebuild are still required.**
+
+
 ### Local PNG/JPEG OCR, source provenance and recoverable deferred staging uploads (2026-10-25)
 
 - Add bounded, private Tesseract extraction for standalone uploaded PNG/JPEG label images. Successful local OCR text is indexed with `image_ocr` source locators; no automatic OpenAI upload, product identification, stock or price approval occurs.
