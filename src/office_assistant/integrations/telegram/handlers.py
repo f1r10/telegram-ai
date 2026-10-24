@@ -1989,6 +1989,9 @@ async def handle_baza(
         async with asyncio.timeout(services.answer_deadline_seconds):
             images = turn.images
             readings = await _read_turn_images(context, services, images, user_id=user.id)
+            if images and not readings and needs_an_attached_picture(question):
+                await message.reply_text(messages.IMAGE_READING_UNAVAILABLE)
+                return
             result = await services.internal_evidence.answer(
                 user, question, force_internal=True, image_readings=readings
             )

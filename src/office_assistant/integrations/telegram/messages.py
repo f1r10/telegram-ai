@@ -160,6 +160,11 @@ FILE_DUPLICATE = "\nBu faylın eyni məzmunu əvvəlcədən mövcuddur; yeni gö
 CAPTION_COMMAND_FILE_SKIPPED = (
     "Diqqət: açıq əmr istifadə edildiyi üçün bu mesajdakı fayl yadda saxlanılmadı."
 )
+IMAGE_READING_UNAVAILABLE = (
+    "Şəkil bu sorğu üçün oxunmadı. Məlumat uydurmaq əvəzinə cavab dayandırıldı. "
+    "Şəkli yüksək keyfiyyətdə foto kimi yenidən göndərin və açıqlamasına "
+    "/baza sualınızı yazın, yaxud başqa görüntünü yoxlayın."
+)
 IMAGE_NOT_READ = (
     "Diqqət: göndərdiyiniz şəkli oxuya bilmədim. Cavab yalnız mətn hissəsidir; "
     "şəkili yenidən göndərin və ya keyfiyyətini yoxlayın."

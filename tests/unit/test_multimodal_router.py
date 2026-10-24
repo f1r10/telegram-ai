@@ -328,7 +328,7 @@ def test_a_plain_reply_to_a_photo_carries_the_picture_into_the_answer(tmp_path: 
     assert reader.calls[0]["media_type"] == "image/jpeg"
 
 
-def test_an_unreadable_photo_is_announced_and_the_turn_still_answers(tmp_path: Path) -> None:
+def test_an_unreadable_photo_halts_deictic_answer_without_inventing_content(tmp_path: Path) -> None:
     internal, answer_call = _evidence_service()
     reader = FakeImageReader(error=VisionUnavailable("vision vendor is down"))
     message = _photo_message(f"/baza {QUESTION}")
@@ -339,11 +339,8 @@ def test_an_unreadable_photo_is_announced_and_the_turn_still_answers(tmp_path: P
         _services(tmp_path, internal_evidence=internal, image_reader=reader),
     )
 
-    assert messages.IMAGE_NOT_READ in message.replies[0]
-    assert answer_call.await_count == 1
-    call = answer_call.await_args
-    assert call is not None
-    assert list(call.kwargs["image_readings"]) == []
+    assert messages.IMAGE_READING_UNAVAILABLE in message.replies[0]
+    assert answer_call.await_count == 0
     assert messages.TEMPORARY_ERROR not in "".join(message.replies)
 
 
@@ -373,8 +370,8 @@ def test_missing_reader_is_reported_instead_of_silently_ignoring_the_photo(
 
     _run(handle_photo, _update(message), _services(tmp_path, internal_evidence=internal))
 
-    assert messages.IMAGE_NOT_READ in message.replies[0]
-    assert answer_call.await_count == 1
+    assert messages.IMAGE_READING_UNAVAILABLE in message.replies[0]
+    assert answer_call.await_count == 0
 
 
 def test_saxla_caption_stores_the_file_and_then_commits_it(tmp_path: Path) -> None:
