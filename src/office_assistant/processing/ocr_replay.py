@@ -65,10 +65,7 @@ def verified_raw_image(storage: LocalFileStorage, file: FileObject, cap: int) ->
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         header = stream.read(12)
-        if (
-            file.content_type == "image/png"
-            and not header.startswith(b"\x89PNG\r\n\x1a\n")
-        ) or (
+        if (file.content_type == "image/png" and not header.startswith(b"\x89PNG\r\n\x1a\n")) or (
             file.content_type == "image/jpeg" and not header.startswith(b"\xff\xd8\xff")
         ):
             return None
