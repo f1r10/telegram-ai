@@ -33,6 +33,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
+from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrService
@@ -72,6 +73,7 @@ class IngestionJobService:
         max_attempts: int = 3,
         registry: ParserRegistry | None = None,
         pdf_ocr: PdfOcrService | None = None,
+        image_ocr: ImageOcrService | None = None,
         index_collection_alias: str = "document_chunks",
         index_collection_name: str = "document_chunks_v1",
         index_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -82,7 +84,7 @@ class IngestionJobService:
         self.storage = storage
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
-        self.registry = registry or ParserRegistry(pdf_ocr=pdf_ocr)
+        self.registry = registry or ParserRegistry(pdf_ocr=pdf_ocr, image_ocr=image_ocr)
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name
         self.index_embedding_model = index_embedding_model
