@@ -221,9 +221,7 @@ class _FailingSearch:
 
 class _FreshIndexSearch:
     async def search(self, value: object) -> list[DocumentEvidence]:
-        raise QdrantProjectionNotInitialized(
-            f"Retrieval projection is missing | alias={ALIAS}"
-        )
+        raise QdrantProjectionNotInitialized(f"Retrieval projection is missing | alias={ALIAS}")
 
 
 class _EmptySearch:
