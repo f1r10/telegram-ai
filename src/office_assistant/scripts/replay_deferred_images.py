@@ -95,8 +95,9 @@ async def queue_deferred_images(
             async with factory.begin() as session:
                 current = await session.get(DocumentParseRun, run.id, with_for_update=True)
                 latest_id = await session.scalar(
-                    select(func.max(DocumentParseRun.id))
-                    .where(DocumentParseRun.file_object_id == file.id)
+                    select(func.max(DocumentParseRun.id)).where(
+                        DocumentParseRun.file_object_id == file.id
+                    )
                 )
                 if (
                     current is None
