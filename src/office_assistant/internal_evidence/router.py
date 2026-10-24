@@ -62,6 +62,37 @@ class EvidencePlanner:
         return PlanDecision(normalize_tool_plan(response.parsed), response)
 
 
+def attached_image_plan(
+    question: str, *, has_readable_image: bool, force_internal: bool
+) -> EvidencePlan | None:
+    """An explicit image question uses only per-turn untrusted image evidence.
+
+    Never run a business-data write or infer authoritative stock/product state.
+    Other questions retain the normal internal business router.
+    """
+    if not (has_readable_image and force_internal):
+        return None
+    normalized = normalize_user_query(question)
+    if not any(
+        part in normalized
+        for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")
+    ):
+        return None
+    if any(
+        part in normalized for part in (
+            "anbar", "stok", "satis", "qiymet", "tesdiq", "bazada var"
+        )
+    ):
+        return None
+    return EvidencePlan(
+        category=RoutingCategory.INTERNAL_DOCUMENT,
+        intent="ATTACHED_IMAGE_LABEL_READ",
+        use_structured_tools=False,
+        use_document_search=False,
+        reason_code="explicit_attached_image_evidence",
+    )
+
+
 def deterministic_plan(question: str, *, force_internal: bool = False) -> EvidencePlan | None:
     text = normalize_user_query(question)
     product = _product_code(question)
