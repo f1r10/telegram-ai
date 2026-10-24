@@ -18,11 +18,11 @@ if ! command -v docker >/dev/null 2>&1; then
 elif ! command -v timeout >/dev/null 2>&1; then
   fail 'GNU timeout unavailable: cannot bound Docker requests safely.'
 elif ! timeout 12 docker info --format '{{.OSType}}' 2>/dev/null | grep -qx linux; then
-  fail 'Docker Desktop Linux engine unavailable.'
+  fail 'Linux Docker engine unavailable.'
 elif ! docker compose version >/dev/null 2>&1; then
   fail 'Docker Compose V2 unavailable.'
 else
-  pass 'Docker Desktop Linux engine and Compose V2 available.'
+  pass 'Linux Docker engine and Compose V2 available.'
   containers="$(timeout 12 docker ps -a --format '{{.Names}}' 2>/dev/null)"
   containers_status=$?
   volumes="$(timeout 12 docker volume ls --format '{{.Name}}' 2>/dev/null)"
