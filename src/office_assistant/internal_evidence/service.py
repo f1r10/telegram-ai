@@ -45,7 +45,7 @@ from office_assistant.internal_evidence.models import (
 )
 from office_assistant.internal_evidence.label_facts import concise_packaging_label_answer
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
-from office_assistant.internal_evidence.router import EvidencePlanner, PlanDecision
+from office_assistant.internal_evidence.router import EvidencePlanner, PlanDecision, attached_image_plan
 from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.knowledge.qdrant_store import QdrantProjectionNotInitialized
 
@@ -124,21 +124,13 @@ class InternalEvidenceService:
         # evidence source. A generic LLM router must not demand a product name
         # before the attached picture can be read or silently classify it as
         # a catalogue/stock lookup.
-        normalized_question = normalize_user_query(question)
-        attached_image_question = bool(image_readings) and force_internal and any(
-            part in normalized_question
-            for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")
+        image_plan = attached_image_plan(
+            question,
+            has_readable_image=bool(image_readings),
+            force_internal=force_internal,
         )
-        if attached_image_question:
-            decision = PlanDecision(
-                EvidencePlan(
-                    category=RoutingCategory.INTERNAL_DOCUMENT,
-                    intent="ATTACHED_IMAGE_LABEL_READ",
-                    use_structured_tools=False,
-                    use_document_search=False,
-                    reason_code="explicit_attached_image_evidence",
-                )
-            )
+        if image_plan is not None:
+            decision = PlanDecision(image_plan)
         else:
             decision = await self.planner.plan(
                 actor.id, question, force_internal=force_internal
