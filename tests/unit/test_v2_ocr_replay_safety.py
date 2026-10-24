@@ -11,7 +11,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.models import ChunkingConfig
-from office_assistant.processing.ocr_replay import verified_raw_pdf
+from office_assistant.processing.ocr_replay import verified_raw_image, verified_raw_pdf
 from office_assistant.scripts.replay_scanned_pdfs import safe_artifacts
 
 
@@ -94,3 +94,32 @@ def test_ocr_queue_preflight_rejects_changed_active_source_and_unknown_mime(
     assert not safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
     file.content_type = "application/pdf"
     assert safe_artifacts(storage, run, file, max_raw_bytes=1024, chunking=config)
+
+
+def test_image_replay_checks_original_bytes_size_state_mime_and_hash(tmp_path: Path) -> None:
+    storage = LocalFileStorage(tmp_path)
+    payload = b"\\x89PNG\\r\\n\\x1a\\n" + b"valid-origin-test-image"
+    raw = storage.blob_root / "label.png"
+    raw.write_bytes(payload)
+    file = FileObject(
+        storage_key="blobs/label.png",
+        original_filename="label.png",
+        content_type="image/png",
+        sha256=sha256(payload).hexdigest(),
+        byte_size=len(payload),
+        state=FileObjectState.ACTIVE,
+    )
+    assert verified_raw_image(storage, file, 100) == raw
+    assert verified_raw_image(storage, file, 16) is None
+    raw.write_bytes(payload + b"corruption")
+    assert verified_raw_image(storage, file, 100) is None
+    raw.write_bytes(payload)
+    file.content_type = "image/jpeg"
+    assert verified_raw_image(storage, file, 100) is None
+    file.content_type = "image/png"
+    file.state = FileObjectState.DELETED
+    assert verified_raw_image(storage, file, 100) is None
+    file.state = FileObjectState.ACTIVE
+    raw.unlink()
+    raw.symlink_to(storage.blob_root / "other.png")
+    assert verified_raw_image(storage, file, 100) is None
