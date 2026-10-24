@@ -747,7 +747,7 @@ class ImageProbeParser:
         blocks: list[ContentBlock] = []
         warnings: list[str] = []
         if self.image_ocr is None:
-            warnings.append("IMAGE_OCR_NOT_CONFIGURED")
+            warnings.append(f"{detected} image requires vision extraction")
         else:
             result = self.image_ocr.read(path, media_type=detected)
             if result.text:
