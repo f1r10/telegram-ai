@@ -33,6 +33,10 @@ class RetrievalUnavailable(AIServiceError):
     pass
 
 
+class RetrievalIndexNotInitialized(RetrievalUnavailable):
+    """Qdrant is reachable, but no searchable projection has been created."""
+
+
 class AnswerGenerationUnavailable(AIServiceError):
     pass
 

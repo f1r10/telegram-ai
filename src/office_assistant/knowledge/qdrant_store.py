@@ -16,6 +16,10 @@ class QdrantUnavailable(RuntimeError):
     """Raised when the retrieval projection cannot be reached."""
 
 
+class QdrantProjectionNotInitialized(QdrantUnavailable):
+    """Neither alias nor physical collection exists; never claim there are no matching facts."""
+
+
 class QdrantKnowledgeStore:
     def __init__(self, url: str, *, alias: str, collection: str, timeout: int = 10) -> None:
         self.client = AsyncQdrantClient(url=url, timeout=timeout)
@@ -41,7 +45,7 @@ class QdrantKnowledgeStore:
         """
         target = await self._target()
         if target is None:
-            raise QdrantUnavailable(
+            raise QdrantProjectionNotInitialized(
                 f"Retrieval projection is missing | alias={self.alias} collection={self.collection}"
             )
         return target

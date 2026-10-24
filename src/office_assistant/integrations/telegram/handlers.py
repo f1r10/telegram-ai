@@ -34,6 +34,7 @@ from office_assistant.ai.service import (
     AnswerGenerationUnavailable,
     GroundedAnswerService,
     InProcessRateGuard,
+    RetrievalIndexNotInitialized,
     RetrievalUnavailable,
 )
 from office_assistant.application.authentication import (
@@ -1998,6 +1999,8 @@ async def handle_baza(
         await message.reply_text(messages.AI_TIMEOUT)
     except AnswerGenerationUnavailable:
         await message.reply_text(messages.AI_UNAVAILABLE)
+    except RetrievalIndexNotInitialized:
+        await message.reply_text(messages.QDRANT_INDEX_NOT_INITIALIZED)
     except RetrievalUnavailable:
         logger.exception("Baza retrieval projection failed")
         await message.reply_text(messages.QDRANT_UNAVAILABLE)

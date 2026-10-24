@@ -197,6 +197,10 @@ WEB_UNAVAILABLE = "İnternet axtarışı hazırda əlçatan deyil. Zəhmət olma
 AI_UNAVAILABLE = (
     "Cavab yaratma xidməti hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
 )
+QDRANT_INDEX_NOT_INITIALIZED = (
+    "Axtarış indeksi hələ yaradılmayıb. İlk sənəd saxlanıb indeksləndikdən sonra "
+    "daxili axtarış əlçatan olacaq. Hazırda məlumatın olub-olmadığını təsdiqləyə bilmirəm."
+)
 QDRANT_UNAVAILABLE = (
     "Daxili bilik bazası hazırda əlçatan deyil. Zəhmət olmasa sonra yenidən cəhd edin."
 )
