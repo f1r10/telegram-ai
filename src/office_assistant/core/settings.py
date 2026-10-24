@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     worker_lease_seconds: int = 300
     worker_max_attempts: int = 3
     pdf_ocr_enabled: bool = True
+    image_ocr_enabled: bool = True
     pdf_ocr_languages: str = "aze+eng+rus"
     pdf_ocr_max_pages: int = Field(default=80, ge=1, le=250)
     pdf_ocr_page_timeout_seconds: float = Field(default=15.0, ge=1, le=120)

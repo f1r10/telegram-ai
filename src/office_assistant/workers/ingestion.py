@@ -17,6 +17,7 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
+from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
@@ -45,6 +46,11 @@ async def run() -> None:
                 )
             )
             if settings.pdf_ocr_enabled
+            else None
+        ),
+        image_ocr=(
+            ImageOcrService(languages=settings.pdf_ocr_languages)
+            if settings.image_ocr_enabled
             else None
         ),
         index_collection_alias=settings.qdrant_collection_alias,

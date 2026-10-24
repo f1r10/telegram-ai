@@ -24,6 +24,7 @@ from pypdf.generic import ContentStream
 
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.processing.image_metadata import image_signature
+from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.models import ContentBlock, EmbeddedImage, ParsedDocument
 from office_assistant.processing.pdf_images import (
     SampleImageError,
@@ -730,8 +731,11 @@ class ImageProbeParser:
     """
 
     name = "image-probe"
-    version = "1.0"
+    version = "1.1"
     embedded_origin: ImageAssetOrigin | None = None
+
+    def __init__(self, image_ocr: ImageOcrService | None = None) -> None:
+        self.image_ocr = image_ocr
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         detected = detect_image_media_type(path.read_bytes()[:12])
@@ -740,15 +744,33 @@ class ImageProbeParser:
         declared = media_type.split(";", 1)[0].lower()
         if declared not in {"", "application/octet-stream"} and declared != detected:
             raise ValueError("image_signature_mismatch")
+        blocks: list[ContentBlock] = []
+        warnings: list[str] = []
+        if self.image_ocr is None:
+            warnings.append(f"{detected} image requires vision extraction")
+        else:
+            result = self.image_ocr.read(path, media_type=detected)
+            if result.text:
+                blocks.append(
+                    ContentBlock(
+                        1,
+                        "image_ocr",
+                        result.text,
+                        {"image_index": 1, "extraction": "tesseract"},
+                    )
+                )
+            else:
+                warnings.append(result.reason or "IMAGE_OCR_NO_TEXT")
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
             detected,
-            {"filename": path.name},
-            [],
-            [f"{detected} image requires vision extraction"],
+            {"filename": path.name, "ocr": {"engine": "tesseract" if blocks else None}},
+            blocks,
+            warnings,
             requires_vision=True,
+            requires_ocr=not bool(blocks),
         )
 
 
@@ -761,15 +783,20 @@ def detect_image_media_type(header: bytes) -> str | None:
 
 
 class ParserRegistry:
-    def __init__(self, *, pdf_ocr: PdfOcrService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        pdf_ocr: PdfOcrService | None = None,
+        image_ocr: ImageOcrService | None = None,
+    ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
             ".pdf": PdfParser(ocr_service=pdf_ocr),
             ".docx": DocxParser(),
             ".xlsx": XlsxParser(),
-            ".jpg": ImageProbeParser(),
-            ".jpeg": ImageProbeParser(),
-            ".png": ImageProbeParser(),
+            ".jpg": ImageProbeParser(image_ocr=image_ocr),
+            ".jpeg": ImageProbeParser(image_ocr=image_ocr),
+            ".png": ImageProbeParser(image_ocr=image_ocr),
         }
 
     def for_filename(self, filename: str) -> DocumentParser:
