@@ -98,7 +98,7 @@ def test_ocr_queue_preflight_rejects_changed_active_source_and_unknown_mime(
 
 def test_image_replay_checks_original_bytes_size_state_mime_and_hash(tmp_path: Path) -> None:
     storage = LocalFileStorage(tmp_path)
-    payload = b"\\x89PNG\\r\\n\\x1a\\n" + b"valid-origin-test-image"
+    payload = b"\x89PNG\r\n\x1a\n" + b"valid-origin-test-image"
     raw = storage.blob_root / "label.png"
     raw.write_bytes(payload)
     file = FileObject(
