@@ -81,6 +81,7 @@ def test_empty_ocr_stays_deferred(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     original = tmp_path / "label.png"
     _png(original)
     engine = ImageOcrService()
+
     def empty_read(path: Path, *, media_type: str) -> ImageOcrResult:
         assert path == original
         assert media_type == "image/png"
