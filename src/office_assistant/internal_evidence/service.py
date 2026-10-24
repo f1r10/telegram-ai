@@ -152,7 +152,10 @@ class InternalEvidenceService:
         plan = decision.plan
         logger.info(
             "Internal evidence route | intent=%s route=%s documents=%s images=%d",
-            plan.intent, plan.category, plan.use_document_search, len(image_readings),
+            plan.intent,
+            plan.category,
+            plan.use_document_search,
+            len(image_readings),
         )
         router_usage = decision.response.usage if decision.response else TokenUsage()
         if decision.response:
@@ -194,7 +197,10 @@ class InternalEvidenceService:
                 warnings.append("document_search_unavailable")
         logger.info(
             "Internal evidence collected | structured=%d documents=%d images=%d errors=%d",
-            len(structured), len(documents), len(image_readings), len(warnings),
+            len(structured),
+            len(documents),
+            len(image_readings),
+            len(warnings),
         )
         bundle = build_evidence_bundle(structured, documents, warnings, list(image_readings))
         ambiguous = next((item for item in structured if item.status == "AMBIGUOUS"), None)
