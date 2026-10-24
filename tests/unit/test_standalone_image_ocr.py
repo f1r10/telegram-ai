@@ -66,8 +66,10 @@ def test_uploaded_png_produces_citable_searchable_image_ocr(
 def test_image_without_ocr_stays_deferred_and_has_no_false_success(tmp_path: Path) -> None:
     original = tmp_path / "label.png"
     _png(original)
-    result = ParserRegistry().for_filename("label.png").parse(
-        original, source_file_id=2, media_type="image/png"
+    result = (
+        ParserRegistry()
+        .for_filename("label.png")
+        .parse(original, source_file_id=2, media_type="image/png")
     )
     assert searchable_parse_status(result) == DocumentProcessingStatus.DEFERRED
     assert result.requires_vision
@@ -84,8 +86,10 @@ def test_empty_ocr_stays_deferred(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         "read",
         lambda path, *, media_type: ImageOcrResult(reason="IMAGE_OCR_NO_TEXT"),
     )
-    parsed = ParserRegistry(image_ocr=engine).for_filename("label.png").parse(
-        original, source_file_id=2, media_type="image/png"
+    parsed = (
+        ParserRegistry(image_ocr=engine)
+        .for_filename("label.png")
+        .parse(original, source_file_id=2, media_type="image/png")
     )
     assert searchable_parse_status(parsed) == DocumentProcessingStatus.DEFERRED
     assert parsed.warnings == ["IMAGE_OCR_NO_TEXT"]
