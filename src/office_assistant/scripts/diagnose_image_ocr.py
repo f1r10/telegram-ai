@@ -141,7 +141,9 @@ async def inspect_image(
     finally:
         await engine.dispose()
 
-    if probe and file_id is not None:
+    if probe:
+        if not settings.qdrant_url:
+            return {**report, "probe_error_type": "QDRANT_NOT_CONFIGURED"}
         store = QdrantKnowledgeStore(
             settings.qdrant_url,
             alias=settings.qdrant_collection_alias,
