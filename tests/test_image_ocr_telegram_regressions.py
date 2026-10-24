@@ -29,12 +29,7 @@ from office_assistant.internal_evidence.service import (
 
 QUESTION = "QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?"
 CAPTION = "Şəkildəki məhsul kodunu, qutu miqdarını və partiya kodunu oxu."
-LABEL = (
-    "SİNTETİK MƏHSUL ETİKETİ\n"
-    "Məhsul kodu: QA-IMG-682\n"
-    "Qutu miqdarı: 8 ədəd\n"
-    "Partiya: L-731"
-)
+LABEL = "SİNTETİK MƏHSUL ETİKETİ\nMəhsul kodu: QA-IMG-682\nQutu miqdarı: 8 ədəd\nPartiya: L-731"
 
 
 def _document(text: str = LABEL, *, file_id: int = 6) -> DocumentEvidence:
