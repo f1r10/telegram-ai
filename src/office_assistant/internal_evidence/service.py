@@ -49,6 +49,7 @@ from office_assistant.internal_evidence.router import (
     EvidencePlanner,
     PlanDecision,
     attached_image_plan,
+    deterministic_plan,
 )
 from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.knowledge.qdrant_store import QdrantProjectionNotInitialized
@@ -133,11 +134,26 @@ class InternalEvidenceService:
             has_readable_image=bool(image_readings),
             force_internal=force_internal,
         )
+        # Defence in depth: a code-specific packaging question must search indexed
+        # source documents even if the generic planner would select a catalog-only tool
+        # or ask for clarification. This never approves catalog or inventory state.
+        known_packaging_plan = (
+            deterministic_plan(question, force_internal=True) if force_internal else None
+        )
         if image_plan is not None:
             decision = PlanDecision(image_plan)
+        elif (
+            known_packaging_plan is not None
+            and known_packaging_plan.intent == "DOCUMENT_PACKAGING_QUANTITY"
+        ):
+            decision = PlanDecision(known_packaging_plan)
         else:
             decision = await self.planner.plan(actor.id, question, force_internal=force_internal)
         plan = decision.plan
+        logger.info(
+            "Internal evidence route | intent=%s route=%s documents=%s images=%d",
+            plan.intent, plan.category, plan.use_document_search, len(image_readings),
+        )
         router_usage = decision.response.usage if decision.response else TokenUsage()
         if decision.response:
             await self._save_usage(actor.id, "internal_router", decision.response)
@@ -176,6 +192,10 @@ class InternalEvidenceService:
                     "Internal document retrieval failed | error_type=%s", type(error).__name__
                 )
                 warnings.append("document_search_unavailable")
+        logger.info(
+            "Internal evidence collected | structured=%d documents=%d images=%d errors=%d",
+            len(structured), len(documents), len(image_readings), len(warnings),
+        )
         bundle = build_evidence_bundle(structured, documents, warnings, list(image_readings))
         ambiguous = next((item for item in structured if item.status == "AMBIGUOUS"), None)
         if ambiguous is not None:
@@ -212,9 +232,17 @@ class InternalEvidenceService:
             )
         # Exact, explicitly labelled facts do not require generative rephrasing.
         # Only document evidence (not unapproved catalog/stock values) is eligible.
-        concise = concise_document_answer(question, bundle)
-        if concise is None and not usable_structured:
-            concise = concise_packaging_label_answer(question, bundle)
+        concise = (
+            concise_packaging_label_answer(question, bundle) if not usable_structured else None
+        )
+        # A combined box-quantity + batch request must not silently return only
+        # the box quantity from the single-field document-answer fast path.
+        norm = normalize_user_query(question)
+        asks_combined_label = "qutu" in norm and any(
+            item in norm for item in ("partiya", "batch", "lot")
+        )
+        if concise is None and not asks_combined_label:
+            concise = concise_document_answer(question, bundle)
         if concise is not None and not usable_structured:
             answer, cited = concise
             await self._persist_turn(actor.id, question, answer, cited)
