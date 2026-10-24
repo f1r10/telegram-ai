@@ -15,6 +15,7 @@ from office_assistant.internal_evidence.models import (
     EvidenceBundle,
     ImageReading,
     RoutingCategory,
+    UnifiedCitation,
 )
 from office_assistant.internal_evidence.router import (
     EvidencePlanner,
@@ -65,7 +66,7 @@ def _bundle_with_image(image: ImageReading) -> EvidenceBundle:
 
 
 def _assert_answer(
-    result: tuple[str, tuple[object, ...]] | None,
+    result: tuple[str, tuple[UnifiedCitation, ...]] | None,
     *,
     source: str,
 ) -> None:
@@ -75,7 +76,7 @@ def _assert_answer(
     assert "8 ədəd" in answer
     assert "L-731" in answer
     assert len(citations) == 1
-    assert getattr(citations[0], "source_class") == source
+    assert citations[0].source_class == source
 
 
 def test_code_specific_box_and_lot_question_routes_to_documents() -> None:
