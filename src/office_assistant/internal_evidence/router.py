@@ -98,8 +98,12 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             reason_code="document_wording_requested",
         )
     if product and (
-        ("qutu" in text and any(word in text for word in ("eded", "say", "nece")))
+        (
+            "qutu" in text
+            and any(word in text for word in ("eded", "say", "nece", "miqdar"))
+        )
         or ("komplekt" in text and "eded" in text)
+        or ("partiya" in text and any(word in text for word in ("kod", "nomre", "hansi")))
     ):
         # Pack/box quantities are documented packaging facts, not stock movements.
         # Avoid an extra AI planner call for this common explicit question.
