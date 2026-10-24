@@ -14,19 +14,19 @@ from office_assistant.internal_evidence.query_normalization import normalize_use
 # Accept formatting variation while requiring explicit field labels and one
 # unambiguous code, quantity and batch in the SAME source payload.
 _CODE_FIELD = re.compile(
-    r"(?im)^[ \\t]*(?:[-•]\\s*)?(?:\\*\\*)?(?:məhsul|mehsul)\\s+kodu(?:\\*\\*)?"
-    r"\\s*[:：|–—-]?[ \\t]*\\s*(?:\\*\\*)?"
-    r"([A-Z]{1,8}(?:-[A-Z]{1,8})?-\\d{1,8}[A-Z0-9-]*)\\b"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?(?:məhsul|mehsul)\s+kodu(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?"
+    r"([A-Z]{1,8}(?:-[A-Z]{1,8})?-\d{1,8}[A-Z0-9-]*)\b"
 )
 _QUANTITY_FIELD = re.compile(
-    r"(?im)^[ \\t]*(?:[-•]\\s*)?(?:\\*\\*)?qutu\\s+"
-    r"(?:miqdar[ıi]|[əe]d[əe]d(?:\\s+say[ıi])?)(?:\\*\\*)?"
-    r"\\s*[:：|–—-]?[ \\t]*\\s*(?:\\*\\*)?(\\d{1,6})\\b"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?qutu\s+"
+    r"(?:miqdar[ıi]|[əe]d[əe]d(?:\s+say[ıi])?)(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?(\d{1,6})\b"
 )
 _BATCH_FIELD = re.compile(
-    r"(?im)^[ \\t]*(?:[-•]\\s*)?(?:\\*\\*)?"
-    r"(?:partiya(?:\\s+kodu)?|lot(?:\\s+number)?|batch(?:\\s+number)?)(?:\\*\\*)?"
-    r"\\s*[:：|–—-]?[ \\t]*\\s*(?:\\*\\*)?([A-Z]{1,6}-[A-Z0-9]{1,15})\\b"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?"
+    r"(?:partiya(?:\s+kodu)?|lot(?:\s+number)?|batch(?:\s+number)?)(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?([A-Z]{1,6}-[A-Z0-9]{1,15})\b"
 )
 _QUESTION_CODE = re.compile(
     r"(?<![A-Za-z0-9-])([A-Za-z]{1,8}(?:-[A-Za-z]{1,8})?-\d{1,8}[A-Za-z0-9-]*)"
