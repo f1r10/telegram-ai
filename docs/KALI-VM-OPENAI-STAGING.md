@@ -173,3 +173,23 @@ docker compose -f docker-compose.staging.yml --env-file .env logs --tail=70 app
 - It does not enable real stock writes, production sales, automatic price approvals, Mini App public HTTPS or confidential document processing. Those need separate access-control/data-protection review and supervised acceptance.
 - A healthy startup is not equivalent to real scanned PDF/image/Excel accuracy, fault recovery, backup-and-restore testing or a production deployment.
 - To *suspend the test bot without deleting any data*: set `TELEGRAM_POLLING_ENABLED=false` in `.env`, then recreate only `app` with `up -d --no-deps --force-recreate app`. Do not use `docker compose down -v`, `docker volume prune` or `docker system prune`.
+
+
+## I. Standalone PNG/JPEG label OCR and previous deferred images
+
+The staged worker supports **local Tesseract OCR** for standalone PNG/JPEG documents when `IMAGE_OCR_ENABLED=true` (Compose default). Images remain stored as image assets, but readable printed text becomes a source-citable `image_ocr` block and is indexed in the existing Qdrant pipeline. No uploaded image is transmitted to OpenAI simply because it was saved. OCR extraction is **not** approval of product identity, price, stock or commercial records. If text cannot be read reliably the image stays `DEFERRED`, not a false indexing success.
+
+On older staging installations, an image sent **as a Telegram document** before this feature remains historically deferred. After updating code and **rebuilding both app and worker**, an operator may explicitly queue a safe replay of the original bytes:
+
+```bash
+# Non-mutating preview, shows only counts; no image content or API keys
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.replay_deferred_images --limit 25
+# Only if eligible > 0 and a snapshot/backup exists:
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.replay_deferred_images --apply --limit 25
+# Verify worker/index queue and latest-state readiness afterward
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app uv run --no-dev python -m office_assistant.scripts.check_readiness
+```
+
+Existing assets, original bytes, session associations and original parse-run records are preserved. Replay creates new parse provenance and reuses the durable job/index mechanism; it never silently approves catalog or inventory changes. Historical `DEFERRED` records remain auditable but do not keep readiness degraded after a successful new parse. Never manually delete Docker volumes to clear a warning.
+
+**Distinct tests:** (1) Send a printed-label PNG as a **document** and save it; wait until indexed, then ask `/baza QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?` and check the source filename. (2) For on-demand **OpenAI Vision**, send the picture as a Telegram **photo with the `/baza ...` question in the same message's caption**; a separate later `/baza Şəkildəki ...` message has no attached image and cannot implicitly refer to the earlier file. These are different features. If local OCR cannot read stylized handwriting or nontext visuals, do not infer stock or product identity. Use only synthetic samples until private-data handling is approved.
