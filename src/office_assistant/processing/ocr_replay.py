@@ -28,6 +28,7 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.chunking import chunk_normalized_document
 from office_assistant.knowledge.models import ChunkingConfig
+from office_assistant.processing.image_ocr import ImageOcrService, MAX_INPUT_BYTES
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
@@ -41,6 +42,40 @@ class ReplayClaim:
     job_id: int
     worker_id: str
     attempt: int
+
+
+def verified_raw_image(storage: LocalFileStorage, file: FileObject, cap: int) -> Path | None:
+    """Reject replaced, symlinked, over-budget and mislabeled image source files."""
+    if file.state != FileObjectState.ACTIVE or file.content_type not in {
+        "image/jpeg",
+        "image/png",
+    }:
+        return None
+    extension = Path(file.original_filename).suffix.lower()
+    if (file.content_type == "image/png" and extension != ".png") or (
+        file.content_type == "image/jpeg" and extension not in {".jpg", ".jpeg"}
+    ):
+        return None
+    path = storage.path_for_key(file.storage_key)
+    if path.is_symlink() or not path.is_file():
+        return None
+    size = path.stat().st_size
+    if not 0 < size <= min(cap, MAX_INPUT_BYTES):
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        header = stream.read(12)
+        if (
+            file.content_type == "image/png"
+            and not header.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+        ) or (
+            file.content_type == "image/jpeg" and not header.startswith(b"\\xff\\xd8\\xff")
+        ):
+            return None
+        stream.seek(0)
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return path if digest.hexdigest() == file.sha256 else None
 
 
 def verified_raw_pdf(storage: LocalFileStorage, file: FileObject, cap: int) -> Path | None:
@@ -80,6 +115,11 @@ class OcrReplayService:
         self.lease_seconds = settings.worker_lease_seconds
         self.max_attempts = settings.worker_max_attempts
         self.registry = registry or ParserRegistry(
+            image_ocr=(
+                ImageOcrService(languages=settings.pdf_ocr_languages)
+                if settings.image_ocr_enabled
+                else None
+            ),
             pdf_ocr=PdfOcrService(
                 PdfOcrConfig(
                     languages=settings.pdf_ocr_languages,
@@ -166,7 +206,14 @@ class OcrReplayService:
         if (
             original.file_object_id != file.id
             or original.status != DocumentProcessingStatus.DEFERRED
-            or not original.requires_ocr
+            or not (
+                (original.requires_ocr and file.content_type == "application/pdf")
+                or (
+                    original.requires_vision
+                    and original.parser_name == "image-probe"
+                    and file.content_type in {"image/png", "image/jpeg"}
+                )
+            )
             or not original.session_item_id
             or last_id != original.id
         ):
@@ -184,15 +231,21 @@ class OcrReplayService:
                 await self._skip(claim, "OCR_SOURCE_NO_LONGER_ELIGIBLE")
                 return
             _, file = source
-            path = verified_raw_pdf(self.storage, file, self.settings.max_upload_bytes)
+            path = (
+                verified_raw_pdf(self.storage, file, self.settings.max_upload_bytes)
+                if file.content_type == "application/pdf"
+                else verified_raw_image(self.storage, file, self.settings.max_upload_bytes)
+            )
             if path is None:
                 await self._skip(claim, "OCR_SOURCE_MISSING_OR_CHANGED")
                 return
             file_id = file.id
+            media_type = file.content_type
+            filename = file.original_filename
 
-        parser = self.registry.for_filename("scanned.pdf")
+        parser = self.registry.for_filename(filename)
         parsed = await asyncio.to_thread(
-            parser.parse, path, source_file_id=file_id, media_type="application/pdf"
+            parser.parse, path, source_file_id=file_id, media_type=media_type
         )
         await self._commit(claim, parsed)
 
