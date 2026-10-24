@@ -43,8 +43,9 @@ from office_assistant.internal_evidence.models import (
     StructuredEvidence,
     UnifiedCitation,
 )
+from office_assistant.internal_evidence.label_facts import concise_packaging_label_answer
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
-from office_assistant.internal_evidence.router import EvidencePlanner
+from office_assistant.internal_evidence.router import EvidencePlanner, PlanDecision
 from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.knowledge.qdrant_store import QdrantProjectionNotInitialized
 
@@ -119,7 +120,29 @@ class InternalEvidenceService:
         force_internal: bool = False,
         image_readings: Sequence[ImageReading] = (),
     ) -> InternalAnswer:
-        decision = await self.planner.plan(actor.id, question, force_internal=force_internal)
+        # An image explicitly attached to this question is already its bounded
+        # evidence source. A generic LLM router must not demand a product name
+        # before the attached picture can be read or silently classify it as
+        # a catalogue/stock lookup.
+        normalized_question = normalize_user_query(question)
+        attached_image_question = bool(image_readings) and force_internal and any(
+            part in normalized_question
+            for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")
+        )
+        if attached_image_question:
+            decision = PlanDecision(
+                EvidencePlan(
+                    category=RoutingCategory.INTERNAL_DOCUMENT,
+                    intent="ATTACHED_IMAGE_LABEL_READ",
+                    use_structured_tools=False,
+                    use_document_search=False,
+                    reason_code="explicit_attached_image_evidence",
+                )
+            )
+        else:
+            decision = await self.planner.plan(
+                actor.id, question, force_internal=force_internal
+            )
         plan = decision.plan
         router_usage = decision.response.usage if decision.response else TokenUsage()
         if decision.response:
@@ -196,6 +219,8 @@ class InternalEvidenceService:
         # Exact, explicitly labelled facts do not require generative rephrasing.
         # Only document evidence (not unapproved catalog/stock values) is eligible.
         concise = concise_document_answer(question, bundle)
+        if concise is None and not usable_structured:
+            concise = concise_packaging_label_answer(question, bundle)
         if concise is not None and not usable_structured:
             answer, cited = concise
             await self._persist_turn(actor.id, question, answer, cited)
