@@ -61,7 +61,6 @@ def concise_packaging_label_answer(
         term in normalized for term in ("miqdar", "eded", "say", "nece")
     )
     wants_batch = "partiya" in normalized or "batch" in normalized
-    wants_code = "mehsul kod" in normalized
     if not (wants_box and wants_batch):
         return None
     image_question = any(marker in normalized for marker in _IMAGE_MARKERS)
