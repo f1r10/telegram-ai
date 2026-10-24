@@ -67,9 +67,9 @@ def verified_raw_image(storage: LocalFileStorage, file: FileObject, cap: int) ->
         header = stream.read(12)
         if (
             file.content_type == "image/png"
-            and not header.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+            and not header.startswith(b"\x89PNG\r\n\x1a\n")
         ) or (
-            file.content_type == "image/jpeg" and not header.startswith(b"\\xff\\xd8\\xff")
+            file.content_type == "image/jpeg" and not header.startswith(b"\xff\xd8\xff")
         ):
             return None
         stream.seek(0)
