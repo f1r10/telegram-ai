@@ -1,16 +1,25 @@
 """Offline safety contracts for an independent, first-run Kali Linux staging VM."""
 
 import os
+import runpy
 import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 
-from scripts.init_kali_vm_env import generate_environment
+
+class _GenerateEnvironment(Protocol):
+    def __call__(self, template: str, *, secrets_by_key: dict[str, str]) -> str: ...
+
 
 ROOT = Path(__file__).resolve().parents[2]
+generate_environment = cast(
+    _GenerateEnvironment,
+    runpy.run_path(str(ROOT / "scripts" / "init_kali_vm_env.py"))["generate_environment"],
+)
 
 
 def test_init_creates_independent_safe_openai_environment() -> None:
