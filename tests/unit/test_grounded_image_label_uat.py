@@ -20,9 +20,7 @@ QUESTION = "QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?"
 PHOTO_QUESTION = "Şəkildəki məhsul kodu, qutu miqdarı və partiya kodu nədir?"
 
 
-def _document(
-    text: str = LABEL, *, file_id: int = 682
-) -> DocumentEvidence:
+def _document(text: str = LABEL, *, file_id: int = 682) -> DocumentEvidence:
     return DocumentEvidence(
         chunk_id=f"chunk-{file_id}",
         text=text,
@@ -58,9 +56,7 @@ def test_source_cited_ocr_label_answers_quantity_and_lot_without_catalog_approva
 
 
 def test_explicit_reply_to_image_avoids_clarification_planner() -> None:
-    plan = attached_image_plan(
-        PHOTO_QUESTION, has_readable_image=True, force_internal=True
-    )
+    plan = attached_image_plan(PHOTO_QUESTION, has_readable_image=True, force_internal=True)
     assert plan is not None
     assert plan.category == RoutingCategory.INTERNAL_DOCUMENT
     assert plan.use_document_search is False
@@ -83,29 +79,23 @@ def test_photo_plan_never_substitutes_for_business_or_inventory_queries() -> Non
         "Bu şəkildəki malın anbar qalığı neçədir?",
         "Bu foto üzrə satış qiyməti nə qədərdir?",
     ):
-        assert (
-            attached_image_plan(question, has_readable_image=True, force_internal=True)
-            is None
-        )
+        assert attached_image_plan(question, has_readable_image=True, force_internal=True) is None
     assert (
-        attached_image_plan(
-            PHOTO_QUESTION, has_readable_image=False, force_internal=True
-        )
-        is None
+        attached_image_plan(PHOTO_QUESTION, has_readable_image=False, force_internal=True) is None
     )
     assert (
-        attached_image_plan(
-            PHOTO_QUESTION, has_readable_image=True, force_internal=False
-        )
-        is None
+        attached_image_plan(PHOTO_QUESTION, has_readable_image=True, force_internal=False) is None
     )
 
 
 def test_mismatched_sku_or_conflicting_label_values_fail_closed() -> None:
     mismatch = build_evidence_bundle([], [_document()])
-    assert concise_packaging_label_answer(
-        "QA-IMG-683 məhsulunun qutu miqdarı və partiya kodu nədir?", mismatch
-    ) is None
+    assert (
+        concise_packaging_label_answer(
+            "QA-IMG-683 məhsulunun qutu miqdarı və partiya kodu nədir?", mismatch
+        )
+        is None
+    )
     conflict = build_evidence_bundle(
         [],
         [
@@ -114,9 +104,12 @@ def test_mismatched_sku_or_conflicting_label_values_fail_closed() -> None:
         ],
     )
     assert concise_packaging_label_answer(QUESTION, conflict) is None
-    assert concise_packaging_label_answer(
-        QUESTION, build_evidence_bundle([], [_document(LABEL.replace("Partiya:", "Etiket:"))])
-    ) is None
+    assert (
+        concise_packaging_label_answer(
+            QUESTION, build_evidence_bundle([], [_document(LABEL.replace("Partiya:", "Etiket:"))])
+        )
+        is None
+    )
 
 
 def test_product_fact_cannot_be_inferred_from_unlabelled_ocr_tokens() -> None:
