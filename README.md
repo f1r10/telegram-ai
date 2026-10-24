@@ -1,5 +1,14 @@
 # Office Assistant
 
+**Fresh Kali Linux VM with a private paid OpenAI API project:** Follow the
+[Kali VM setup and staged acceptance guide](docs/KALI-VM-OPENAI-STAGING.md).
+Install Docker Engine/Compose V2 inside Kali, clone into the guest's native
+filesystem, run the isolated staging preflight, generate an independent
+password-protected `.env` using `python3 scripts/init_kali_vm_env.py`, and
+keep bot/stock writes OFF until separate synthetic AI and document tests pass.
+**Do not use the legacy `docker-compose.yml` or transfer WSL volumes.**
+
+
 **Windows/WSL2 staging alongside an existing qoder stack:** Use the separately
 namespaced `docker-compose.staging.yml`, never the default legacy
 `docker-compose.yml`. The two manifests have different container, network,
