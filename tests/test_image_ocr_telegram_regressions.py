@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from office_assistant.infrastructure.database.models import User
-from office_assistant.internal_evidence.document_search import InternalDocumentSearch
+from office_assistant.internal_evidence.document_search import (
+    DocumentSearchInput,
+    InternalDocumentSearch,
+)
 from office_assistant.internal_evidence.label_facts import concise_packaging_label_answer
 from office_assistant.internal_evidence.models import (
     DocumentEvidence,
@@ -176,6 +179,12 @@ def test_baza_uses_indexed_ocr_even_without_a_product_catalog_row() -> None:
     assert "L-731" in answer.answer
     assert len(answer.citations) == 1
     structured.assert_awaited_once()
+    search = cast(AsyncMock, service.document_search.search)
+    search.assert_awaited_once()
+    assert search.await_args is not None
+    input_value = search.await_args.args[0]
+    assert isinstance(input_value, DocumentSearchInput)
+    assert input_value.limit == 10
 
 
 def test_photo_caption_answers_without_catalog_or_qdrant() -> None:
