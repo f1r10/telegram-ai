@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from office_assistant.scripts.init_kali_vm_env import generate_environment
+from scripts.init_kali_vm_env import generate_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 
