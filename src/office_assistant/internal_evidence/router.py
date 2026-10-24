@@ -11,7 +11,10 @@ from office_assistant.internal_evidence.models import (
     PlannedToolCall,
     RoutingCategory,
 )
-from office_assistant.internal_evidence.query_normalization import normalize_user_query
+from office_assistant.internal_evidence.query_normalization import (
+    normalize_user_query,
+    strong_identifiers,
+)
 from office_assistant.internal_evidence.tool_adapter import OpenAIToolSchemaAdapter
 
 PLANNER_POLICY = """Classify the question and plan internal evidence collection.
@@ -73,7 +76,16 @@ def attached_image_plan(
     if not (has_readable_image and force_internal):
         return None
     normalized = normalize_user_query(question)
-    if not any(part in normalized for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")):
+    explicit_picture = any(
+        part in normalized
+        for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto", "sekilin uzerindeki")
+    )
+    label_read = (
+        any(part in normalized for part in ("oxu", "etiketde", "etiketin", "yazilib"))
+        and any(part in normalized for part in ("mehsul", "kod", "qutu", "partiya", "etiket"))
+        and not strong_identifiers(question)
+    )
+    if not (explicit_picture or label_read):
         return None
     if any(
         part in normalized for part in ("anbar", "stok", "satis", "qiymet", "tesdiq", "bazada var")
@@ -91,6 +103,20 @@ def attached_image_plan(
 def deterministic_plan(question: str, *, force_internal: bool = False) -> EvidencePlan | None:
     text = normalize_user_query(question)
     product = _product_code(question)
+    # A printed label in an indexed image is document evidence even when its SKU
+    # has no approved Product row. Do not let a model planner silently skip Qdrant.
+    if (
+        strong_identifiers(question)
+        and _asks_packaging_facts(text)
+        and not any(term in text for term in ("qiymet", "anbar", "stok", "satis"))
+    ):
+        return EvidencePlan(
+            category=RoutingCategory.INTERNAL_DOCUMENT,
+            intent="DOCUMENT_PACKAGING_QUANTITY",
+            use_structured_tools=False,
+            use_document_search=True,
+            reason_code="document_package_units_requested",
+        )
     if product and any(
         word in text for word in ("qiymet", "price", "цена", "fiyat", "neceye", "neceyedi")
     ):
@@ -215,6 +241,15 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             reason_code="obvious_general_fast_path",
         )
     return None
+
+
+def _asks_packaging_facts(normalized: str) -> bool:
+    """Identify labelled box/batch questions, without requiring a catalog record."""
+    box = "qutu" in normalized and any(
+        word in normalized for word in ("eded", "say", "nece", "miqdar")
+    )
+    batch = any(word in normalized for word in ("partiya", "lot", "batch"))
+    return box or batch
 
 
 def _product_code(question: str) -> str | None:

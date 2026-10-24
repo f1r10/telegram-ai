@@ -371,6 +371,7 @@ async def _read_turn_images(
                 model=transcription.model,
             )
         )
+    logger.info("Image turn reading summary | attached=%d readable=%d", len(images), len(readings))
     return readings
 
 

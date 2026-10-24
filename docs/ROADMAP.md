@@ -9,6 +9,13 @@ acceptance evidence exists in-repo (migrations, modules, tests).
 
 The owner's 2026-10-07 Master Specification governs approved product requirements when provided; `docs/SPEC.md` is an older V1 baseline. Completed code and tests, not planning text, establish implementation status.
 
+## Staging OCR evidence remediation (2026-10-25)
+
+- [x] Implement deterministic document-evidence routing for exact product-code packaging/lot questions and source-scoped photo label extraction (PR #96).
+- [x] Add synthetic offline regressions covering Qdrant OCR chunks, Telegram Vision captions, identifier mismatches and conflicting labels.
+- [ ] Verify CI is green, merge PR #96, rebuild Kali staging app/worker, and repeat live Telegram QA-IMG-682 tests. GitHub commits alone do not update the running VM.
+- [ ] Validate general image/product search against representative real-image corpus before declaring production acceptance.
+
 ## Phase 0 — Project Setup & Tooling ✅
 
 - [x] Python 3.12 project with uv (`pyproject.toml`, `uv.lock`).

@@ -10,17 +10,23 @@ from dataclasses import dataclass
 from office_assistant.internal_evidence.models import EvidenceBundle, UnifiedCitation
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
 
+# OCR and Vision often insert bullets, Markdown emphasis or non-ASCII colons.
+# Accept formatting variation while requiring explicit field labels and one
+# unambiguous code, quantity and batch in the SAME source payload.
 _CODE_FIELD = re.compile(
-    r"(?im)^[ \t]*(?:məhsul|mehsul)\s+kodu\s*[:|]?[ \t]*\s*"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?(?:məhsul|mehsul)\s+kodu(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?"
     r"([A-Z]{1,8}(?:-[A-Z]{1,8})?-\d{1,8}[A-Z0-9-]*)\b"
 )
 _QUANTITY_FIELD = re.compile(
-    r"(?im)^[ \t]*qutu\s+(?:miqdar[ıi]|[əe]d[əe]d(?:\s+say[ıi])?)"
-    r"\s*[:|]?[ \t]*\s*(\d{1,6})\s*(?:[əe]d[əe]d)\b"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?qutu\s+"
+    r"(?:miqdar[ıi]|[əe]d[əe]d(?:\s+say[ıi])?)(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?(\d{1,6})\b"
 )
 _BATCH_FIELD = re.compile(
-    r"(?im)^[ \t]*(?:partiya(?:\s+kodu)?|lot(?:\s+number)?|batch(?:\s+number)?)"
-    r"\s*[:|]?[ \t]*\s*([A-Z]{1,6}-[A-Z0-9]{1,15})\b"
+    r"(?im)^[ \t]*(?:[-•]\s*)?(?:\*\*)?"
+    r"(?:partiya(?:\s+kodu)?|lot(?:\s+number)?|batch(?:\s+number)?)(?:\*\*)?"
+    r"\s*[:：|–—-]?[ \t]*\s*(?:\*\*)?([A-Z]{1,6}-[A-Z0-9]{1,15})\b"
 )
 _QUESTION_CODE = re.compile(
     r"(?<![A-Za-z0-9-])([A-Za-z]{1,8}(?:-[A-Za-z]{1,8})?-\d{1,8}[A-Za-z0-9-]*)"
@@ -63,7 +69,11 @@ def concise_packaging_label_answer(
     wants_batch = "partiya" in normalized or "batch" in normalized
     if not (wants_box and wants_batch):
         return None
-    image_question = any(marker in normalized for marker in _IMAGE_MARKERS)
+    image_question = any(marker in normalized for marker in _IMAGE_MARKERS) or (
+        bool(bundle.image_results)
+        and any(term in normalized for term in ("oxu", "etiketde", "etiketin"))
+        and not _QUESTION_CODE.search(question)
+    )
     asked_ids = {value.upper() for value in _QUESTION_CODE.findall(question)}
     if not image_question and len(asked_ids) != 1:
         return None
