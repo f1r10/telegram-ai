@@ -32,6 +32,7 @@ from office_assistant.internal_evidence.document_search import (
     DocumentSearchInput,
     InternalDocumentSearch,
 )
+from office_assistant.internal_evidence.label_facts import concise_packaging_label_answer
 from office_assistant.internal_evidence.models import (
     DocumentEvidence,
     EvidenceBundle,
@@ -43,9 +44,12 @@ from office_assistant.internal_evidence.models import (
     StructuredEvidence,
     UnifiedCitation,
 )
-from office_assistant.internal_evidence.label_facts import concise_packaging_label_answer
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
-from office_assistant.internal_evidence.router import EvidencePlanner, PlanDecision, attached_image_plan
+from office_assistant.internal_evidence.router import (
+    EvidencePlanner,
+    PlanDecision,
+    attached_image_plan,
+)
 from office_assistant.internal_evidence.short_answers import concise_document_answer
 from office_assistant.knowledge.qdrant_store import QdrantProjectionNotInitialized
 
