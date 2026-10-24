@@ -35,11 +35,14 @@ def expected_text_flags(
     text: str, *, code: str, quantity: int | None, lot: str | None
 ) -> dict[str, bool | None]:
     def exact(value: str) -> bool:
-        return re.search(
-            rf"(?<![A-Za-z0-9-]){re.escape(value)}(?![A-Za-z0-9-])",
-            text,
-            flags=re.IGNORECASE,
-        ) is not None
+        return (
+            re.search(
+                rf"(?<![A-Za-z0-9-]){re.escape(value)}(?![A-Za-z0-9-])",
+                text,
+                flags=re.IGNORECASE,
+            )
+            is not None
+        )
 
     return {
         "ocr_code_exact": exact(code),
@@ -58,9 +61,7 @@ def expected_text_flags(
 async def inspect_image(
     filename: str, code: str, *, quantity: int | None, lot: str | None, probe: bool
 ) -> dict[str, object]:
-    if Path(filename).name != filename or not filename.lower().endswith(
-        (".png", ".jpg", ".jpeg")
-    ):
+    if Path(filename).name != filename or not filename.lower().endswith((".png", ".jpg", ".jpeg")):
         raise ValueError("Invalid filename")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{1,63}", code) is None:
         raise ValueError("Invalid identifier")
@@ -77,16 +78,20 @@ async def inspect_image(
     try:
         async with factory() as session:
             files = (
-                await session.execute(
-                    select(FileObject)
-                    .where(
-                        FileObject.original_filename == filename,
-                        FileObject.state == FileObjectState.ACTIVE,
+                (
+                    await session.execute(
+                        select(FileObject)
+                        .where(
+                            FileObject.original_filename == filename,
+                            FileObject.state == FileObjectState.ACTIVE,
+                        )
+                        .order_by(FileObject.id.desc())
+                        .limit(2)
                     )
-                    .order_by(FileObject.id.desc())
-                    .limit(2)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if len(files) != 1:
                 return {**report, "state": "NOT_FOUND" if not files else "AMBIGUOUS"}
             file_id = files[0].id
@@ -132,9 +137,7 @@ async def inspect_image(
             else:
                 report["artifact_state"] = "MISSING"
             report["ocr_text_chars"] = len(text)
-            report.update(
-                expected_text_flags(text, code=code, quantity=quantity, lot=lot)
-            )
+            report.update(expected_text_flags(text, code=code, quantity=quantity, lot=lot))
     finally:
         await engine.dispose()
 
@@ -156,9 +159,7 @@ async def inspect_image(
             )
             query = f"{code} məhsulunun qutu miqdarı və partiya kodu nədir?"
             normalized = retrieval_query(query)
-            hits = await retrieval.search_internal_knowledge(
-                normalized, mode="hybrid", limit=10
-            )
+            hits = await retrieval.search_internal_knowledge(normalized, mode="hybrid", limit=10)
             filtered = await retrieval.search_internal_knowledge(
                 normalized,
                 mode="hybrid",
@@ -174,13 +175,10 @@ async def inspect_image(
                     "top10_hits": len(hits),
                     "target_top10_hits": sum(x.source_file_id == file_id for x in hits),
                     "target_accepted": sum(
-                        relevance.accepts(query, x)
-                        for x in hits if x.source_file_id == file_id
+                        relevance.accepts(query, x) for x in hits if x.source_file_id == file_id
                     ),
                     "target_filtered_hits": len(filtered),
-                    "target_filtered_accepted": sum(
-                        relevance.accepts(query, x) for x in filtered
-                    ),
+                    "target_filtered_accepted": sum(relevance.accepts(query, x) for x in filtered),
                 }
             )
         except Exception as error:
