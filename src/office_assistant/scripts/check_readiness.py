@@ -135,10 +135,17 @@ async def _database() -> list[Check]:
                     KnowledgeIndexRecord.chunk_count == 0,
                 )
             )
+            # Count unresolved *current* parses only. A successful, immutable
+            # OCR replay must not leave an obsolete historical DEFERRED warning.
+            current_parse = (
+                select(func.max(DocumentParseRun.id).label("id"))
+                .group_by(DocumentParseRun.file_object_id)
+                .subquery()
+            )
             deferred = await session.scalar(
-                select(func.count(DocumentParseRun.id)).where(
-                    DocumentParseRun.status == DocumentProcessingStatus.DEFERRED
-                )
+                select(func.count(DocumentParseRun.id))
+                .join(current_parse, DocumentParseRun.id == current_parse.c.id)
+                .where(DocumentParseRun.status == DocumentProcessingStatus.DEFERRED)
             )
             ingestion_failed = await session.scalar(
                 select(func.count(IngestionJob.id)).where(
