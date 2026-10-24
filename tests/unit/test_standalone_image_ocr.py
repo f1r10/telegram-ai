@@ -81,11 +81,12 @@ def test_empty_ocr_stays_deferred(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     original = tmp_path / "label.png"
     _png(original)
     engine = ImageOcrService()
-    monkeypatch.setattr(
-        engine,
-        "read",
-        lambda path, *, media_type: ImageOcrResult(reason="IMAGE_OCR_NO_TEXT"),
-    )
+    def empty_read(path: Path, *, media_type: str) -> ImageOcrResult:
+        assert path == original
+        assert media_type == "image/png"
+        return ImageOcrResult(reason="IMAGE_OCR_NO_TEXT")
+
+    monkeypatch.setattr(engine, "read", empty_read)
     parsed = (
         ParserRegistry(image_ocr=engine)
         .for_filename("label.png")
