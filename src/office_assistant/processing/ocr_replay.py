@@ -127,7 +127,7 @@ class OcrReplayService:
                         max(1, settings.worker_lease_seconds - 60),
                     ),
                 )
-            )
+            ),
         )
         self.chunking = ChunkingConfig(
             settings.chunking_version, settings.chunk_max_chars, settings.chunk_overlap_chars
