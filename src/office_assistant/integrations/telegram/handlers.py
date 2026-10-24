@@ -112,6 +112,7 @@ from office_assistant.integrations.telegram.state import (
 from office_assistant.integrations.telegram.turn_context import (
     MediaRef,
     build_turn_context,
+    needs_an_attached_picture,
 )
 from office_assistant.internal_evidence.delivery import (
     FileDeliveryAmbiguous,
@@ -1973,6 +1974,9 @@ async def handle_baza(
     question = turn.text
     if not question:
         await message.reply_text(messages.AI_INVALID_QUESTION)
+        return
+    if not turn.images and needs_an_attached_picture(question):
+        await message.reply_text(messages.IMAGE_CONTEXT_MISSING)
         return
     if services.internal_evidence is None:
         await message.reply_text(messages.AI_NOT_CONFIGURED)
