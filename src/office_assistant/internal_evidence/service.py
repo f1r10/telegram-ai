@@ -136,9 +136,7 @@ class InternalEvidenceService:
         if image_plan is not None:
             decision = PlanDecision(image_plan)
         else:
-            decision = await self.planner.plan(
-                actor.id, question, force_internal=force_internal
-            )
+            decision = await self.planner.plan(actor.id, question, force_internal=force_internal)
         plan = decision.plan
         router_usage = decision.response.usage if decision.response else TokenUsage()
         if decision.response:
