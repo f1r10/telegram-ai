@@ -29,7 +29,9 @@ def test_init_creates_independent_safe_openai_environment() -> None:
         secrets_by_key={"POSTGRES_PASSWORD": "long-test-pg", "SEARXNG_SECRET": "long-test-sx"},
     )
     lines = dict(
-        item.split("=", 1) for item in result.splitlines() if "=" in item and not item.startswith("#")
+        item.split("=", 1)
+        for item in result.splitlines()
+        if "=" in item and not item.startswith("#")
     )
     assert lines["APP_ENV"] == "staging"
     assert lines["POSTGRES_DB"] == "office_assistant_kali_test"
@@ -83,7 +85,9 @@ def test_cli_respects_existing_env_and_does_not_log_private_key(tmp_path: Path) 
         encoding="utf-8",
     )
     env_path = tmp_path / ".env"
-    first = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=10)
+    first = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=10
+    )
     assert first.returncode == 0
     assert env_path.exists()
     assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
@@ -91,7 +95,9 @@ def test_cli_respects_existing_env_and_does_not_log_private_key(tmp_path: Path) 
     assert "OPENAI_API_KEY=" not in first.stdout
     assert "KALI_STAGING_ENV_CREATED" in first.stdout
     before = env_path.read_bytes()
-    second = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=10)
+    second = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, timeout=10
+    )
     assert second.returncode != 0
     assert env_path.read_bytes() == before
     assert "BLOCKED:" in second.stderr + second.stdout
