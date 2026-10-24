@@ -29,11 +29,12 @@ from telegram.constants import ChatAction, ChatType
 from telegram.error import NetworkError, TelegramError
 from telegram.ext import ContextTypes
 
-from office_assistant.ai.service import (\n    RetrievalIndexNotInitialized,
+from office_assistant.ai.service import (
     AIServiceError,
     AnswerGenerationUnavailable,
     GroundedAnswerService,
     InProcessRateGuard,
+    RetrievalIndexNotInitialized,
     RetrievalUnavailable,
 )
 from office_assistant.application.authentication import (
