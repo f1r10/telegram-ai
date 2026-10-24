@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.provider import LanguageModel, ModelResponse, TokenUsage
 from office_assistant.ai.schemas import GroundedModelOutput
-from office_assistant.ai.service import GroundedAnswerService, RetrievalUnavailable
+from office_assistant.ai.service import (\n    GroundedAnswerService,\n    RetrievalIndexNotInitialized,\n    RetrievalUnavailable,\n)
 from office_assistant.business_tools.models import BusinessSource, ToolExecutionContext
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.infrastructure.database.models import (
@@ -42,6 +42,7 @@ from office_assistant.internal_evidence.models import (
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
 from office_assistant.internal_evidence.router import EvidencePlanner
 from office_assistant.internal_evidence.short_answers import concise_document_answer
+from office_assistant.knowledge.qdrant_store import QdrantProjectionNotInitialized
 
 logger = logging.getLogger(__name__)
 NOT_FOUND_INTERNAL_AZ = "Bu məlumat daxili sistemdə tapılmadı."
@@ -171,7 +172,12 @@ class InternalEvidenceService:
         )
         if not usable_structured and not bundle.document_results and not bundle.image_results:
             if retrieval_error is not None:
-                # The index was never consulted, so absence from it cannot be claimed.
+                # A missing index is distinguishable from an unreachable Qdrant,
+                # but it must never be misreported as "no matching company fact".
+                if isinstance(retrieval_error, QdrantProjectionNotInitialized):
+                    raise RetrievalIndexNotInitialized(
+                        "No Qdrant knowledge projection has been initialized"
+                    ) from retrieval_error
                 raise RetrievalUnavailable(
                     "Internal document evidence could not be retrieved"
                 ) from retrieval_error
