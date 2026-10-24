@@ -73,15 +73,10 @@ def attached_image_plan(
     if not (has_readable_image and force_internal):
         return None
     normalized = normalize_user_query(question)
-    if not any(
-        part in normalized
-        for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")
-    ):
+    if not any(part in normalized for part in ("sekildeki", "fotodaki", "bu sekil", "bu foto")):
         return None
     if any(
-        part in normalized for part in (
-            "anbar", "stok", "satis", "qiymet", "tesdiq", "bazada var"
-        )
+        part in normalized for part in ("anbar", "stok", "satis", "qiymet", "tesdiq", "bazada var")
     ):
         return None
     return EvidencePlan(
@@ -129,10 +124,7 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             reason_code="document_wording_requested",
         )
     if product and (
-        (
-            "qutu" in text
-            and any(word in text for word in ("eded", "say", "nece", "miqdar"))
-        )
+        ("qutu" in text and any(word in text for word in ("eded", "say", "nece", "miqdar")))
         or ("komplekt" in text and "eded" in text)
         or ("partiya" in text and any(word in text for word in ("kod", "nomre", "hansi")))
     ):
