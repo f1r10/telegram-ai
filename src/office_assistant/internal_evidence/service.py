@@ -186,7 +186,13 @@ class InternalEvidenceService:
                 documents = await self.document_search.search(
                     DocumentSearchInput(
                         query=_retrieval_query(question, image_readings),
-                        limit=self.document_limit,
+                        # The diagnostic probes top 10; the live packaging path must
+                        # inspect the same bounded candidate window, not just top 5.
+                        limit=(
+                            10
+                            if plan.intent == "DOCUMENT_PACKAGING_QUANTITY"
+                            else self.document_limit
+                        ),
                     )
                 )
             except Exception as error:
