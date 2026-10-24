@@ -28,7 +28,7 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.knowledge.chunking import chunk_normalized_document
 from office_assistant.knowledge.models import ChunkingConfig
-from office_assistant.processing.image_ocr import ImageOcrService, MAX_INPUT_BYTES
+from office_assistant.processing.image_ocr import MAX_INPUT_BYTES, ImageOcrService
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
