@@ -4,6 +4,11 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Session duplicate count wording after staging UAT (2026-10-25)
+
+- Label the `/saxla` duplicate counter as **within the current session**; a file whose exact bytes already exist from an earlier session is reused as one `FileObject` and its new submission is recorded, but does not increase this session-only counter.
+- Add offline response-copy regressions. No ingestion schema, deduplication, catalog state, or storage behavior changed.
+
 ### Telegram OCR evidence routing and caption label answers (2026-10-25)
 
 - Route code-specific packaging and batch questions to Qdrant document/OCR evidence before catalog-only lookup; do not promote label text to approved product or stock facts.
