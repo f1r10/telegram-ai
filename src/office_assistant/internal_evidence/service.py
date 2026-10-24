@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.provider import LanguageModel, ModelResponse, TokenUsage
 from office_assistant.ai.schemas import GroundedModelOutput
-from office_assistant.ai.service import (\n    GroundedAnswerService,\n    RetrievalIndexNotInitialized,\n    RetrievalUnavailable,\n)
+from office_assistant.ai.service import (
+    GroundedAnswerService,
+    RetrievalIndexNotInitialized,
+    RetrievalUnavailable,
+)
 from office_assistant.business_tools.models import BusinessSource, ToolExecutionContext
 from office_assistant.business_tools.registry import BusinessToolRegistry
 from office_assistant.infrastructure.database.models import (
