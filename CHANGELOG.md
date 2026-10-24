@@ -4,6 +4,14 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Local PNG/JPEG OCR, source provenance and recoverable deferred staging uploads (2026-10-25)
+
+- Add bounded, private Tesseract extraction for standalone uploaded PNG/JPEG label images. Successful local OCR text is indexed with `image_ocr` source locators; no automatic OpenAI upload, product identification, stock or price approval occurs.
+- Maintain conservative deferred status for unreadable images. Reprocess only eligible existing deferred files using an explicit operator-reviewed `replay_deferred_images` dry-run/`--apply` path, with original source SHA-256 validation and durable OCR/index job records.
+- Count only *latest* parse statuses for readiness, so prior immutable deferred records remain auditable without causing a stale DEGRADED warning after successful repair.
+- Preserve on-demand Telegram photo+caption Vision semantics: image-only/standalone delayed text questions do not silently infer an earlier attachment.
+
+
 ### Gemini native Interactions adapter and transient 503 handling (2026-10-22)
 
 - Route `AI_PROVIDER=gemini` via Google's native `/v1beta/interactions` REST endpoint instead of the OpenAI-compatibility chat gateway; preserve OpenAI's existing path unchanged and never silently fail over between vendors.
