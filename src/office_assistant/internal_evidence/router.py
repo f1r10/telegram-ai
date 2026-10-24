@@ -11,9 +11,11 @@ from office_assistant.internal_evidence.models import (
     PlannedToolCall,
     RoutingCategory,
 )
-from office_assistant.internal_evidence.query_normalization import normalize_user_query
+from office_assistant.internal_evidence.query_normalization import (
+    normalize_user_query,
+    strong_identifiers,
+)
 from office_assistant.internal_evidence.tool_adapter import OpenAIToolSchemaAdapter
-from office_assistant.internal_evidence.query_normalization import strong_identifiers
 
 PLANNER_POLICY = """Classify the question and plan internal evidence collection.
 Use only the supplied allowlisted read-only business tools. Tool arguments never
