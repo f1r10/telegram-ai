@@ -78,10 +78,7 @@ class LocalClipTextEncoder:
                 threads=2,
             )
         model = cast(TextEmbedding, self._model)
-        return [
-            [float(value) for value in vector]
-            for vector in model.embed(descriptions)
-        ]
+        return [[float(value) for value in vector] for vector in model.embed(descriptions)]
 
 
 @dataclass(frozen=True, slots=True)
