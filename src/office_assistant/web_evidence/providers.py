@@ -88,8 +88,15 @@ class SearXNGWebSearchProvider:
             await self._client.aclose()
 
     async def search(self, request: WebSearchRequest) -> WebSearchResponse:
+        # Restrict the provider query itself, not just the returned hits:
+        # a normal top-N search cannot discover lower-ranked site-specific pages.
+        query = request.query
+        if len(request.allowed_domains) == 1:
+            domain = request.allowed_domains[0].casefold()
+            if domain.replace(".", "").replace("-", "").isalnum():
+                query = f"site:{domain} {request.query}"
         params: dict[str, str | int] = {
-            "q": request.query,
+            "q": query,
             "format": "json",
             "categories": "general",
             "safesearch": 1,
