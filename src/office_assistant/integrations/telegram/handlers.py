@@ -2501,20 +2501,24 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
         or _note_payload(caption) is not None
     ):
         return False
-    return "?" in text or _explicit_pdf_photo_lookup(caption) or any(
-        phrase in text
-        for phrase in (
-            "bizdə var",
-            "bizde var",
-            "bazada var",
-            "bu məhsul var",
-            "bu mehsul var",
-            "şəkli yoxla",
-            "sekli yoxla",
-            "şəkildə nədir",
-            "sekilde nedir",
-            "məhsulu axtar",
-            "mehsulu axtar",
+    return (
+        "?" in text
+        or _explicit_pdf_photo_lookup(caption)
+        or any(
+            phrase in text
+            for phrase in (
+                "bizdə var",
+                "bizde var",
+                "bazada var",
+                "bu məhsul var",
+                "bu mehsul var",
+                "şəkli yoxla",
+                "sekli yoxla",
+                "şəkildə nədir",
+                "sekilde nedir",
+                "məhsulu axtar",
+                "mehsulu axtar",
+            )
         )
     )
 
@@ -2533,9 +2537,7 @@ def _explicit_pdf_photo_lookup(caption: str | None) -> bool:
     return any(part in phrase for part in ("pdf", "kataloq şəkli", "kataloqdakı şəkil"))
 
 
-async def handle_catalog_product_add(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_catalog_product_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin-only catalog identity preview. Never create stock, price or photo."""
 
     identity = _identity(update)
@@ -2561,18 +2563,18 @@ async def handle_catalog_product_add(
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
     token = secrets.token_urlsafe(12)
-    data[PRODUCT_REGISTRATION_KEY] = (
-        token, monotonic() + PRODUCT_REGISTRATION_TTL_SECONDS, draft
-    )
+    data[PRODUCT_REGISTRATION_KEY] = (token, monotonic() + PRODUCT_REGISTRATION_TTL_SECONDS, draft)
     await message.reply_text(
         f"📦 YENİ MƏHSUL QEYDİ\\n\\nKod: {draft.code}\\nAd: {draft.name}\\n\\n"
         "Bu yalnız məhsulun kataloq kimliyini yaradacaq. "
         "Qiymət, stok və şəkil avtomatik təsdiqlənmir.",
         reply_markup=InlineKeyboardMarkup(
-            [[
-                InlineKeyboardButton("Təsdiqlə", callback_data=f"pa:ok:{token}"),
-                InlineKeyboardButton("Ləğv et", callback_data=f"pa:no:{token}"),
-            ]]
+            [
+                [
+                    InlineKeyboardButton("Təsdiqlə", callback_data=f"pa:ok:{token}"),
+                    InlineKeyboardButton("Ləğv et", callback_data=f"pa:no:{token}"),
+                ]
+            ]
         ),
     )
 
