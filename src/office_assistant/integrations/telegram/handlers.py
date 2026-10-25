@@ -2594,17 +2594,17 @@ async def handle_catalog_product_add_callback(
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
     raw: object = data.pop(PRODUCT_REGISTRATION_KEY, None)
+    selected: tuple[object, ...] = cast(tuple[object, ...], raw) if isinstance(raw, tuple) else ()
     parts = (query.data or "").split(":")
     if (
-        not isinstance(raw, tuple)
-        or len(raw) != 3
+        len(selected) != 3
         or len(parts) != 3
         or parts[0] != "pa"
         or parts[1] not in {"ok", "no"}
-        or raw[0] != parts[2]
-        or not isinstance(raw[1], (int, float))
-        or monotonic() > raw[1]
-        or not isinstance(raw[2], ProductRegistrationDraft)
+        or selected[0] != parts[2]
+        or not isinstance(selected[1], (int, float))
+        or monotonic() > selected[1]
+        or not isinstance(selected[2], ProductRegistrationDraft)
     ):
         await query.edit_message_text("Təsdiqin vaxtı bitib və ya artıq istifadə edilib.")
         return
@@ -2619,7 +2619,7 @@ async def handle_catalog_product_add_callback(
     if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
         await query.edit_message_text(messages.NO_PERMISSION)
         return
-    draft = raw[2]
+    draft = cast(ProductRegistrationDraft, selected[2])
     try:
         product = await ProductService(services.session_factory).create_product(
             identity.telegram_user_id, display_code=draft.code, name=draft.name
