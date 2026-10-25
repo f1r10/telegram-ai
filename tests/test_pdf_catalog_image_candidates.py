@@ -46,6 +46,29 @@ def test_pdf_embed_candidate_returns_page_not_product_identity(tmp_path) -> None
     assert "SKU" not in text
 
 
+def test_white_padded_screenshot_matches_verified_pdf_artwork(tmp_path) -> None:
+    data = _artwork()
+    reference = tmp_path / "embedded.png"
+    reference.write_bytes(data)
+    padded = Image.new("RGB", (280, 280), "white")
+    with Image.open(BytesIO(data)) as original:
+        padded.paste(original, (55, 60))
+    with BytesIO() as stream:
+        padded.save(stream, format="PNG")
+        screenshot = stream.getvalue()
+    source = PdfImageSource(
+        44,
+        "synthetic.pdf",
+        1,
+        2,
+        reference.name,
+        sha256(data).hexdigest(),
+    )
+    results = match_pdf_image_sources(screenshot, [source], tmp_path)
+    assert len(results) == 1
+    assert results[0].page == 1
+
+
 def test_corrupt_reference_and_blank_photo_fail_closed(tmp_path) -> None:
     data = _artwork()
     path = tmp_path / "bad.png"
