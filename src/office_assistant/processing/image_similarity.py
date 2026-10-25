@@ -129,8 +129,7 @@ def shortlist(
         # Require the same coarse spatial colour layout for near-duplicates;
         # cross-angle recognition belongs to the separately calibrated model.
         tile_delta = sum(
-            abs(a - b)
-            for a, b in zip(query_hash.color_tiles, ref_hash.color_tiles, strict=True)
+            abs(a - b) for a, b in zip(query_hash.color_tiles, ref_hash.color_tiles, strict=True)
         ) / len(query_hash.color_tiles)
         if tile_delta > MAX_COLOR_TILE_DIFFERENCE:
             continue
