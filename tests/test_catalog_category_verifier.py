@@ -107,12 +107,22 @@ def test_semantic_photo_candidates_require_category_compatibility(tmp_path: Path
         (tmp_path / name).write_bytes(data)
     sources = [
         PdfImageSource(
-            1, "catalog.pdf", 3, 4,
-            "button.png", sha256(solar_button).hexdigest(), source_file_id=7,
+            1,
+            "catalog.pdf",
+            3,
+            4,
+            "button.png",
+            sha256(solar_button).hexdigest(),
+            source_file_id=7,
         ),
         PdfImageSource(
-            2, "catalog.pdf", 2, 4,
-            "wet.png", sha256(wet_floor).hexdigest(), source_file_id=7,
+            2,
+            "catalog.pdf",
+            2,
+            4,
+            "wet.png",
+            sha256(wet_floor).hexdigest(),
+            source_file_id=7,
         ),
     ]
     semantic = SemanticVisualSearch(
