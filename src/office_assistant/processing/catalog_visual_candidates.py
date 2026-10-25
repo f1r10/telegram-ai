@@ -16,6 +16,7 @@ from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from office_assistant.processing.catalog_category_verifier import LocalCatalogCategoryVerifier
 from office_assistant.processing.image_similarity import (
     AHASH_DISTANCE_LIMIT,
     DHASH_DISTANCE_LIMIT,
@@ -206,6 +207,7 @@ def semantic_pdf_image_candidates(
     semantic: SemanticVisualSearch,
     *,
     limit: int = 3,
+    category_verifier: LocalCatalogCategoryVerifier | None = None,
 ) -> tuple[tuple[PdfPageCandidate, ...], bool, bool]:
     """Find different photographs using the opt-in local CLIP encoder.
 
@@ -229,6 +231,7 @@ def semantic_pdf_image_candidates(
     outcome = semantic.search(query_bytes, refs, limit=limit)
     matches: list[PdfPageCandidate] = []
     used: set[tuple[int, int, int]] = set()
+    category_unavailable = False
     best = outcome.candidates[0].score if outcome.candidates else None
     for item in outcome.candidates:
         # The first candidate remains an UNCONFIRMED suggestion. Any next
@@ -239,6 +242,30 @@ def semantic_pdf_image_candidates(
         source = allowed.get(item.product_code)
         if source is None or source.source_file_id is None:
             continue
+        if category_verifier is not None:
+            # Independently validate query/ref product type after raw CLIP
+            # similarity. A shared solar panel must not turn a surveillance
+            # camera into a "solar powered button" catalog suggestion.
+            try:
+                root = semantic.storage_root.resolve()
+                path = (root / source.storage_key).resolve()
+                path.relative_to(root)
+                if not path.is_file() or not 0 < path.stat().st_size <= MAX_IMAGE_BYTES:
+                    category_unavailable = True
+                    continue
+                reference_bytes = path.read_bytes()
+                if sha256(reference_bytes).hexdigest() != source.content_sha256:
+                    category_unavailable = True
+                    continue
+                agreement = category_verifier.agree(query_bytes, reference_bytes)
+            except (OSError, ValueError):
+                category_unavailable = True
+                continue
+            if agreement is None:
+                category_unavailable = True
+                continue
+            if not agreement:
+                continue
         key = (source.source_file_id, source.page, source.image_index)
         if key in used:
             continue
@@ -254,7 +281,7 @@ def semantic_pdf_image_candidates(
                 match_score=item.score,
             )
         )
-    return tuple(matches), outcome.incomplete, outcome.unavailable
+    return tuple(matches), outcome.incomplete, outcome.unavailable or category_unavailable
 
 
 def render_pdf_image_candidates(

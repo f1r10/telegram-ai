@@ -134,6 +134,7 @@ from office_assistant.internal_evidence.delivery import (
 from office_assistant.internal_evidence.models import ImageReading, InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.catalog_category_verifier import local_category_verifier
 from office_assistant.processing.catalog_visual_candidates import (
     MAX_PDF_REFERENCES,
     PdfImageSource,
@@ -2515,6 +2516,9 @@ async def _reply_pdf_catalog_candidates(
                     image_bytes,
                     sources,
                     services.semantic_visual,
+                    category_verifier=local_category_verifier(
+                        str(services.semantic_visual.cache_root)
+                    ),
                 ),
                 timeout=25.0,
             )
@@ -2530,8 +2534,9 @@ async def _reply_pdf_catalog_candidates(
             )
         elif unavailable:
             note = (
-                "PDF kataloqunda yaxın nüsxə tapılmadı. Semantik şəkil modeli "
-                "bu anda əlçatan deyil; nəticəsiz axtarışı məhsulun yoxluğu saymıram."
+                "PDF kataloqunda yaxın nüsxə tapılmadı. Lokal semantik model "
+                "və ya məhsul növünün müstəqil yoxlaması əlçatan deyil. "
+                "Bu, məhsulun kataloqda olmadığını sübut etmir."
             )
         else:
             note = (

@@ -65,8 +65,16 @@ async def catalog_references(settings: Settings) -> list[SemanticReference]:
 def _provision_model(cache: Path) -> None:
     """Explicit operator-only network action, NEVER called on user query."""
 
-    from fastembed import ImageEmbedding
+    from fastembed import ImageEmbedding, TextEmbedding
 
+    from office_assistant.processing.catalog_category_verifier import CLIP_TEXT_MODEL
+
+    TextEmbedding(
+        model_name=CLIP_TEXT_MODEL,
+        cache_dir=str(cache),
+        local_files_only=False,
+        threads=2,
+    )
     ImageEmbedding(
         model_name=CLIP_MODEL,
         cache_dir=str(cache),
