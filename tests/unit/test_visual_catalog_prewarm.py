@@ -13,14 +13,9 @@ from office_assistant.scripts import prepare_visual_catalog
 def test_visual_catalog_dry_run_covers_more_than_eighty_products(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    async def approved(
-        settings: Settings, *, limit: int
-    ) -> list[SemanticReference]:
+    async def approved(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
-        return [
-            SemanticReference(f"SKU{i}", f"photo{i}.jpg", "a" * 64)
-            for i in range(120)
-        ]
+        return [SemanticReference(f"SKU{i}", f"photo{i}.jpg", "a" * 64) for i in range(120)]
 
     async def pdf(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
@@ -43,9 +38,7 @@ def test_visual_catalog_dry_run_covers_more_than_eighty_products(
 def test_visual_catalog_prewarms_both_sources_and_preserves_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    async def approved(
-        settings: Settings, *, limit: int
-    ) -> list[SemanticReference]:
+    async def approved(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
         return [SemanticReference("SKU1", "photo.jpg", "a" * 64)]
 
@@ -58,9 +51,7 @@ def test_visual_catalog_prewarms_both_sources_and_preserves_failure(
             del kwargs
             self.calls = 0
 
-        def warm_references(
-            self, references: list[SemanticReference]
-        ) -> ReferenceWarmResult:
+        def warm_references(self, references: list[SemanticReference]) -> ReferenceWarmResult:
             self.calls += 1
             return ReferenceWarmResult(len(references), len(references), 0, False)
 
