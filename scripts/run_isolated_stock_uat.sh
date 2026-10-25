@@ -33,7 +33,7 @@ docker run -d --rm --pull=never \
 
 ready=0
 for _ in $(seq 1 40); do
-  if docker exec "$container" pg_isready -U "$user" -d "$db" >/dev/null 2>&1; then
+  if docker exec "$container" pg_isready -h 127.0.0.1 -U "$user" -d "$db" >/dev/null 2>&1; then
     ready=1
     break
   fi
