@@ -135,9 +135,7 @@ async def scenario(settings: Settings) -> dict[str, object]:
         )
         moved = await ledger.transfer(
             admin,
-            StockTransferDraft(
-                PRODUCT_CODE, "QA Əsas", "QA Kənar", Decimal(4), "QA-T-1", "PCS"
-            ),
+            StockTransferDraft(PRODUCT_CODE, "QA Əsas", "QA Kənar", Decimal(4), "QA-T-1", "PCS"),
         )
         assert moved.source_balance_after == Decimal(11)
         assert moved.destination_balance_after == Decimal(4)
@@ -208,21 +206,15 @@ async def scenario(settings: Settings) -> dict[str, object]:
         preview = preview_stock_xlsx(workbook)
         assert preview.count == 2
         try:
-            await commit_stock_xlsx(
-                ledger, admin, workbook, confirmed_sha256="0" * 64
-            )
+            await commit_stock_xlsx(ledger, admin, workbook, confirmed_sha256="0" * 64)
         except InventoryValidationError:
             passed.append("xlsx_digest_change_rejected")
         else:
             raise AssertionError("Unapproved workbook was imported")
-        posted = await commit_stock_xlsx(
-            ledger, admin, workbook, confirmed_sha256=preview.sha256
-        )
+        posted = await commit_stock_xlsx(ledger, admin, workbook, confirmed_sha256=preview.sha256)
         assert len(posted) == 2
         try:
-            await commit_stock_xlsx(
-                ledger, admin, workbook, confirmed_sha256=preview.sha256
-            )
+            await commit_stock_xlsx(ledger, admin, workbook, confirmed_sha256=preview.sha256)
         except InventoryConflict:
             passed.append("xlsx_replay_rejected")
         else:
@@ -247,9 +239,9 @@ async def scenario(settings: Settings) -> dict[str, object]:
 
         async with factory() as session:
             audit_count = await session.scalar(
-                select(func.count()).select_from(AuditEvent).where(
-                    AuditEvent.actor_user_id == admin_id
-                )
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.actor_user_id == admin_id)
             )
         assert audit_count is not None and audit_count >= 10
         passed.append("audit_events_persisted")
