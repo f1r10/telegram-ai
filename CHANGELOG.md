@@ -1,4 +1,5 @@
 # Changelog
+- Photo lookup: bound optional Telegram near-duplicate/semantic stages to 2s/4s and Mini App semantic lookup to 5s; record unresolved real-photo acceptance failures and preserve conservative unknown results. These stage bounds are not an end-to-end latency guarantee.
 
 All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled 2026-10-06).
 
