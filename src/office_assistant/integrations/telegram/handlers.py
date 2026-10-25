@@ -2503,9 +2503,7 @@ async def _reply_pdf_catalog_candidates(
             )
     if not sources:
         return False
-    matches = await asyncio.to_thread(
-        match_pdf_image_sources, image_bytes, sources, storage.root
-    )
+    matches = await asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root)
     if not matches:
         return False
 
