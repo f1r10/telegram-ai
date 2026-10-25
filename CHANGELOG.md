@@ -4,6 +4,13 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Previously uploaded image bypass of PDF photo lookup (2026-10-25)
+
+- Continue the read-only PDF-embedded image lookup even when a photograph already has an unconfirmed ImageAsset record. Mere content reuse is not proof of product identity and cannot skip source-scoped search.
+- Add a local, redacted operator preflight showing actual semantic feature setting, active embedded PDF image count, local CLIP model probe and candidate coverage. Never imply internet-image similarity is operational until the model is provisioned and the end-to-end probe returns READY.
+- Preserve confirmed product match precedence, user-scoped original PDF download, and no unsolicited photo writes. Add an offline Telegram regression for this bypass. No migration or inventory changes.
+
+
 ### PDF catalog photo retrieval and visible row position (2026-10-25)
 
 - Stop presenting PDF content-stream image sequence as the on-page product image number. Display a top-to-bottom visual row number only when source geometry supports it; otherwise omit the number.
