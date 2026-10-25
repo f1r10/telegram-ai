@@ -194,6 +194,26 @@ Existing assets, original bytes, session associations and original parse-run rec
 
 **Distinct tests:** (1) Send a printed-label PNG as a **document** and save it; wait until indexed, then ask `/baza QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?` and check the source filename. (2) For on-demand **OpenAI Vision**, send the picture as a Telegram **photo with the `/baza ...` question in the same message's caption**; a separate later `/baza Şəkildəki ...` message has no attached image and cannot implicitly refer to the earlier file. These are different features. If local OCR cannot read stylized handwriting or nontext visuals, do not infer stock or product identity. Use only synthetic samples until private-data handling is approved.
 
+## Staging visual catalog one-command activation (PR #103)
+
+From a clean staging main checkout, the operator only needs to run:
+
+    git pull --ff-only origin main
+    bash scripts/activate_catalog_visual_staging.sh
+
+The script safely backs up .env to .env.before-catalog-visual.bak,
+sets only VISUAL_SEMANTIC_ENABLED=true and
+VISUAL_SEMANTIC_MAX_REFERENCES=200, validates Compose, builds the app,
+explicitly downloads and warms the local CLIP model, then recreates only
+the staging app and runs the local model-and-catalog readiness probe.
+
+Do NOT claim success without CATALOG_VISUAL_ACTIVATION=READY and a
+CATALOG_VISUAL_LOCAL status of READY. The model download requires
+network connectivity only for this operator-controlled installation.
+The script never removes Docker volumes or restarts the database/worker.
+Verify actual different-photo recall on Telegram separately.
+
+
 ## Visual catalog deployment verification (read-only)
 
 After building the staging app from the merged source, run:
