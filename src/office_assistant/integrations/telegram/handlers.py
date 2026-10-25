@@ -2507,6 +2507,7 @@ async def _reply_pdf_catalog_candidates(
     )
     if not matches:
         return False
+
     # Resolve product text only from the original matched PDF page's native
     # drawing geometry. Never look for generic page text by SKU keywords.
     async def enrich_pdf_row(candidate: PdfPageCandidate) -> PdfPageCandidate:
