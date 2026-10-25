@@ -194,6 +194,42 @@ Existing assets, original bytes, session associations and original parse-run rec
 
 **Distinct tests:** (1) Send a printed-label PNG as a **document** and save it; wait until indexed, then ask `/baza QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?` and check the source filename. (2) For on-demand **OpenAI Vision**, send the picture as a Telegram **photo with the `/baza ...` question in the same message's caption**; a separate later `/baza Şəkildəki ...` message has no attached image and cannot implicitly refer to the earlier file. These are different features. If local OCR cannot read stylized handwriting or nontext visuals, do not infer stock or product identity. Use only synthetic samples until private-data handling is approved.
 
+## Visual catalog matching after PR #101: model provisioning and acceptance
+
+The original PDF image index is internal draw-order metadata and may not equal
+the first/second picture visible on the page. Telegram now displays top-down
+visual position only when reliable PDF geometry is available.
+
+Staging supports catalog photo similarity using the local CLIP image encoder,
+in addition to byte and perceptual-hash near duplicates. This is **not**
+automatic creation/approval of products or stock entries.
+
+After pulling main and rebuilding app, run once to provision and warm the model
+on the staging model-cache volume (requires network access for initial model
+weights; ordinary Telegram turns remain offline-only for visual inference):
+
+```bash
+docker compose -f docker-compose.staging.yml --env-file .env run --rm app \
+  uv run --no-dev python -m office_assistant.scripts.prepare_catalog_visual_references \
+  --download-model --apply --limit 200
+```
+
+A ready output includes CATALOG_MODEL_STATUS=PROVISIONED and
+CATALOG_VISUAL_PREWARM_STATUS=APPLIED with warmed greater than zero.
+The dry-run command without flags only reports eligible image occurrences.
+If .env explicitly sets VISUAL_SEMANTIC_ENABLED=false, change it to true
+before the next app rebuild. Set VISUAL_SEMANTIC_MAX_REFERENCES=200 for
+this catalog acceptance corpus if that key exists with the old 80 limit.
+Never print or share secrets from .env.
+
+Test the 100 cm cone and wet-floor-sign internet photo. A different-angle
+match must be labeled a *semantic candidate*, never a confirmed SKU. Verify the
+original PDF is available through Mənbə 1. Check that page 1 top cone
+and page 3 top chain roll are shown as visual position 1 even where their
+internal XObject indices differ. Verify an unrelated photo is not promoted to
+a confirmed product. Capture false matches and missing matches separately:
+the uncalibrated similarity score is not a product-identity probability.
+
 ## J. Debugging an indexed image that the bot cannot find
 
 A report of `READY`, `indexed_chunks=1` or `historical_pdf_ocr_replay indexed=1` confirms that the pipeline completed, **not** that Tesseract correctly read a label. Before adjusting the model or relevance threshold, run the built-in **read-only, content-redacted** test against one synthetic image:
