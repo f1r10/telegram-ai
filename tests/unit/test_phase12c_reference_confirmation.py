@@ -48,6 +48,10 @@ from office_assistant.business.reference_confirmation import (
         ("Bu şəkli KA45-dır, saxla", "KA45"),
         ("KA45-dir, zəhmət olmasa yadda saxla", "KA45"),
         ("Bu KA45 referans şəkil kimi, yadda saxla", "KA45"),
+        # An explicit model identifier is not confused with the adjacent price.
+        ("Bu casio 1234 modelidir 129 azn yadda saxla", "1234"),
+        ("Bu KA45-dir, qiyməti 129 AZN, yadda saxla", "KA45"),
+        ("Bu KA45 modelidir, 129 manat, yadda saxla", "KA45"),
     ],
 )
 def test_an_instruction_that_binds_one_product_is_read_without_a_model(
@@ -153,3 +157,8 @@ def test_a_hyphenated_suffix_keeps_its_letters_instead_of_becoming_a_known_code(
     # The hyphen is a separator and the suffix is letters, so ``KA45-in`` reads as ``KA45IN`` — a
     # different identity from ``KA45``, which is why an invented match here would be the bug.
     assert parsed == ProductPictureConfirmation("KA45IN")
+
+
+def test_non_price_numeric_competing_identifiers_remain_ambiguous() -> None:
+    result = parse_reference_confirmation("Bu 1234 modelidir, digər kod 129-dur, yadda saxla")
+    assert result == AmbiguousPictureConfirmation(("1234", "129"))
