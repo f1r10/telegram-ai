@@ -1,7 +1,7 @@
 """Preferred-domain search must be ordered, scoped, and degrade safely."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
@@ -67,8 +67,15 @@ class NoCacheSearch(WebSearchService):
         del key
         return None
 
-    async def _write_cache(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
+    async def _write_cache(
+        self,
+        key: str,
+        normalized: str,
+        request: WebSearchRequest,
+        response: WebSearchResponse,
+        ttl: timedelta,
+    ) -> None:
+        del key, normalized, request, response, ttl
 
 
 def _service(
