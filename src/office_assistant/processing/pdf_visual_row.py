@@ -126,7 +126,7 @@ def _caption_for_image(
         return None
     # Two equally-near separate rows are ambiguous; don't pick one arbitrarily.
     for other_distance, other_x, other_y, _ in candidates[1:]:
-        if abs(other_y - anchor_y) > 18 and other_distance - distance < 11:
+        if abs(other_y - anchor_y) > 22 and other_distance <= MAX_VERTICAL_DISTANCE:
             return None
         if abs(other_x - anchor_x) > 150 and abs(other_y - anchor_y) < 8:
             return None
