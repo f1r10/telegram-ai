@@ -8,6 +8,9 @@ or the local text encoder is absent. This is an additional safety gate, never
 a product identity confirmation. No query image, text or vector is persisted.
 """
 
+# Shared bounded image-thumbnail helper is deliberately private.
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import tempfile
