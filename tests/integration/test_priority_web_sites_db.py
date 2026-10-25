@@ -46,6 +46,7 @@ def test_preferred_domains_survive_service_reload_and_reject_staff_writes() -> N
                     delete(SystemMetadata).where(SystemMetadata.key == PRIORITY_SITES_KEY)
                 )
                 await session.execute(delete(User).where(User.id.in_(actor_ids)))
+
         try:
             await cleanup()
             async with factory.begin() as session:
