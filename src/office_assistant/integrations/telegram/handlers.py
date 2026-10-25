@@ -58,6 +58,7 @@ from office_assistant.application.inventory import (
     parse_stock_draft,
     parse_stock_request,
 )
+from office_assistant.application.products import ProductService
 from office_assistant.application.reference_images import (
     ReferenceImageDenialReason,
     ReferenceImageResult,
@@ -81,6 +82,10 @@ from office_assistant.application.sales_ledger import (
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.auth.policy import is_admin
 from office_assistant.business.normalization import normalize_product_code
+from office_assistant.business.product_registration import (
+    ProductRegistrationDraft,
+    parse_product_registration,
+)
 from office_assistant.business.reference_confirmation import (
     AmbiguousPictureConfirmation,
     ProductPictureConfirmation,
@@ -164,6 +169,8 @@ SOURCE_BUTTON_TTL_SECONDS = 600
 MENU_SELECTION_TTL_SECONDS = 600
 SALES_DRAFT_KEY = "office_sales_draft"
 STOCK_DRAFT_KEY = "office_stock_draft"
+PRODUCT_REGISTRATION_KEY = "office_product_registration_draft"
+PRODUCT_REGISTRATION_TTL_SECONDS = 600
 SALES_IMPORT_KEY = "office_sales_import"
 SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
@@ -2494,7 +2501,7 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
         or _note_payload(caption) is not None
     ):
         return False
-    return "?" in text or any(
+    return "?" in text or _explicit_pdf_photo_lookup(caption) or any(
         phrase in text
         for phrase in (
             "bizdə var",
@@ -2524,6 +2531,111 @@ def _explicit_pdf_photo_lookup(caption: str | None) -> bool:
         return False
     phrase = " ".join(caption.casefold().split())
     return any(part in phrase for part in ("pdf", "kataloq şəkli", "kataloqdakı şəkil"))
+
+
+async def handle_catalog_product_add(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Admin-only catalog identity preview. Never create stock, price or photo."""
+
+    identity = _identity(update)
+    message = update.effective_message
+    if not _is_private(update) or identity is None or message is None:
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+        await message.reply_text(messages.NO_PERMISSION)
+        return
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    argument = _command_text(message).partition(" ")[2].strip()
+    try:
+        draft = parse_product_registration(argument)
+    except ValueError as error:
+        await message.reply_text(str(error))
+        return
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    token = secrets.token_urlsafe(12)
+    data[PRODUCT_REGISTRATION_KEY] = (
+        token, monotonic() + PRODUCT_REGISTRATION_TTL_SECONDS, draft
+    )
+    await message.reply_text(
+        f"📦 YENİ MƏHSUL QEYDİ\\n\\nKod: {draft.code}\\nAd: {draft.name}\\n\\n"
+        "Bu yalnız məhsulun kataloq kimliyini yaradacaq. "
+        "Qiymət, stok və şəkil avtomatik təsdiqlənmir.",
+        reply_markup=InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("Təsdiqlə", callback_data=f"pa:ok:{token}"),
+                InlineKeyboardButton("Ləğv et", callback_data=f"pa:no:{token}"),
+            ]]
+        ),
+    )
+
+
+async def handle_catalog_product_add_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Single-use, expiring confirm with fresh persisted admin authorization."""
+
+    query = update.callback_query
+    identity = _identity(update)
+    if not _is_private(update) or query is None or identity is None:
+        return
+    await query.answer()
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    raw: object = data.pop(PRODUCT_REGISTRATION_KEY, None)
+    parts = (query.data or "").split(":")
+    if (
+        not isinstance(raw, tuple)
+        or len(raw) != 3
+        or len(parts) != 3
+        or parts[0] != "pa"
+        or parts[1] not in {"ok", "no"}
+        or raw[0] != parts[2]
+        or not isinstance(raw[1], (int, float))
+        or monotonic() > raw[1]
+        or not isinstance(raw[2], ProductRegistrationDraft)
+    ):
+        await query.edit_message_text("Təsdiqin vaxtı bitib və ya artıq istifadə edilib.")
+        return
+    if parts[1] == "no":
+        await query.edit_message_text("Məhsulun yaradılması ləğv edildi.")
+        return
+    services = _services(context)
+    if services.session_factory is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    draft = raw[2]
+    try:
+        product = await ProductService(services.session_factory).create_product(
+            identity.telegram_user_id, display_code=draft.code, name=draft.name
+        )
+    except DomainConflict:
+        await query.edit_message_text("Bu məhsul kodu artıq mövcuddur; yeni qeyd yaradılmadı.")
+        return
+    except (AuthorizationDenied, SQLAlchemyError, ValueError) as error:
+        logger.warning("Catalog product create refused | error_type=%s", type(error).__name__)
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        f"✅ MƏHSUL KATALOQA ƏLAVƏ EDİLDİ\\n\\n"
+        f"Kod: {product.display_code}\\nAd: {product.name}\\n\\n"
+        "İndi həmin məhsul kodunu yazaraq foto göndərin: "
+        f"«Bu {product.display_code}-dir, yadda saxla». "
+        "Şəkli ayrıca /saxla ilə təsdiqləyin. Qiymət və stok yaradılmadı."
+    )
 
 
 async def _reply_pdf_catalog_candidates(
@@ -3220,6 +3332,7 @@ COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "help": handle_help,
     "verilerimi_sil": handle_delete_data,
     "leqv_et": handle_revoke_reference,
+    "mehsul_elave": handle_catalog_product_add,
     "baza": handle_baza,
     "internet": handle_internet,
     "saytlar": handle_priority_sites,
