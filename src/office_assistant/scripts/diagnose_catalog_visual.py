@@ -30,8 +30,7 @@ async def check_catalog(
         "configured_min_score": str(settings.visual_semantic_min_score),
         "reference_limit": settings.visual_semantic_max_references,
         "active_pdf_images": len(references),
-        "reference_window_incomplete": len(references)
-        > settings.visual_semantic_max_references,
+        "reference_window_incomplete": len(references) > settings.visual_semantic_max_references,
     }
     if not references:
         result["status"] = "NO_INDEXED_PDF_IMAGES"
@@ -96,8 +95,16 @@ def main() -> None:
     try:
         result = asyncio.run(check_catalog(load_settings(), probe_model=arguments.probe_model))
     except Exception as error:
-        print(json.dumps({"diagnostic": "CATALOG_VISUAL_LOCAL", "status": "ERROR",
-                          "error_type": type(error).__name__}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "diagnostic": "CATALOG_VISUAL_LOCAL",
+                    "status": "ERROR",
+                    "error_type": type(error).__name__,
+                },
+                ensure_ascii=False,
+            )
+        )
         raise SystemExit(2) from None
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     if result["status"] not in {"READY", "REFERENCES_FOUND_MODEL_NOT_PROBED"}:
