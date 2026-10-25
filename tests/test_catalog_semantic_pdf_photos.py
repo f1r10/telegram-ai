@@ -102,7 +102,6 @@ def test_pdf_candidate_never_displays_internal_draw_order_as_visual_number() -> 
     assert "şəkil 5" not in without_geometry
 
 
-
 def test_weak_semantic_secondary_matches_not_shown_as_other_products(tmp_path: Path) -> None:
     query = _image((237, 29, 26), "JPEG")
     red = _image((241, 30, 26), "PNG")
