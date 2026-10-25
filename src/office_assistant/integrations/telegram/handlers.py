@@ -2357,9 +2357,7 @@ async def _reply_pdf_catalog_candidates(
     if not matches:
         return False
     await message.reply_text(
-        render_pdf_image_candidates(
-            matches, incomplete=len(rows) > MAX_PDF_REFERENCES
-        )
+        render_pdf_image_candidates(matches, incomplete=len(rows) > MAX_PDF_REFERENCES)
     )
     return True
 
