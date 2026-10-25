@@ -43,6 +43,7 @@ from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.web_evidence.cache import WebSearchService
+from office_assistant.web_evidence.priority_sites import PrioritySitesService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
 from office_assistant.web_evidence.providers import (
     SearXNGWebSearchProvider,
@@ -183,6 +184,7 @@ def main() -> None:
                         tavily,
                         stable_ttl_seconds=settings.web_search_cache_ttl_seconds,
                         fresh_ttl_seconds=settings.web_search_fresh_cache_ttl_seconds,
+                        priority_sites=PrioritySitesService(session_factory),
                     ),
                     fetcher,
                     language_model,
