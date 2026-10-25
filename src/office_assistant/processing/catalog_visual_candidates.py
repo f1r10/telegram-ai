@@ -32,6 +32,10 @@ from office_assistant.processing.semantic_visual import (
 )
 
 MAX_PDF_REFERENCES = 500
+# CLIP similarities are NOT calibrated confidence probabilities. Surface
+# additional candidates only if their raw similarity is close to the top hit.
+# This reduces distracting unrelated results without certifying the winner.
+SEMANTIC_ALTERNATIVE_MARGIN = 0.025
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +59,7 @@ class PdfPageCandidate:
     nearby_label: str | None = None
     visual_row: int | None = None
     match_type: str = "near_duplicate"
+    match_score: float | None = None
 
 
 def _white_background_fingerprint(data: bytes) -> ImageFingerprint | None:
@@ -224,7 +229,13 @@ def semantic_pdf_image_candidates(
     outcome = semantic.search(query_bytes, refs, limit=limit)
     matches: list[PdfPageCandidate] = []
     used: set[tuple[int, int, int]] = set()
+    best = outcome.candidates[0].score if outcome.candidates else None
     for item in outcome.candidates:
+        # The first candidate remains an UNCONFIRMED suggestion. Any next
+        # suggestion must be effectively tied, not merely above a loose
+        # model-wide minimum threshold.
+        if best is not None and best - item.score > SEMANTIC_ALTERNATIVE_MARGIN:
+            continue
         source = allowed.get(item.product_code)
         if source is None or source.source_file_id is None:
             continue
@@ -240,6 +251,7 @@ def semantic_pdf_image_candidates(
                 source_file_id=source.source_file_id,
                 occurrence_id=source.occurrence_id,
                 match_type="semantic",
+                match_score=item.score,
             )
         )
     return tuple(matches), outcome.incomplete, outcome.unavailable
@@ -248,30 +260,34 @@ def semantic_pdf_image_candidates(
 def render_pdf_image_candidates(
     matches: tuple[PdfPageCandidate, ...], *, incomplete: bool = False
 ) -> str:
-    """A bounded, clearly non-authoritative source-page preview."""
+    """Present the leading visual candidate without treating CLIP as authority."""
 
     if not matches:
         return ""
-    lines: list[str] = []
-    for item in matches:
-        # Filenames are untrusted upload metadata and are never treated as
-        # formatting instructions or control characters.
+    lines = ["📄 KATALOQDA ŞƏKİL ÜZRƏ NƏTİCƏ", ""]
+    for index, item in enumerate(matches):
+        # Uploaded filenames and extracted PDF text are untrusted display data.
         filename = " ".join(item.filename.split())[:96]
-        location = f"səhifə {item.page}"
+        label = " ".join(item.nearby_label.split())[:160] if item.nearby_label else ""
+        lines.append("Əsas namizəd:" if index == 0 else f"Oxşar alternativ {index}:")
+        if label:
+            lines.append(f"  Məhsul sətri: {label}")
+        else:
+            lines.append("  Məhsul adı: PDF-dən təhlükəsiz müəyyən edilmədi")
+        location = f"  Mənbə: {filename} · səhifə {item.page}"
         if item.visual_row is not None:
-            location += f", yuxarıdan {item.visual_row}-ci məhsul şəkli"
-        lines.append(f"• {filename} — {location}")
+            location += f" · yuxarıdan {item.visual_row}-ci şəkil"
+        lines.append(location)
         if item.match_type == "semantic":
-            lines.append("   Müxtəlif fotolar üzrə semantik oxşarlıq: təsdiqlənməmiş namizəd")
-        if item.nearby_label:
-            lines.append(f"   PDF-də yaxın məhsul sətri: {item.nearby_label}")
-    limit_note = "\nYoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb." if incomplete else ""
-    return (
-        "📄 PDF KATALOQDA VİZUAL OXŞAR ŞƏKİLLƏR\n\n"
-        + "\n".join(lines)
-        + "\n\nBu yalnız PDF-dəki şəkillərə mümkün vizual uyğunluqdur. "
-        "Şəkillə yanaşı göstərilən mətn PDF-nin sətir quruluşuna görə "
-        "avtomatik əlaqələndirilmiş namizəddir, rəsmi məhsul təsdiqi deyil. "
-        "Məhsul kodu, eynilik, qiymət və anbar qalığı təsdiqlənmir. "
-        "Səhifəni orijinal PDF-də yoxlayın." + limit_note
+            lines.append("  Fərqli fotolar üzrə semantik oxşarlıq: təsdiqlənməmiş namizəd")
+        lines.append("")
+    lines.extend(
+        [
+            "Bu, kataloq şəkillərinə vizual oxşarlıq əsasında verilmiş "
+            "təsdiqlənməmiş namizəddir. Məhsulun dəqiq kimliyi, qiyməti "
+            "və anbar qalığı təsdiqlənmir. Mənbə düyməsindən PDF-ni yoxlayın."
+        ]
     )
+    if incomplete:
+        lines.append("Yoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb.")
+    return "\n".join(lines)
