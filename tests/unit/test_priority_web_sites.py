@@ -78,9 +78,7 @@ class NoCacheSearch(WebSearchService):
         del key, normalized, request, response, ttl
 
 
-def _service(
-    primary: FakeProvider, domains: tuple[str, ...]
-) -> WebSearchService:
+def _service(primary: FakeProvider, domains: tuple[str, ...]) -> WebSearchService:
     factory = cast(async_sessionmaker[AsyncSession], object())
     preferred = cast(PrioritySitesService, FakePriorityDomains(domains))
     return NoCacheSearch(factory, cast(WebSearchProvider, primary), priority_sites=preferred)
