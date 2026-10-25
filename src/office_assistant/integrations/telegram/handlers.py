@@ -2456,7 +2456,8 @@ async def _reply_pdf_catalog_candidates(
 ) -> bool:
     """Source-page fallback only; PDF images never become approved products."""
 
-    if services.session_factory is None or services.storage is None:
+    storage = services.storage
+    if services.session_factory is None or storage is None:
         return False
     async with services.session_factory() as session:
         rows = (
@@ -2503,7 +2504,7 @@ async def _reply_pdf_catalog_candidates(
     if not sources:
         return False
     matches = await asyncio.to_thread(
-        match_pdf_image_sources, image_bytes, sources, services.storage.root
+        match_pdf_image_sources, image_bytes, sources, storage.root
     )
     if not matches:
         return False
@@ -2518,8 +2519,8 @@ async def _reply_pdf_catalog_candidates(
         if has_form:
             return candidate
         try:
-            original_path = services.storage.path_for_key(original_key)
-            original_path.relative_to(services.storage.blob_root)
+            original_path = storage.path_for_key(original_key)
+            original_path.relative_to(storage.blob_root)
         except (StorageError, ValueError):
             return candidate
         try:
