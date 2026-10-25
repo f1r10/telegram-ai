@@ -38,18 +38,14 @@ def test_preferred_domains_survive_service_reload_and_reject_staff_writes() -> N
 
         async def cleanup() -> None:
             async with factory.begin() as session:
-                actor_ids = select(User.id).where(
-                    User.telegram_user_id.in_((ADMIN_TG, STAFF_TG))
-                )
+                actor_ids = select(User.id).where(User.telegram_user_id.in_((ADMIN_TG, STAFF_TG)))
                 await session.execute(
                     delete(AuditEvent).where(AuditEvent.actor_user_id.in_(actor_ids))
                 )
                 await session.execute(
                     delete(SystemMetadata).where(SystemMetadata.key == PRIORITY_SITES_KEY)
                 )
-                await session.execute(
-                    delete(User).where(User.id.in_(actor_ids))
-                )
+                await session.execute(delete(User).where(User.id.in_(actor_ids)))
         try:
             await cleanup()
             async with factory.begin() as session:
@@ -81,20 +77,24 @@ def test_preferred_domains_survive_service_reload_and_reject_staff_writes() -> N
             with pytest.raises(PrioritySitePermissionDenied):
                 await reloaded.update(STAFF_TG, "remove", "knatank.az")
             assert await reloaded.list_domains() == ("knatank.az", "example.org")
-            assert await reloaded.update(ADMIN_TG, "remove", "knatank.az") == (
-                "example.org",
-            )
+            assert await reloaded.update(ADMIN_TG, "remove", "knatank.az") == ("example.org",)
             async with factory() as session:
-                records = (await session.execute(
-                    select(AuditEvent).where(
-                        AuditEvent.action.in_(
-                            ("WEB_PRIORITY_SITE_ADDED", "WEB_PRIORITY_SITE_REMOVED")
-                        ),
-                        AuditEvent.actor_user_id.in_(
-                            select(User.id).where(User.telegram_user_id == ADMIN_TG)
-                        ),
+                records = (
+                    (
+                        await session.execute(
+                            select(AuditEvent).where(
+                                AuditEvent.action.in_(
+                                    ("WEB_PRIORITY_SITE_ADDED", "WEB_PRIORITY_SITE_REMOVED")
+                                ),
+                                AuditEvent.actor_user_id.in_(
+                                    select(User.id).where(User.telegram_user_id == ADMIN_TG)
+                                ),
+                            )
+                        )
                     )
-                )).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 assert len(records) == 3
         finally:
             await cleanup()
