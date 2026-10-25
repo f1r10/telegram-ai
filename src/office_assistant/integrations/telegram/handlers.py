@@ -1287,9 +1287,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
-async def handle_catalog_source_button(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_catalog_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Download the original PDF for a recent, actor-bound visual source match."""
 
     if not _is_private(update):
@@ -1304,9 +1302,7 @@ async def handle_catalog_source_button(
         return
     data = getattr(context, "user_data", None)
     state: object = data.get(CATALOG_SOURCE_TICKET_KEY) if data is not None else None
-    source = resolve_catalog_ticket(
-        state, identity.telegram_user_id, int(parts[2]), token=parts[1]
-    )
+    source = resolve_catalog_ticket(state, identity.telegram_user_id, int(parts[2]), token=parts[1])
     if source is None:
         await context.bot.send_message(
             chat_id=identity.telegram_user_id,
