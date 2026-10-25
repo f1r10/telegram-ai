@@ -88,10 +88,7 @@ def _native_layout(
             xpoints = (e, e + a, e + c, e + a + c)
             ypoints = (f, f + b, f + d, f + b + d)
             rect = (min(xpoints), max(xpoints), min(ypoints), max(ypoints))
-            if (
-                rect[1] - rect[0] < MIN_IMAGE_DIMENSION
-                or rect[3] - rect[2] < MIN_IMAGE_DIMENSION
-            ):
+            if rect[1] - rect[0] < MIN_IMAGE_DIMENSION or rect[3] - rect[2] < MIN_IMAGE_DIMENSION:
                 has_form = True
                 return
             images.append(rect)
