@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image, ImageDraw
 
@@ -22,7 +23,7 @@ def _artwork() -> bytes:
         return stream.getvalue()
 
 
-def test_pdf_embed_candidate_returns_page_not_product_identity(tmp_path) -> None:
+def test_pdf_embed_candidate_returns_page_not_product_identity(tmp_path: Path) -> None:
     data = _artwork()
     path = tmp_path / "catalog-picture.png"
     path.write_bytes(data)
@@ -46,7 +47,7 @@ def test_pdf_embed_candidate_returns_page_not_product_identity(tmp_path) -> None
     assert "SKU" not in text
 
 
-def test_white_padded_screenshot_matches_verified_pdf_artwork(tmp_path) -> None:
+def test_white_padded_screenshot_matches_verified_pdf_artwork(tmp_path: Path) -> None:
     data = _artwork()
     reference = tmp_path / "embedded.png"
     reference.write_bytes(data)
@@ -69,7 +70,7 @@ def test_white_padded_screenshot_matches_verified_pdf_artwork(tmp_path) -> None:
     assert results[0].page == 1
 
 
-def test_corrupt_reference_and_blank_photo_fail_closed(tmp_path) -> None:
+def test_corrupt_reference_and_blank_photo_fail_closed(tmp_path: Path) -> None:
     data = _artwork()
     path = tmp_path / "bad.png"
     path.write_bytes(data)
@@ -89,7 +90,7 @@ def test_corrupt_reference_and_blank_photo_fail_closed(tmp_path) -> None:
     assert match_pdf_image_sources(invalid, [source], tmp_path) == ()
 
 
-def test_invalid_pdf_source_locator_is_not_a_candidate(tmp_path) -> None:
+def test_invalid_pdf_source_locator_is_not_a_candidate(tmp_path: Path) -> None:
     data = _artwork()
     path = tmp_path / "picture.png"
     path.write_bytes(data)
