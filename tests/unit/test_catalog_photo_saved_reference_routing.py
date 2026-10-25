@@ -49,6 +49,7 @@ def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(monkeypatch
     user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
     repo = SimpleNamespace(active_confirmation_holder_by_content=AsyncMock(return_value=None))
     mock = cast(MonkeyPatch, monkeypatch)
+
     def make_repo(_session: AsyncSession) -> ProductImageRelationRepository:
         return cast(ProductImageRelationRepository, repo)
 
