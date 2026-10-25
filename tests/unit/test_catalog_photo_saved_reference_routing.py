@@ -86,7 +86,7 @@ def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(
     )
     message = SimpleNamespace(
         photo=[SimpleNamespace(file_id="file-id", file_size=100)],
-        caption="Şəkli yoxla",
+        caption="PDF kataloq şəkli axtar",
         caption_entities=[],
         reply_text=AsyncMock(),
     )
