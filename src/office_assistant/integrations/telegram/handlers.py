@@ -2472,6 +2472,14 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 return
             semantic_unavailable = semantic.unavailable
 
+        # A stored exact image with no approved product relation remains explicitly
+        # unconfirmed; do not obscure that status with a PDF page similarity.
+        if asset_id is not None:
+            await message.reply_text(
+                "Bu eyni şəkil bazada mövcuddur, amma məhsul kodu ilə "
+                "təsdiqlənmiş əlaqəsi yoxdur. Kimliyi təxmin etmirəm."
+            )
+            return
         # PDF-embedded images are a separate non-authoritative namespace.
         # They may point to a source page but never prove catalog product identity.
         if await _reply_pdf_catalog_candidates(message, services, picture):
@@ -2480,12 +2488,6 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             await message.reply_text(
                 "Semantik şəkil modeli bu anda əlçatan deyil. "
                 "Məhsulun kimliyini təxmin etmirəm; kodla axtarın."
-            )
-            return
-        if asset_id is not None:
-            await message.reply_text(
-                "Bu eyni şəkil bazada mövcuddur, amma məhsul kodu ilə "
-                "təsdiqlənmiş əlaqəsi yoxdur. Kimliyi təxmin etmirəm."
             )
             return
         warning = " Arxivin yalnız ilk 500 nümunəsi yoxlanılıb." if incomplete else ""
