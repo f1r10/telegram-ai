@@ -2506,6 +2506,7 @@ async def _reply_pdf_catalog_candidates(
         return False
     matches = await asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root)
     semantic_incomplete = False
+    unavailable = False
     if not matches and services.semantic_visual is not None:
         try:
             matches, semantic_incomplete, unavailable = await asyncio.wait_for(
