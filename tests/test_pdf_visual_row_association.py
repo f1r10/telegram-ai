@@ -1,5 +1,8 @@
 """Native PDF image-row matching tests; synthetic documents, no customer catalog."""
 
+# Exercise private source-layout guards without exporting them as application APIs.
+# pyright: reportPrivateUsage=false
+
 from pathlib import Path
 
 from pypdf import PdfWriter
