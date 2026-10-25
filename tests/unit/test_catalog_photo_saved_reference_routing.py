@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import Update
 from telegram import User as TelegramUser
@@ -43,7 +44,10 @@ class FakeSession:
         return SimpleNamespace(all=no_rows)
 
 
-def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(monkeypatch: object) -> None:
+@pytest.mark.parametrize("pdf_has_result", [True, False])
+def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(
+    monkeypatch: object, pdf_has_result: bool
+) -> None:
     from _pytest.monkeypatch import MonkeyPatch
 
     user = User(id=1, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
@@ -54,7 +58,7 @@ def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(monkeypatch
         return cast(ProductImageRelationRepository, repo)
 
     mock.setattr(handlers, "ProductImageRelationRepository", make_repo)
-    catalog = AsyncMock(return_value=True)
+    catalog = AsyncMock(return_value=pdf_has_result)
     mock.setattr(handlers, "_reply_pdf_catalog_candidates", catalog)
     upload = AsyncMock()
     mock.setattr(handlers, "_handle_upload", upload)
@@ -97,4 +101,9 @@ def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(monkeypatch
     asyncio.run(handlers.handle_photo(update, context))
     catalog.assert_awaited_once()
     upload.assert_not_awaited()
-    message.reply_text.assert_not_awaited()
+    if pdf_has_result:
+        message.reply_text.assert_not_awaited()
+    else:
+        answer = message.reply_text.await_args.args[0]
+        assert "məhsul koduna" in answer
+        assert "Yadda saxlamaq" in answer
