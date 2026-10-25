@@ -48,6 +48,7 @@ class PdfPageCandidate:
     image_index: int
     source_file_id: int | None = None
     occurrence_id: int | None = None
+    nearby_label: str | None = None
 
 
 def _white_background_fingerprint(data: bytes) -> ImageFingerprint | None:
@@ -201,11 +202,15 @@ def render_pdf_image_candidates(
         # formatting instructions or control characters.
         filename = " ".join(item.filename.split())[:96]
         lines.append(f"• {filename} — səhifə {item.page}, şəkil {item.image_index}")
+        if item.nearby_label:
+            lines.append(f"   PDF-də yaxın məhsul sətri: {item.nearby_label}")
     limit_note = "\nYoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb." if incomplete else ""
     return (
         "📄 PDF KATALOQDA VİZUAL OXŞAR ŞƏKİLLƏR\n\n"
         + "\n".join(lines)
         + "\n\nBu yalnız PDF-dəki şəkillərə mümkün vizual uyğunluqdur. "
-        "Məhsul adı, kodu, eyniliyi və anbar qalığı təsdiqlənmir. "
-        "Dəqiq məhsul təsviri üçün göstərilən səhifədəki sətri yoxlayın." + limit_note
+        "Şəkillə yanaşı göstərilən mətn PDF-nin sətir quruluşuna görə "
+        "avtomatik əlaqələndirilmiş namizəddir, rəsmi məhsul təsdiqi deyil. "
+        "Məhsul kodu, eynilik, qiymət və anbar qalığı təsdiqlənmir. "
+        "Səhifəni orijinal PDF-də yoxlayın." + limit_note
     )
