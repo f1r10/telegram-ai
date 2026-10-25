@@ -27,7 +27,9 @@ def _clean_printed_text(value: str) -> str:
     """Return a short display-only value, not instructions or markup."""
 
     printable = "".join(
-        char for char in value if char.isprintable() and char not in "\u202a\u202b\u202c\u202d\u202e"
+        char
+        for char in value
+        if char.isprintable() and char not in "\u202a\u202b\u202c\u202d\u202e"
     )
     return " ".join(printable.split())[:MAX_CAPTION_LENGTH].strip()
 
