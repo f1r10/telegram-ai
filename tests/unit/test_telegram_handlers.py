@@ -146,7 +146,7 @@ def test_start_welcomes_active_user_without_password() -> None:
 def test_telegram_application_constructs_without_network() -> None:
     application = create_telegram_application("test-token", _services(FakeUsers(None)))
 
-    assert sum(len(group) for group in application.handlers.values()) == 34
+    assert sum(len(group) for group in application.handlers.values()) == 36
     assert application.error_handlers
 
 
