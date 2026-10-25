@@ -116,10 +116,7 @@ def test_256_catalog_pdf_tickets_remain_actor_and_source_bound() -> None:
         source_file_id=77,
         occurrence_id=91,
     )
-    tickets = [
-        issue_catalog_ticket(2000 + index, (match,))
-        for index in range(256)
-    ]
+    tickets = [issue_catalog_ticket(2000 + index, (match,)) for index in range(256)]
     assert all(ticket is not None for ticket in tickets)
     seen: set[str] = set()
     for index, ticket in enumerate(tickets):
