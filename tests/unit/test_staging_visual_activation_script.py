@@ -1,7 +1,7 @@
 """Staging visual activation is syntax-valid and does not destroy DB volumes."""
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 def test_staging_visual_rollout_shell_is_safe_and_syntax_valid() -> None:
