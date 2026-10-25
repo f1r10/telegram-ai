@@ -44,7 +44,10 @@ _COPULA_ALONE = re.compile(r"^d[ıiəuü]r?$", re.IGNORECASE)
 # reference role, or what the picture is for: ``KA45 şəklini``, ``KA45 məhsuluna``, ``KA45 üçün``,
 # ``KA45 referans şəkil kimi``. Prefixes, because Azerbaijani folds case endings into the word —
 # and ``şəkli``, ``şəkilini`` and ``şəklidir`` all count, so the optional vowel is in the pattern.
-_BINDING = re.compile(r"^(?:şəki?l|məhsul|referans|üçün)", re.IGNORECASE)
+_BINDING = re.compile(r"^(?:şəki?l|məhsul|referans|üçün|model)", re.IGNORECASE)
+# A price is not another product code: "KA45 modelidir, 129 AZN, yadda saxla".
+# Only explicit currency suffixes are ignored, not other bare numeric tokens.
+_PRICE_UNIT = re.compile(r"^(?:azn|manat(?:ı)?|₼|usd|eur|tl)$", re.IGNORECASE)
 _DENIAL = re.compile(r"^deyil$", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[,.:;\"“”()\[\]]")
 
@@ -87,7 +90,9 @@ def parse_reference_confirmation(caption: str | None) -> ReferenceCaption:
     codes: dict[str, bool] = {}
     for index, word in enumerate(words):
         code = _code_of(word)
-        if code is None:
+        following = words[index + 1] if index + 1 < len(words) else ""
+        # Do not mistake the amount in "129 AZN" for a competing SKU.
+        if code is None or (word.isdecimal() and _PRICE_UNIT.fullmatch(following)):
             continue
         codes[code] = codes.get(code, False) or _is_bound(words, index)
     if len(codes) > 1:
