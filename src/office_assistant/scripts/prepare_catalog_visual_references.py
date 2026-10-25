@@ -95,7 +95,13 @@ async def prepare_catalog(
         max_references=limit,
     )
     warmed = await asyncio.to_thread(search.warm_references, selected)
-    return count, warmed.inspected, warmed.warmed, incomplete or warmed.incomplete, warmed.unavailable
+    return (
+        count,
+        warmed.inspected,
+        warmed.warmed,
+        incomplete or warmed.incomplete,
+        warmed.unavailable,
+    )
 
 
 def main() -> None:
