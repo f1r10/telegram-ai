@@ -2484,7 +2484,7 @@ async def _reply_pdf_catalog_candidates(
     sources: list[PdfImageSource] = []
     original_keys: dict[int, tuple[str, bool]] = {}
     for occurrence_id, file_id, filename, original_key, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
-        original_keys[file_id] = (original_key, "form_xobject" in locator)
+        original_keys[occurrence_id] = (original_key, "form_xobject" in locator)
         page = locator.get("page")
         index = locator.get("image_index")
         if (
@@ -2508,10 +2508,10 @@ async def _reply_pdf_catalog_candidates(
     # Resolve product text only from the original matched PDF page's native
     # drawing geometry. Never look for generic page text by SKU keywords.
     async def enrich_pdf_row(candidate: PdfPageCandidate) -> PdfPageCandidate:
-        file_id = candidate.source_file_id
-        if file_id is None or file_id not in original_keys:
+        occurrence_id = candidate.occurrence_id
+        if occurrence_id is None or occurrence_id not in original_keys:
             return candidate
-        original_key, has_form = original_keys[file_id]
+        original_key, has_form = original_keys[occurrence_id]
         if has_form:
             return candidate
         try:
