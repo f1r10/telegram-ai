@@ -16,6 +16,8 @@ from office_assistant.infrastructure.database.models import (
     AIMessageSource,
     FileObject,
     FileObjectState,
+    ImageAssetOccurrence,
+    ImageAssetOrigin,
     User,
     UserStatus,
 )
@@ -154,6 +156,59 @@ class SourceFileDeliveryService:
             raise FileDeliveryError("Original file blob is missing")
         if self.storage.size(path) > self.max_bytes:
             raise FileDeliveryError("Original file exceeds the delivery limit")
+        return DeliverableFile(path, filename, content_type, file_id)
+
+    async def resolve_catalog_original(
+        self,
+        actor_telegram_user_id: int,
+        *,
+        file_id: int,
+        occurrence_id: int,
+    ) -> DeliverableFile:
+        """Deliver only an ACTIVE parent PDF of the exact matched image occurrence.
+
+        Caller must provide a short-lived actor-bound token (not public file IDs).
+        The database source lineage and original blob location are rechecked here
+        on EVERY request, including repeated button presses.
+        """
+
+        if file_id <= 0 or occurrence_id <= 0:
+            raise FileDeliveryError("Invalid catalog source reference")
+        async with self.session_factory() as session:
+            actor = await session.scalar(
+                select(User).where(User.telegram_user_id == actor_telegram_user_id)
+            )
+            if actor is None or actor.status != UserStatus.ACTIVE:
+                raise AuthorizationDenied("Catalog source requires an ACTIVE actor")
+            original = await session.scalar(
+                select(FileObject)
+                .join(
+                    ImageAssetOccurrence,
+                    ImageAssetOccurrence.source_file_id == FileObject.id,
+                )
+                .where(
+                    FileObject.id == file_id,
+                    FileObject.state == FileObjectState.ACTIVE,
+                    ImageAssetOccurrence.id == occurrence_id,
+                    ImageAssetOccurrence.origin_type == ImageAssetOrigin.PDF_EMBEDDED,
+                )
+            )
+            if original is None:
+                raise FileDeliveryError("Matched PDF image source is no longer available")
+            filename = _safe_filename(original.original_filename)
+            content_type = original.content_type
+            storage_key = original.storage_key
+        if not filename.lower().endswith(".pdf"):
+            raise FileDeliveryError("Catalog image parent must be a PDF")
+        try:
+            path = self.storage.path_for_key(storage_key)
+            path.relative_to(self.storage.blob_root)
+        except (StorageError, ValueError) as error:
+            raise FileDeliveryError("Catalog source path is invalid") from error
+        if not path.is_file():
+            raise FileDeliveryError("Original PDF blob is missing")
+        if self.storage.size(path) > self.max_bytes:
+            raise FileDeliveryError("Original PDF exceeds delivery limit")
         return DeliverableFile(path, filename, content_type, file_id)
 
     async def resolve_recent_url(
