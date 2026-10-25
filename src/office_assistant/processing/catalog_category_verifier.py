@@ -12,17 +12,13 @@ from __future__ import annotations
 
 import tempfile
 import threading
-from functools import lru_cache
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, cast
 
-# Shared image preparation has a deliberately private implementation.
-# pyright: reportPrivateUsage=false
-
 from office_assistant.processing.image_similarity import MAX_IMAGE_BYTES
 from office_assistant.processing.semantic_visual import (
-    CLIP_DIMENSION,
     LocalClipEncoder,
     _thumbnail,
     unit_vector,
