@@ -223,12 +223,12 @@ def semantic_pdf_image_candidates(
     ]
     outcome = semantic.search(query_bytes, refs, limit=limit)
     matches: list[PdfPageCandidate] = []
-    used: set[tuple[int, int]] = set()
+    used: set[tuple[int, int, int]] = set()
     for item in outcome.candidates:
         source = allowed.get(item.product_code)
         if source is None or source.source_file_id is None:
             continue
-        key = (source.source_file_id, source.image_index)
+        key = (source.source_file_id, source.page, source.image_index)
         if key in used:
             continue
         used.add(key)
