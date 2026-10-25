@@ -66,9 +66,7 @@ def test_distinct_photo_formats_retrieve_same_visual_pdf_source(tmp_path: Path) 
         min_score=0.80,
         max_references=10,
     )
-    candidates, incomplete, unavailable = semantic_pdf_image_candidates(
-        query_photo, refs, semantic
-    )
+    candidates, incomplete, unavailable = semantic_pdf_image_candidates(query_photo, refs, semantic)
     assert not unavailable and not incomplete
     assert candidates
     assert candidates[0].occurrence_id == 1
@@ -100,7 +98,5 @@ def test_pdf_candidate_never_displays_internal_draw_order_as_visual_number() -> 
     text = render_pdf_image_candidates((candidate,))
     assert "yuxarıdan 1-ci məhsul şəkli" in text
     assert "şəkil 5" not in text
-    without_geometry = render_pdf_image_candidates(
-        (PdfPageCandidate("catalog.pdf", 3, 5),)
-    )
+    without_geometry = render_pdf_image_candidates((PdfPageCandidate("catalog.pdf", 3, 5),))
     assert "şəkil 5" not in without_geometry
