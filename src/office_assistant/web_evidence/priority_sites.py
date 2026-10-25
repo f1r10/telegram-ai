@@ -7,6 +7,7 @@ without a schema change. Search still treats every website as untrusted evidence
 import ipaddress
 import json
 import re
+from typing import cast
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -90,7 +91,11 @@ class PrioritySitesService:
             data = json.loads(stored)
             if not isinstance(data, list):
                 return ()
-            entries = [normalize_priority_domain(item) for item in data if isinstance(item, str)]
+            entries = [
+                normalize_priority_domain(item)
+                for item in cast(list[object], data)
+                if isinstance(item, str)
+            ]
             return tuple(dict.fromkeys(entries))[:MAX_PRIORITY_SITES]
         except (ValueError, TypeError):
             return ()
