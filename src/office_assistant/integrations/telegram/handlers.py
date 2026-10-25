@@ -2289,9 +2289,7 @@ async def handle_priority_sites(update: Update, context: ContextTypes.DEFAULT_TY
         if cmd not in {"/sayt_elave", "/sayt_sil"}:
             return
         if not value.strip():
-            await message.reply_text(
-                "İstifadə: /sayt_elave knatank.az və ya /sayt_sil knatank.az"
-            )
+            await message.reply_text("İstifadə: /sayt_elave knatank.az və ya /sayt_sil knatank.az")
             return
         operation = "add" if cmd == "/sayt_elave" else "remove"
         domains = await priority.update(identity.telegram_user_id, operation, value)
