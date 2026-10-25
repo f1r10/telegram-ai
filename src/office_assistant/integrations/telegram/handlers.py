@@ -2568,7 +2568,14 @@ async def _reply_pdf_catalog_candidates(
             )
     if not sources:
         return False
-    matches = await asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root)
+    try:
+        matches = await asyncio.wait_for(
+            asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root),
+            timeout=5.0,
+        )
+    except TimeoutError:
+        logger.info("PDF photo candidate comparison timed out")
+        return False
     semantic_incomplete = False
     unavailable = False
     if not matches and services.semantic_visual is not None:
@@ -2583,31 +2590,20 @@ async def _reply_pdf_catalog_candidates(
                         str(services.semantic_visual.cache_root)
                     ),
                 ),
-                timeout=25.0,
+                timeout=8.0,
             )
         except TimeoutError:
             unavailable = True
         if unavailable:
             logger.info("Catalog semantic image comparison unavailable")
     if not matches:
-        if services.semantic_visual is None:
-            note = (
-                "PDF kataloqunda yaxın nüsxə tapılmadı. İnternetdən götürülən "
-                "başqa fotoların müqayisəsi üçün semantik şəkil axtarışı aktiv deyil."
-            )
-        elif unavailable:
-            note = (
-                "PDF kataloqunda yaxın nüsxə tapılmadı. Lokal semantik model "
-                "və ya məhsul növünün müstəqil yoxlaması əlçatan deyil. "
-                "Bu, məhsulun kataloqda olmadığını sübut etmir."
-            )
-        else:
-            note = (
-                "PDF kataloqunda bu foto üçün etibarlı vizual namizəd alınmadı. "
-                "Bu, məhsulun kataloqda olmadığını sübut etmir."
-            )
-        await message.reply_text(note, reply_markup=_answer_keyboard())
-        return True
+        # No PDF match is not proof the product is absent. Keep looking up the
+        # confirmed-photo state instead of returning a PDF-only dead end.
+        logger.info(
+            "PDF visual candidate fallback found no match | model_unavailable=%s",
+            unavailable,
+        )
+        return False
 
     # Resolve product text only from the original matched PDF page's native
     # drawing geometry. Never look for generic page text by SKU keywords.
@@ -2631,7 +2627,7 @@ async def _reply_pdf_catalog_candidates(
                     candidate.page,
                     candidate.image_index,
                 ),
-                timeout=8.0,
+                timeout=2.0,
             )
         except TimeoutError:
             return candidate
@@ -2641,7 +2637,7 @@ async def _reply_pdf_catalog_candidates(
             visual_row=details.visual_row,
         )
 
-    matches = tuple([await enrich_pdf_row(candidate) for candidate in matches])
+    matches = tuple(await asyncio.gather(*(enrich_pdf_row(item) for item in matches)))
     data = getattr(context, "user_data", None)
     ticket = issue_catalog_ticket(actor_telegram_user_id, matches)
     if data is not None:
@@ -2730,7 +2726,14 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             )
             for code, storage_key, reference_sha in rows[:500]
         ]
-        possible = await asyncio.to_thread(shortlist, picture, references, services.storage.root)
+        try:
+            possible = await asyncio.wait_for(
+                asyncio.to_thread(shortlist, picture, references, services.storage.root),
+                timeout=5.0,
+            )
+        except TimeoutError:
+            logger.info("Confirmed-photo near-duplicate lookup timed out")
+            possible = ()
         if possible:
             lines = "\n".join(f"• {item.product_code}" for item in possible)
             warning = "\nYoxlama ilk 500 təsdiqli nümunə ilə məhdudlaşıb." if incomplete else ""
@@ -2744,18 +2747,22 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             return
         semantic_unavailable = False
         if services.semantic_visual is not None and references:
-            semantic = await asyncio.wait_for(
-                asyncio.to_thread(
-                    services.semantic_visual.search,
-                    picture,
-                    [
-                        SemanticReference(code, storage_key, digest)
-                        for code, storage_key, digest in rows[:500]
-                    ],
-                ),
-                timeout=25.0,
-            )
-            if semantic.candidates:
+            try:
+                semantic = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        services.semantic_visual.search,
+                        picture,
+                        [
+                            SemanticReference(code, storage_key, digest)
+                            for code, storage_key, digest in rows[:500]
+                        ],
+                    ),
+                    timeout=9.0,
+                )
+            except TimeoutError:
+                logger.info("Confirmed-photo semantic lookup timed out")
+                semantic = None
+            if semantic is not None and semantic.candidates:
                 lines = "\n".join(f"• {item.product_code}" for item in semantic.candidates)
                 limited = (
                     "\nYoxlama yalnız seçilmiş təsdiqli nümunələri əhatə edir."
@@ -2770,7 +2777,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                     "Məhsul kodunu yoxlayın; anbarda stok olduğu da təsdiqlənmir." + limited
                 )
                 return
-            semantic_unavailable = semantic.unavailable
+            semantic_unavailable = semantic is None or semantic.unavailable
 
         # A previously saved but unconfirmed photo must still be searched
         # against PDF catalog pictures. Storage identity is not a product
@@ -2782,9 +2789,13 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             return
         if asset_id is not None:
             await message.reply_text(
-                "Bu şəkil bazada saxlanılıb, lakin təsdiqlənmiş məhsul "
-                "əlaqəsi yoxdur. PDF kataloq şəkilləri ilə axtarış da "
-                "nəticə vermədi və ya mövcud deyil."
+                "Şəkil faylı yadda saxlanılıb, amma heç bir aktiv məhsul koduna "
+                "təsdiqlənmiş nümunə kimi bağlanmayıb. Yadda saxlamaq təkbaşına "
+                "məhsul yaratmır və 129 AZN kimi qiyməti təsdiqləmir. "
+                "Məhsul artıq kataloqdadırsa, onun DƏQİQ kodu ilə şəkli "
+                "yenidən göndərin: «Bu KA45-dir, yadda saxla». "
+                "Sonra «Yadda saxla» düyməsini seçin. "
+                "İstinad yoxdursa, fərqli bucaqdan dəqiq tanınma mümkün olmaya bilər."
             )
             return
         if semantic_unavailable:
