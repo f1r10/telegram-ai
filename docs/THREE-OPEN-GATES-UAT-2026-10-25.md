@@ -63,3 +63,57 @@ Do not turn on the production visual semantic flag solely from synthetic unit te
 **REQUIRED FOR CLOSURE:** device-captured successful/negative Mini App runs, clean isolated warehouse workflows and measured holdout photo metrics.  
 
 Keep `docker compose down -v`, resetting live databases, enabling the live irreversible stock flags and uploading secret/customer photos to public GitHub out of this procedure.
+
+
+## Owner-provided Kali execution evidence — 2026-10-26
+
+These are observed command outputs reported by the operator, not independently
+executed on Kali by GitHub CI or the assistant.
+
+### Disposable PostgreSQL stock drill: PASS at domain level
+
+`bash scripts/run_isolated_stock_uat.sh` printed
+`TEST_DATABASE=EPHEMERAL_TMPFS`,
+`LIVE_STAGING_DATABASE=UNTOUCHED` and
+`MIGRATION=DISPOSABLE_DATABASE_ONLY`.
+Alembic applied revisions 0001 through `0022_inventory_units` to the
+disposable PostgreSQL. The runner returned `ISOLATED_STOCK_UAT_PASS` with
+all 15 checks:
+
+- unknown stock is not zero; employee warehouse-registry and stock-write denial
+- warehouse registry, canonical units and explicit conversion; incorrect units refused
+- opening, receipt and atomic transfer; duplicate transfer refused
+- reserved stock protected, reservation cancellation and consumption
+- return, damage and signed stock correction
+- XLSX digest mismatch and replay refused; atomic XLSX import
+- concurrent overspend refused and audit events persisted
+
+Final **synthetic** balance: `6.000 PCS`; output declared
+`live_staging_inventory_changed: false`. Do not extrapolate this to real
+company warehouse balances or claim approved mobile stock-write UI; the
+administrator preview/confirm web path on an isolated clone remains untested.
+
+### Local Mini App HTTP smoke: PASS, not real-device acceptance
+
+`bash scripts/run_miniapp_local_smoke.sh` returned `SMOKE_PASS` and
+`MINIAPP_LOCAL_SMOKE=PASS`; five checked items were all true:
+`static_html`, `static_js`, `static_css`,
+`unsigned_profile_denied`, `unsigned_stock_write_denied`.
+The output explicitly states `telegram_real_device_verified: false`,
+`production_accepted: false`, and
+`TELEGRAM_REAL_MOBILE_UAT=NOT_TESTED`. HTTPS is not configured and the
+normal staging `MINIAPP_ENABLED` remains false. No publicly exposed web
+route or Android/iOS Telegram launch was tested.
+
+### Remaining live evidence
+
+- **Mini App (#43):** approved HTTPS origin/proxy + BotFather Telegram Web
+  App configuration, positive signed Android/iOS launch and negative-access
+  cases, source delivery and mobile stock UI acceptance.
+- **Inventory (#40):** administrator preview/confirm/cancel on a **separate**
+  restored test instance and real warehouse/unit reconciliation; no write
+  flags enabled on the active staging database.
+- **Photos (#35):** current aggregate preflight showed **zero approved active
+  photo-reference relations**. Operator must explicitly save first genuine
+  confirmed reference image(s), assemble independent labelled real phone
+  photos, and measure per-scenario recall/false suggestions before calibrating.
