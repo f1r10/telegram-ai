@@ -2927,7 +2927,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "İstinad yoxdursa, fərqli bucaqdan dəqiq tanınma mümkün olmaya bilər."
             )
             return
-        if not references and await _reply_pdf_catalog_candidates(
+        if await _reply_pdf_catalog_candidates(
             message, context, services, identity.telegram_user_id, picture, quick_only=True
         ):
             return
