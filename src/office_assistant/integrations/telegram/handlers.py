@@ -104,6 +104,12 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.integrations.telegram import messages
+from office_assistant.integrations.telegram.catalog_source_tickets import (
+    CATALOG_SOURCE_TICKET_KEY,
+    CatalogSourceTicket,
+    issue_catalog_ticket,
+    resolve_catalog_ticket,
+)
 from office_assistant.integrations.telegram.formatting import split_telegram_text
 from office_assistant.integrations.telegram.reminder_format import when_azerbaijani
 from office_assistant.integrations.telegram.state import (
@@ -458,6 +464,61 @@ async def _try_file_delivery(
     return True
 
 
+async def _try_catalog_source_delivery(
+    message: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    actor_telegram_user_id: int,
+    text: str,
+) -> bool:
+    """Understand 'həmin PDF-i ver' after a catalog photo result."""
+
+    data = getattr(context, "user_data", None)
+    state: object = data.get(CATALOG_SOURCE_TICKET_KEY) if data is not None else None
+    if not isinstance(state, CatalogSourceTicket):
+        return False
+    requested = parse_file_delivery_request(text)
+    if requested is False:
+        # A later unrelated question must not silently refer to an old photo.
+        if data is not None:
+            data.pop(CATALOG_SOURCE_TICKET_KEY, None)
+        return False
+    number = requested if isinstance(requested, int) and not isinstance(requested, bool) else 1
+    if requested is None and len(state.sources) > 1:
+        await message.reply_text(messages.SOURCE_FILE_AMBIGUOUS)
+        return True
+    source = resolve_catalog_ticket(state, actor_telegram_user_id, number)
+    if source is None:
+        await message.reply_text(messages.MENU_SOURCE_BUTTON_EXPIRED)
+        return True
+    if services.file_delivery is None:
+        await message.reply_text(messages.SOURCE_FILE_UNAVAILABLE)
+        return True
+    try:
+        original = await services.file_delivery.resolve_catalog_original(
+            actor_telegram_user_id,
+            file_id=source.file_id,
+            occurrence_id=source.occurrence_id,
+        )
+        with original.path.open("rb") as stream:
+            await message.reply_document(
+                document=stream,
+                filename=original.filename,
+                read_timeout=60,
+                write_timeout=60,
+            )
+    except (
+        AuthorizationDenied,
+        FileDeliveryError,
+        StorageError,
+        SQLAlchemyError,
+        OSError,
+        TelegramError,
+    ):
+        await message.reply_text(messages.SOURCE_FILE_UNAVAILABLE)
+    return True
+
+
 def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
     if user.status == UserStatus.PENDING:
         return InlineKeyboardMarkup(
@@ -564,6 +625,21 @@ def _answer_markup(
         sources,
     )
     return _answer_keyboard(token, tuple(number for number, _ in sources))
+
+
+def _catalog_source_keyboard(ticket: CatalogSourceTicket | None) -> InlineKeyboardMarkup:
+    """Offer source-file download without changing product confirmation semantics."""
+
+    if ticket is None:
+        return _answer_keyboard()
+    rows = [
+        InlineKeyboardButton(
+            messages.MENU_SOURCE_FILE_BUTTON.format(number=item.number),
+            callback_data=f"cat:{ticket.token}:{item.number}",
+        )
+        for item in ticket.sources
+    ]
+    return InlineKeyboardMarkup([rows, *[list(row) for row in _answer_keyboard().inline_keyboard]])
 
 
 def _help_keyboard() -> InlineKeyboardMarkup:
@@ -1211,6 +1287,67 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
 
+async def handle_catalog_source_button(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Download the original PDF for a recent, actor-bound visual source match."""
+
+    if not _is_private(update):
+        return
+    query = update.callback_query
+    identity = _identity(update)
+    if query is None or identity is None:
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[0] != "cat" or not parts[2].isdigit():
+        return
+    data = getattr(context, "user_data", None)
+    state: object = data.get(CATALOG_SOURCE_TICKET_KEY) if data is not None else None
+    source = resolve_catalog_ticket(
+        state, identity.telegram_user_id, int(parts[2]), token=parts[1]
+    )
+    if source is None:
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_BUTTON_EXPIRED,
+        )
+        return
+    service = _services(context).file_delivery
+    if service is None:
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_NO_FILE,
+        )
+        return
+    try:
+        original = await service.resolve_catalog_original(
+            identity.telegram_user_id,
+            file_id=source.file_id,
+            occurrence_id=source.occurrence_id,
+        )
+        with original.path.open("rb") as stream:
+            await context.bot.send_document(
+                chat_id=identity.telegram_user_id,
+                document=stream,
+                filename=original.filename,
+                read_timeout=60,
+                write_timeout=60,
+            )
+    except (
+        AuthorizationDenied,
+        FileDeliveryError,
+        StorageError,
+        SQLAlchemyError,
+        OSError,
+        TelegramError,
+    ):
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=messages.MENU_SOURCE_NO_FILE,
+        )
+
+
 async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Deliver only a still-authorized source for this user's latest grounded answer."""
 
@@ -1458,6 +1595,10 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(
                     messages.INSTRUCTION_ADDED if added else messages.NO_OPEN_SESSION
                 )
+                return
+            elif await _try_catalog_source_delivery(
+                message, context, services, identity.telegram_user_id, message.text
+            ):
                 return
             elif await _try_file_delivery(
                 message, services, identity.telegram_user_id, message.text
@@ -2310,7 +2451,9 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
 
 async def _reply_pdf_catalog_candidates(
     message: Message,
+    context: ContextTypes.DEFAULT_TYPE,
     services: TelegramServices,
+    actor_telegram_user_id: int,
     image_bytes: bytes,
 ) -> bool:
     """Source-page fallback only; PDF images never become approved products."""
@@ -2322,6 +2465,7 @@ async def _reply_pdf_catalog_candidates(
             await session.execute(
                 select(
                     ImageAssetOccurrence.id,
+                    ImageAssetOccurrence.source_file_id,
                     FileObject.original_filename,
                     ImageAssetOccurrence.locator,
                     ImageAsset.storage_key,
@@ -2339,7 +2483,7 @@ async def _reply_pdf_catalog_candidates(
             )
         ).all()
     sources: list[PdfImageSource] = []
-    for occurrence_id, filename, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
+    for occurrence_id, file_id, filename, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
         page = locator.get("page")
         index = locator.get("image_index")
         if (
@@ -2348,7 +2492,11 @@ async def _reply_pdf_catalog_candidates(
             and isinstance(index, int)
             and not isinstance(index, bool)
         ):
-            sources.append(PdfImageSource(occurrence_id, filename, page, index, key, digest))
+            sources.append(
+                PdfImageSource(
+                    occurrence_id, filename, page, index, key, digest, source_file_id=file_id
+                )
+            )
     if not sources:
         return False
     matches = await asyncio.to_thread(
@@ -2356,8 +2504,16 @@ async def _reply_pdf_catalog_candidates(
     )
     if not matches:
         return False
+    data = getattr(context, "user_data", None)
+    ticket = issue_catalog_ticket(actor_telegram_user_id, matches)
+    if data is not None:
+        data.pop(CATALOG_SOURCE_TICKET_KEY, None)
+        if ticket is not None:
+            data[CATALOG_SOURCE_TICKET_KEY] = ticket
+    keyboard = _catalog_source_keyboard(ticket) if data is not None else _answer_keyboard()
     await message.reply_text(
-        render_pdf_image_candidates(matches, incomplete=len(rows) > MAX_PDF_REFERENCES)
+        render_pdf_image_candidates(matches, incomplete=len(rows) > MAX_PDF_REFERENCES),
+        reply_markup=keyboard,
     )
     return True
 
@@ -2369,6 +2525,9 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
     identity = _identity(update)
     if not _is_private(update) or message is None or identity is None or not message.photo:
         return
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(CATALOG_SOURCE_TICKET_KEY, None)
     services = _services(context)
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is None:
@@ -2482,7 +2641,9 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             return
         # PDF-embedded images are a separate non-authoritative namespace.
         # They may point to a source page but never prove catalog product identity.
-        if await _reply_pdf_catalog_candidates(message, services, picture):
+        if await _reply_pdf_catalog_candidates(
+            message, context, services, identity.telegram_user_id, picture
+        ):
             return
         if semantic_unavailable:
             await message.reply_text(
