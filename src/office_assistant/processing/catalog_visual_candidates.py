@@ -12,6 +12,7 @@ from functools import lru_cache
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -62,14 +63,14 @@ def _white_background_fingerprint(data: bytes) -> ImageFingerprint | None:
             image = ImageOps.exif_transpose(raw).convert("RGB")
             gray = ImageOps.grayscale(image)
             corners = (
-                gray.getpixel((0, 0)),
-                gray.getpixel((gray.width - 1, 0)),
-                gray.getpixel((0, gray.height - 1)),
-                gray.getpixel((gray.width - 1, gray.height - 1)),
+                cast(int, gray.getpixel((0, 0))),
+                cast(int, gray.getpixel((gray.width - 1, 0))),
+                cast(int, gray.getpixel((0, gray.height - 1))),
+                cast(int, gray.getpixel((gray.width - 1, gray.height - 1))),
             )
             if min(corners) < 235:
                 return None
-            bbox = gray.point(lambda pixel: 255 if pixel < 235 else 0).getbbox()
+            bbox = gray.point(lambda pixel: 255 if cast(int, pixel) < 235 else 0).getbbox()
             if bbox is None:
                 return None
             image = image.crop(bbox)
