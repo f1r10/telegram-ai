@@ -1,4 +1,4 @@
-"""PDF image evidence is included in ordinary photo lookup when no approved SKU photo exists.
+"""PDF image evidence is included in ordinary photo lookup when approved SKU photos do not match.
 
 The quick fallback must not invoke semantic inference or promote PDF illustrations
 to authoritative product identity.
@@ -26,12 +26,12 @@ def test_unlabelled_photo_can_search_pdf_image_evidence_without_approved_sku() -
         and any(k.arg == "quick_only" and isinstance(k.value, ast.Constant) and k.value.value is True for k in call.keywords)
     ]
     assert len(quick_calls) == 1
+    # The fallback runs after approved exact/near/semantic candidates fail, even
+    # when references exist: the user expects every indexed source to be searched.
     conditional = next(
         node
         for node in ast.walk(lookup)
         if isinstance(node, ast.If)
-        and isinstance(node.test, ast.BoolOp)
-        and any(isinstance(value, ast.UnaryOp) and isinstance(value.operand, ast.Name) and value.operand.id == "references" for value in node.test.values)
         and any(call in ast.walk(node.test) for call in quick_calls)
     )
     assert conditional is not None
