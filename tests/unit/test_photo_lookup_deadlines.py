@@ -29,7 +29,11 @@ def _timeouts(path: str, function_name: str) -> list[float]:
         ):
             continue
         for keyword in node.keywords:
-            if keyword.arg == "timeout" and isinstance(keyword.value, ast.Constant):
+            if (
+                keyword.arg == "timeout"
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, (int, float))
+            ):
                 values.append(float(keyword.value.value))
     return values
 
