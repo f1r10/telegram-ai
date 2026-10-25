@@ -16,6 +16,7 @@ from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from office_assistant.processing.catalog_category_verifier import LocalCatalogCategoryVerifier
 from office_assistant.processing.image_similarity import (
     AHASH_DISTANCE_LIMIT,
     DHASH_DISTANCE_LIMIT,
@@ -26,7 +27,6 @@ from office_assistant.processing.image_similarity import (
     fingerprint,
     shortlist,
 )
-from office_assistant.processing.catalog_category_verifier import LocalCatalogCategoryVerifier
 from office_assistant.processing.semantic_visual import (
     SemanticReference,
     SemanticVisualSearch,
