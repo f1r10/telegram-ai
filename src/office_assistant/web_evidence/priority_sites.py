@@ -110,7 +110,9 @@ class PrioritySitesService:
                 )
             )
             if actor is None:
-                raise PrioritySitePermissionDenied("Yalnız administrator sayt siyahısını dəyişə bilər.")
+                raise PrioritySitePermissionDenied(
+                    "Yalnız administrator sayt siyahısını dəyişə bilər."
+                )
             await session.execute(
                 insert(SystemMetadata)
                 .values(key=PRIORITY_SITES_KEY, value="[]")
@@ -145,7 +147,11 @@ class PrioritySitesService:
             session.add(
                 AuditEvent(
                     actor_user_id=actor.id,
-                    action="WEB_PRIORITY_SITE_ADDED" if action == "add" else "WEB_PRIORITY_SITE_REMOVED",
+                    action=(
+                        "WEB_PRIORITY_SITE_ADDED"
+                        if action == "add"
+                        else "WEB_PRIORITY_SITE_REMOVED"
+                    ),
                     entity_type="WEB_PRIORITY_DOMAIN",
                     entity_id=domain,
                     event_metadata={"domain": domain},
