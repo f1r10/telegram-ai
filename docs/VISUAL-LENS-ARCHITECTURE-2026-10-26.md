@@ -57,3 +57,30 @@ Use existing `office_assistant.scripts.evaluate_visual_photos` in default dry-ru
 - **Wave 4:** optional consent-based external visual search and Mini App mobile photo UI once HTTPS/signed Telegram launch is accepted.
 
 No phase should be marked accepted until the corresponding real-corpus/latency/privacy evidence exists.
+
+## 7. Operator photo-test incident (2026-10-26)
+
+Reported symptoms: explicit photo confirmation not found; same image not found;
+alternate angle not found; an unrelated object received the wrong suggestion;
+and reply time exceeded 10 seconds. These are **operator reports**, not
+independently reproduced measurements. The previous local preflight reported
+zero active confirmed photo references; that finding must be rechecked on
+the actual staging DB before attributing the failures to the visual model.
+
+A conservative latency-bound patch caps Telegram's near-duplicate stage at
+2 seconds and its opt-in semantic stage at 4 seconds; the Mini App opt-in
+semantic stage is capped at 5 seconds. These are individual **stage timeouts**,
+not end-to-end response SLAs: Telegram transfer, database work, the Python
+thread that may continue after cancellation, and PDF search requested by
+the operator can still consume time. Exact SHA resolution remains first.
+When a bounded optional stage fails, preserve the explicit unknown/model
+unavailable result rather than fabricate a SKU.
+
+Do not enable or lower the CLIP candidate threshold merely to address
+missing matches: without a labelled negative holdout, that can worsen the
+reported unrelated-object false suggestion. Verify the product exists,
+explicit photo confirmation was committed, the relation is active,
+its file hash matches, and the offline model is available. Then run the
+private fixed holdout with same-image, recompressed, cross-angle, confusing
+SKU and unrelated-object groups. Measure p50/p95 per stage and end-to-end
+on real Telegram devices. **Acceptance remains OPEN** pending those checks.
