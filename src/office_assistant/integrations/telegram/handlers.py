@@ -2646,6 +2646,8 @@ async def _reply_pdf_catalog_candidates(
     services: TelegramServices,
     actor_telegram_user_id: int,
     image_bytes: bytes,
+    *,
+    quick_only: bool = False,
 ) -> bool:
     """Source-page fallback only; PDF images never become approved products."""
 
@@ -2699,14 +2701,14 @@ async def _reply_pdf_catalog_candidates(
     try:
         matches = await asyncio.wait_for(
             asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root),
-            timeout=5.0,
+            timeout=2.0 if quick_only else 5.0,
         )
     except TimeoutError:
         logger.info("PDF photo candidate comparison timed out")
         return False
     semantic_incomplete = False
     unavailable = False
-    if not matches and services.semantic_visual is not None:
+    if not matches and not quick_only and services.semantic_visual is not None:
         try:
             matches, semantic_incomplete, unavailable = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -2924,6 +2926,10 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "Sonra «Yadda saxla» düyməsini seçin. "
                 "İstinad yoxdursa, fərqli bucaqdan dəqiq tanınma mümkün olmaya bilər."
             )
+            return
+        if not references and await _reply_pdf_catalog_candidates(
+            message, context, services, identity.telegram_user_id, picture, quick_only=True
+        ):
             return
         if semantic_unavailable:
             await message.reply_text(
