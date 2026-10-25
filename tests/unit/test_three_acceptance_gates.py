@@ -14,7 +14,7 @@ def counts(*, photos: int = 0) -> GateCounts:
 
 
 def test_no_mobile_photo_or_live_stock_approval_is_inferred_from_counts() -> None:
-    result = build_report(Settings(_env_file=None), counts(photos=30))
+    result = build_report(Settings.model_construct(), counts(photos=30))
     miniapp = cast(dict[str, object], result["miniapp"])
     inventory = cast(dict[str, object], result["inventory"])
     photo = cast(dict[str, object], result["photo_recognition"])
@@ -31,8 +31,7 @@ def test_no_mobile_photo_or_live_stock_approval_is_inferred_from_counts() -> Non
 
 
 def test_configured_origin_and_flags_are_not_mistaken_for_device_uat() -> None:
-    settings = Settings(
-        _env_file=None,
+    settings = Settings.model_construct(
         miniapp_enabled=True,
         miniapp_public_origin="https://office.private.example",
         miniapp_stock_transfer_enabled=True,
@@ -52,8 +51,7 @@ def test_configured_origin_and_flags_are_not_mistaken_for_device_uat() -> None:
 
 
 def test_http_origin_never_qualifies_for_mobile_gate() -> None:
-    settings = Settings(
-        _env_file=None,
+    settings = Settings.model_construct(
         miniapp_enabled=True,
         miniapp_public_origin="http://localhost:18791",
     )
