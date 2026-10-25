@@ -9,6 +9,7 @@ closed rather than inventing a product label.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +22,14 @@ MAX_CATALOG_PAGES = 250
 MAX_CAPTION_LENGTH = 160
 MAX_VERTICAL_DISTANCE = 28.0
 MIN_COLUMN_GAP = 12.0
+MIN_IMAGE_DIMENSION = 6.0
+VISUAL_ROW_TOLERANCE = 20.0
+
+
+@dataclass(frozen=True, slots=True)
+class PdfVisualDetails:
+    nearby_label: str | None
+    visual_row: int | None
 
 
 def _clean_printed_text(value: str) -> str:
@@ -72,14 +81,20 @@ def _native_layout(
             a, b, c, d, e, f = map(float, cm)
             if any(abs(value) > 100_000 for value in (a, b, c, d, e, f)):
                 return
-            # Only flat, non-rotated image placements can be mapped to a
-            # neighboring row without relying on inferred text geometry.
-            if abs(b) > 0.1 or abs(c) > 0.1 or abs(a) < 1 or abs(d) < 1:
-                has_form = True
-                return
+            # Image draw order in the PDF content stream is not page/visual
+            # order. A photo may be mirrored or quarter-turned in its cell.
+            # The transformed corners yield a reliable axis-aligned box in
+            # original page coordinates for these standard placements.
             xpoints = (e, e + a, e + c, e + a + c)
             ypoints = (f, f + b, f + d, f + b + d)
-            images.append((min(xpoints), max(xpoints), min(ypoints), max(ypoints)))
+            rect = (min(xpoints), max(xpoints), min(ypoints), max(ypoints))
+            if (
+                rect[1] - rect[0] < MIN_IMAGE_DIMENSION
+                or rect[3] - rect[2] < MIN_IMAGE_DIMENSION
+            ):
+                has_form = True
+                return
+            images.append(rect)
 
         def visitor_text(
             text: str,
@@ -157,34 +172,63 @@ def _caption_for_image(
     return label
 
 
-def read_pdf_visual_row(
+def _page_visual_position(
+    image_rects: list[tuple[float, float, float, float]], image_index: int
+) -> int | None:
+    """One-based visual row from top to bottom, independent of PDF XObject order."""
+
+    if not 1 <= image_index <= len(image_rects):
+        return None
+    centers = [(top + bottom) / 2 for _, _, bottom, top in image_rects]
+    target = centers[image_index - 1]
+    # Multiple pictures in the same product row count as one visual row.
+    ordered = sorted(centers, reverse=True)
+    rows: list[float] = []
+    for center in ordered:
+        if not rows or abs(rows[-1] - center) > VISUAL_ROW_TOLERANCE:
+            rows.append(center)
+    return min(range(len(rows)), key=lambda i: abs(rows[i] - target)) + 1
+
+
+def read_pdf_visual_details(
     path: Path,
     page_number: int,
     image_index: int,
-) -> str | None:
-    """Best-effort adjacent caption for the numbered image drawn on a PDF page.
+) -> PdfVisualDetails:
+    """Return adjacent printed text and a visual top-to-bottom row number.
 
-    Caller must enforce actor authorization, ACTIVE FileObject and original
-    storage-path restrictions BEFORE invoking this function.
+    Internal image_index is the parser's drawn XObject sequence. Never show
+    it as a visual product position: many valid PDFs draw rows out of order.
+    Caller authorizes original PDF access before invoking this helper.
     """
 
+    empty = PdfVisualDetails(None, None)
     if page_number < 1 or image_index < 1 or image_index > 100:
-        return None
+        return empty
     try:
         if not path.is_file() or not 0 < path.stat().st_size <= MAX_CATALOG_PDF_BYTES:
-            return None
+            return empty
         reader = PdfReader(str(path), strict=True)
         if not 0 < len(reader.pages) <= MAX_CATALOG_PAGES:
-            return None
+            return empty
         if page_number > len(reader.pages):
-            return None
+            return empty
         layout = _native_layout(cast(Any, reader.pages[page_number - 1]))
         if layout is None:
-            return None
+            return empty
         image_rects, texts = layout
         if image_index > len(image_rects):
-            return None
-        return _caption_for_image(image_rects[image_index - 1], texts)
-    except Exception as error:  # noqa: BLE001 - a malformed user PDF must not break photo search
-        logger.warning("PDF row label extraction skipped | error_type=%s", type(error).__name__)
-        return None
+            return empty
+        return PdfVisualDetails(
+            nearby_label=_caption_for_image(image_rects[image_index - 1], texts),
+            visual_row=_page_visual_position(image_rects, image_index),
+        )
+    except Exception as error:  # noqa: BLE001 - corrupt PDF cannot break Telegram lookup
+        logger.warning("PDF visual metadata skipped | error_type=%s", type(error).__name__)
+        return empty
+
+
+def read_pdf_visual_row(path: Path, page_number: int, image_index: int) -> str | None:
+    """Compatibility wrapper for existing catalog-row callers."""
+
+    return read_pdf_visual_details(path, page_number, image_index).nearby_label
