@@ -4,6 +4,7 @@
 # pyright: reportPrivateUsage=false
 
 from pathlib import Path
+from typing import cast
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
@@ -82,7 +83,7 @@ def test_pdf_draw_order_is_not_visible_top_to_bottom_position(tmp_path: Path) ->
     writer = PdfWriter()
     writer.add_page(reader.pages[0])
     page = writer.pages[0]
-    content = page["/Contents"].get_object()
+    content = cast(DecodedStreamObject, page["/Contents"].get_object())
     raw = content.get_data().decode("ascii")
     top = "q 80 0 0 80 70 450 cm /Img Do Q\n"
     bottom_img = "q 75 0 0 75 70 300 cm /Img Do Q\n"
