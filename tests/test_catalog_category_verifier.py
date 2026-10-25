@@ -8,9 +8,9 @@ from typing import cast
 from PIL import Image
 
 from office_assistant.processing.catalog_category_verifier import (
+    _TYPES,
     LocalCatalogCategoryVerifier,
     TypeAssessment,
-    _TYPES,
     classify_photo_vector,
 )
 from office_assistant.processing.catalog_visual_candidates import (
