@@ -107,3 +107,12 @@ def test_previously_saved_unapproved_photo_still_queries_pdf_catalog(
         answer = message.reply_text.await_args.args[0]
         assert "məhsul koduna" in answer
         assert "Yadda saxlamaq" in answer
+
+    # With the same saved-but-unapproved bytes, an ordinary product inquiry
+    # MUST NOT mistake even a matching PDF illustration for an approved SKU.
+    message.caption = "Bu məhsul bizdə varmı?"
+    message.reply_text.reset_mock()
+    asyncio.run(handlers.handle_photo(update, context))
+    assert catalog.await_count == 1
+    assert "məhsul koduna" in message.reply_text.await_args.args[0]
+    upload.assert_not_awaited()
