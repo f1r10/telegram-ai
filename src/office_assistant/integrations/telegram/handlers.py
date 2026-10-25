@@ -2750,14 +2750,14 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             try:
                 semantic = await asyncio.wait_for(
                     asyncio.to_thread(
-                    services.semantic_visual.search,
-                    picture,
-                    [
-                        SemanticReference(code, storage_key, digest)
-                        for code, storage_key, digest in rows[:500]
-                    ],
-                ),
-                timeout=9.0,
+                        services.semantic_visual.search,
+                        picture,
+                        [
+                            SemanticReference(code, storage_key, digest)
+                            for code, storage_key, digest in rows[:500]
+                        ],
+                    ),
+                    timeout=9.0,
                 )
             except TimeoutError:
                 logger.info("Confirmed-photo semantic lookup timed out")
