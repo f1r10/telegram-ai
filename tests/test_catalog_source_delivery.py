@@ -30,9 +30,7 @@ from office_assistant.processing.catalog_visual_candidates import PdfPageCandida
 def _ticket() -> CatalogSourceTicket:
     result = issue_catalog_ticket(
         123,
-        (
-            PdfPageCandidate("VKLUX.pdf", 1, 4, source_file_id=8, occurrence_id=45),
-        ),
+        (PdfPageCandidate("VKLUX.pdf", 1, 4, source_file_id=8, occurrence_id=45),),
     )
     assert result is not None
     return result
@@ -96,9 +94,7 @@ def test_recent_catalog_ticket_delivers_exact_original_pdf(tmp_path: Path) -> No
     )
     services = cast(TelegramServices, SimpleNamespace(file_delivery=source_service))
     handled = asyncio.run(
-        _try_catalog_source_delivery(
-            message, context, services, 123, "həmin pdf i ver"
-        )
+        _try_catalog_source_delivery(message, context, services, 123, "həmin pdf i ver")
     )
     assert handled
     assert reply_document.await_count == 1
@@ -114,9 +110,7 @@ def test_catalog_ticket_cannot_serve_other_user(tmp_path: Path) -> None:
     ticket = _ticket()
     reply_document = AsyncMock()
     reply_text = AsyncMock()
-    message = cast(
-        Message, SimpleNamespace(reply_document=reply_document, reply_text=reply_text)
-    )
+    message = cast(Message, SimpleNamespace(reply_document=reply_document, reply_text=reply_text))
     context = cast(
         ContextTypes.DEFAULT_TYPE,
         SimpleNamespace(user_data={CATALOG_SOURCE_TICKET_KEY: ticket}),
@@ -124,9 +118,7 @@ def test_catalog_ticket_cannot_serve_other_user(tmp_path: Path) -> None:
     service = Mock(resolve_catalog_original=AsyncMock())
     services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
     handled = asyncio.run(
-        _try_catalog_source_delivery(
-            message, context, services, 999, "həmin pdf i ver"
-        )
+        _try_catalog_source_delivery(message, context, services, 999, "həmin pdf i ver")
     )
     assert handled
     reply_document.assert_not_awaited()
