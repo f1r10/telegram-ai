@@ -7,7 +7,7 @@ change the database, read image bytes, or certify device/photo accuracy.
 
 import asyncio
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 
