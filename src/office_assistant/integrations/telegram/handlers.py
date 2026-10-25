@@ -5,7 +5,7 @@ import logging
 import re
 import secrets
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
@@ -137,10 +137,12 @@ from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.catalog_visual_candidates import (
     MAX_PDF_REFERENCES,
     PdfImageSource,
+    PdfPageCandidate,
     match_pdf_image_sources,
     render_pdf_image_candidates,
 )
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
+from office_assistant.processing.pdf_visual_row import read_pdf_visual_row
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
@@ -2454,7 +2456,8 @@ async def _reply_pdf_catalog_candidates(
 ) -> bool:
     """Source-page fallback only; PDF images never become approved products."""
 
-    if services.session_factory is None or services.storage is None:
+    storage = services.storage
+    if services.session_factory is None or storage is None:
         return False
     async with services.session_factory() as session:
         rows = (
@@ -2463,6 +2466,7 @@ async def _reply_pdf_catalog_candidates(
                     ImageAssetOccurrence.id,
                     ImageAssetOccurrence.source_file_id,
                     FileObject.original_filename,
+                    FileObject.storage_key,
                     ImageAssetOccurrence.locator,
                     ImageAsset.storage_key,
                     ImageAsset.content_sha256,
@@ -2479,7 +2483,11 @@ async def _reply_pdf_catalog_candidates(
             )
         ).all()
     sources: list[PdfImageSource] = []
-    for occurrence_id, file_id, filename, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
+    original_keys: dict[int, tuple[str, bool]] = {}
+    for occurrence_id, file_id, filename, original_key, locator, key, digest in rows[
+        :MAX_PDF_REFERENCES
+    ]:
+        original_keys[occurrence_id] = (original_key, "form_xobject" in locator)
         page = locator.get("page")
         index = locator.get("image_index")
         if (
@@ -2495,11 +2503,39 @@ async def _reply_pdf_catalog_candidates(
             )
     if not sources:
         return False
-    matches = await asyncio.to_thread(
-        match_pdf_image_sources, image_bytes, sources, services.storage.root
-    )
+    matches = await asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root)
     if not matches:
         return False
+
+    # Resolve product text only from the original matched PDF page's native
+    # drawing geometry. Never look for generic page text by SKU keywords.
+    async def enrich_pdf_row(candidate: PdfPageCandidate) -> PdfPageCandidate:
+        occurrence_id = candidate.occurrence_id
+        if occurrence_id is None or occurrence_id not in original_keys:
+            return candidate
+        original_key, has_form = original_keys[occurrence_id]
+        if has_form:
+            return candidate
+        try:
+            original_path = storage.path_for_key(original_key)
+            original_path.relative_to(storage.blob_root)
+        except (StorageError, ValueError):
+            return candidate
+        try:
+            label = await asyncio.wait_for(
+                asyncio.to_thread(
+                    read_pdf_visual_row,
+                    original_path,
+                    candidate.page,
+                    candidate.image_index,
+                ),
+                timeout=8.0,
+            )
+        except TimeoutError:
+            label = None
+        return replace(candidate, nearby_label=label) if label else candidate
+
+    matches = tuple([await enrich_pdf_row(candidate) for candidate in matches])
     data = getattr(context, "user_data", None)
     ticket = issue_catalog_ticket(actor_telegram_user_id, matches)
     if data is not None:
