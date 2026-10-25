@@ -100,3 +100,57 @@ def test_pdf_candidate_never_displays_internal_draw_order_as_visual_number() -> 
     assert "şəkil 5" not in text
     without_geometry = render_pdf_image_candidates((PdfPageCandidate("catalog.pdf", 3, 5),))
     assert "şəkil 5" not in without_geometry
+
+
+def test_weak_semantic_secondary_matches_not_shown_as_other_products(tmp_path: Path) -> None:
+    query = _image((237, 29, 26), "JPEG")
+    red = _image((241, 30, 26), "PNG")
+    distant = _image((30, 40, 237), "PNG")
+    refs = [
+        _ref(tmp_path, "genuine.png", red, 1),
+        _ref(tmp_path, "unrelated.png", distant, 2),
+    ]
+    semantic = SemanticVisualSearch(
+        storage_root=tmp_path,
+        model_cache_root=tmp_path / "model",
+        encoder=FakeColorEncoder(),
+        min_score=0.10,  # Both are candidates before top-score separation.
+        max_references=10,
+    )
+    matches, incomplete, unavailable = semantic_pdf_image_candidates(query, refs, semantic)
+    assert not incomplete and not unavailable
+    assert len(matches) == 1
+    assert matches[0].occurrence_id == 1
+    assert matches[0].match_score is not None
+    answer = render_pdf_image_candidates(matches)
+    assert "Əsas namizəd:" in answer
+    assert "Oxşar alternativ" not in answer
+    assert "təsdiqlənməmiş" in answer
+
+
+def test_truly_close_semantic_candidates_remain_unverified_alternatives(
+    tmp_path: Path,
+) -> None:
+    query = _image((236, 31, 24), "JPEG")
+    red_a = _image((240, 30, 22), "PNG")
+    red_b = _image((229, 39, 28), "PNG")
+    refs = [
+        _ref(tmp_path, "first.png", red_a, 1),
+        _ref(tmp_path, "second.png", red_b, 2),
+    ]
+    semantic = SemanticVisualSearch(
+        storage_root=tmp_path,
+        model_cache_root=tmp_path / "model",
+        encoder=FakeColorEncoder(),
+        min_score=0.80,
+        max_references=10,
+    )
+    matches, _, unavailable = semantic_pdf_image_candidates(query, refs, semantic)
+    assert not unavailable
+    assert len(matches) == 2
+    assert matches[0].match_score is not None
+    assert matches[1].match_score is not None
+    answer = render_pdf_image_candidates(matches)
+    assert "Əsas namizəd:" in answer
+    assert "Oxşar alternativ 1:" in answer
+    assert "dəqiq kimliyi" in answer
