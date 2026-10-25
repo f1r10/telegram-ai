@@ -96,3 +96,14 @@ Fine spatial colour comparison now supplements coarse image hashes on the
 near-duplicate path, including border-cropped PDF candidates, to reduce
 unrelated-object suggestions. Its thresholds must be assessed against real
 positive and negative images, not treated as proof of identity.
+
+## 10. Bounded optional image comparison stages
+
+Telegram now applies a 2-second wait budget to approved-image near-duplicate
+comparison and 4 seconds to its optional semantic image comparison. The Mini
+App's semantic stage has a 5-second budget instead of 25 seconds. These are
+**stage waits**, not end-to-end SLAs: an already-running thread may continue
+after cancellation, and Telegram transfer, PostgreSQL, PDF source enrichment,
+and other work are additional. No result or stock fact is fabricated at timeout.
+Operator-owned mobile p50/p95 measurement is still required before any
+latency release gate can be accepted.

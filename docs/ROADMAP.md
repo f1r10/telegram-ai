@@ -289,3 +289,8 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       Telegram photo reference /saxla lifecycle and mobile latency p50/p95.
 - [ ] Complete operator-approved staging deployment and owner acceptance; the
       GitHub unit/integration suite alone does not close photo UAT.
+
+- [x] Bound Telegram optional approved-image duplicate/semantic stages to 2s/4s,
+      and Mini App optional semantic stage to 5s; CI regression test added.
+- [ ] Confirm real end-to-end mobile photo p95 against the five-second target;
+      stage budgets alone are not an end-to-end guarantee.

@@ -2859,7 +2859,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
         try:
             possible = await asyncio.wait_for(
                 asyncio.to_thread(shortlist, picture, references, services.storage.root),
-                timeout=3.0,
+                timeout=2.0,
             )
         except TimeoutError:
             logger.info("Confirmed-photo near-duplicate lookup timed out")
@@ -2887,7 +2887,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                             for code, storage_key, digest in rows[:500]
                         ],
                     ),
-                    timeout=6.0,
+                    timeout=4.0,
                 )
             except TimeoutError:
                 logger.info("Confirmed-photo semantic lookup timed out")
