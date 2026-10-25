@@ -88,7 +88,11 @@ from office_assistant.business.reference_confirmation import (
 )
 from office_assistant.extraction.review import ExtractionReviewService
 from office_assistant.infrastructure.database.models import (
+    FileObject,
+    FileObjectState,
     ImageAsset,
+    ImageAssetOccurrence,
+    ImageAssetOrigin,
     Product,
     ProductImageRelation,
     ProductImageRelationConfirmation,
@@ -124,6 +128,12 @@ from office_assistant.internal_evidence.delivery import (
 from office_assistant.internal_evidence.models import ImageReading, InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.processing.catalog_visual_candidates import (
+    MAX_PDF_REFERENCES,
+    PdfImageSource,
+    match_pdf_image_sources,
+    render_pdf_image_candidates,
+)
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
@@ -2298,6 +2308,60 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
     )
 
 
+async def _reply_pdf_catalog_candidates(
+    message: Message,
+    services: TelegramServices,
+    image_bytes: bytes,
+) -> bool:
+    """Source-page fallback only; PDF images never become approved products."""
+
+    if services.session_factory is None or services.storage is None:
+        return False
+    async with services.session_factory() as session:
+        rows = (
+            await session.execute(
+                select(
+                    ImageAssetOccurrence.id,
+                    FileObject.original_filename,
+                    ImageAssetOccurrence.locator,
+                    ImageAsset.storage_key,
+                    ImageAsset.content_sha256,
+                )
+                .select_from(ImageAssetOccurrence)
+                .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+                .where(
+                    ImageAssetOccurrence.origin_type == ImageAssetOrigin.PDF_EMBEDDED,
+                    FileObject.state == FileObjectState.ACTIVE,
+                )
+                .order_by(ImageAssetOccurrence.id.desc())
+                .limit(MAX_PDF_REFERENCES + 1)
+            )
+        ).all()
+    sources: list[PdfImageSource] = []
+    for occurrence_id, filename, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
+        page = locator.get("page")
+        index = locator.get("image_index")
+        if (
+            isinstance(page, int)
+            and not isinstance(page, bool)
+            and isinstance(index, int)
+            and not isinstance(index, bool)
+        ):
+            sources.append(PdfImageSource(occurrence_id, filename, page, index, key, digest))
+    if not sources:
+        return False
+    matches = await asyncio.to_thread(
+        match_pdf_image_sources, image_bytes, sources, services.storage.root
+    )
+    if not matches:
+        return False
+    await message.reply_text(
+        render_pdf_image_candidates(matches, incomplete=len(rows) > MAX_PDF_REFERENCES)
+    )
+    return True
+
+
 async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
@@ -2377,7 +2441,9 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "ehtimal olunan uyğunluqlardır. Məhsulun eyniliyi və stok "
                 "təsdiqlənməyib; kodu yoxlayın." + warning
             )
-        elif services.semantic_visual is not None and references:
+            return
+        semantic_unavailable = False
+        if services.semantic_visual is not None and references:
             semantic = await asyncio.wait_for(
                 asyncio.to_thread(
                     services.semantic_visual.search,
@@ -2404,34 +2470,34 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                     "Məhsul kodunu yoxlayın; anbarda stok olduğu da təsdiqlənmir." + limited
                 )
                 return
-            if semantic.unavailable:
-                await message.reply_text(
-                    "Semantik şəkil modeli bu anda əlçatan deyil. "
-                    "Məhsulun kimliyini təxmin etmirəm; kodla axtarın."
-                )
-                return
-            if asset_id is not None:
-                await message.reply_text("Bu şəkil bazadadır, lakin aktiv məhsul təsdiqi yoxdur.")
-                return
-            await message.reply_text(
-                "Təsdiqli fotolar arasında etibarlı semantik namizəd tapılmadı. "
-                "Bu, məhsulun kataloqda olmadığı demək deyil. "
-                "Kodunu yoxlayın."
-            )
-        elif asset_id is not None:
+            semantic_unavailable = semantic.unavailable
+
+        # A stored exact image with no approved product relation remains explicitly
+        # unconfirmed; do not obscure that status with a PDF page similarity.
+        if asset_id is not None:
             await message.reply_text(
                 "Bu eyni şəkil bazada mövcuddur, amma məhsul kodu ilə "
                 "təsdiqlənmiş əlaqəsi yoxdur. Kimliyi təxmin etmirəm."
             )
-        else:
-            warning = " Arxivin yalnız ilk 500 nümunəsi yoxlanılıb." if incomplete else ""
+            return
+        # PDF-embedded images are a separate non-authoritative namespace.
+        # They may point to a source page but never prove catalog product identity.
+        if await _reply_pdf_catalog_candidates(message, services, picture):
+            return
+        if semantic_unavailable:
             await message.reply_text(
-                "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
-                "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
-                "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər. "
-                "Bu şəkli məhsulla əlaqələndirmək üçün kodunu qeyd edib "
-                "«Bu KA45-dir, yadda saxla» kimi yenidən göndərin." + warning
+                "Semantik şəkil modeli bu anda əlçatan deyil. "
+                "Məhsulun kimliyini təxmin etmirəm; kodla axtarın."
             )
+            return
+        warning = " Arxivin yalnız ilk 500 nümunəsi yoxlanılıb." if incomplete else ""
+        await message.reply_text(
+            "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
+            "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
+            "Fərqli bucaqdan çəkilmiş şəkillər bu üsulla tanınmaya bilər. "
+            "Bu şəkli məhsulla əlaqələndirmək üçün kodunu qeyd edib "
+            "«Bu KA45-dir, yadda saxla» kimi yenidən göndərin." + warning
+        )
     except (TelegramError, SQLAlchemyError, TimeoutError) as error:
         logger.warning("Exact photo lookup unavailable | error_type=%s", type(error).__name__)
         await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")

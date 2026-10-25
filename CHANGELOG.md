@@ -4,6 +4,15 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### Embedded PDF photo lookup candidates (2026-10-25)
+
+- Keep explicitly confirmed active product photos authoritative for exact product-image lookup; when those yield no result, inspect a bounded set of already-registered PDF-embedded image assets for read-only near-duplicate candidates.
+- Return source file, page and image occurrence only, without deriving a product name or SKU from spatially unverified neighbouring PDF text. Source pages are **unverified candidates**, not product confirmations, prices or inventory.
+- Reuse content digest checks and reject corrupt/ambiguous image references; do not write user query photos to storage and do not create product relations.
+- Synthetic offline tests added. Live Kali screenshot-to-PDF-image retrieval must still be tested; no visual recall/accuracy is claimed.
+
+
+
 ### Session duplicate count wording after staging UAT (2026-10-25)
 
 - Label the `/saxla` duplicate counter as **within the current session**; a file whose exact bytes already exist from an earlier session is reused as one `FileObject` and its new submission is recorded, but does not increase this session-only counter.
