@@ -150,6 +150,11 @@ from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
+from office_assistant.web_evidence.priority_sites import (
+    InvalidPrioritySite,
+    PrioritySitePermissionDenied,
+    PrioritySitesService,
+)
 from office_assistant.web_evidence.service import WebEvidenceService
 
 SERVICES_KEY = "phase2_services"
@@ -2245,6 +2250,64 @@ async def _handle_web_command(
         await message.reply_text(messages.TEMPORARY_ERROR)
 
 
+async def handle_priority_sites(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the ordered website list; only ACTIVE admins can change it."""
+
+    if not _is_private(update):
+        return
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None:
+        return
+    services = _services(context)
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        actor = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if actor is None or actor.status != UserStatus.ACTIVE:
+            await message.reply_text(messages.NO_PERMISSION)
+            return
+        cmd, _, value = (message.text or "").partition(" ")
+        cmd = cmd.partition("@")[0].casefold()
+        priority = PrioritySitesService(services.session_factory)
+        if cmd == "/saytlar":
+            domains = await priority.list_domains()
+            if not domains:
+                await message.reply_text(
+                    "Prioritet sayt siyahısı boşdur. İnternet axtarışı ümumi mənbələrdə aparılır."
+                )
+            else:
+                lines = "\n".join(
+                    f"{index}. {domain}" for index, domain in enumerate(domains, start=1)
+                )
+                await message.reply_text("🌐 PRIORİTET SAYTLAR\n\n" + lines)
+            return
+        if actor.role != UserRole.ADMIN:
+            await message.reply_text(messages.NO_PERMISSION)
+            return
+        if cmd not in {"/sayt_elave", "/sayt_sil"}:
+            return
+        if not value.strip():
+            await message.reply_text("İstifadə: /sayt_elave knatank.az və ya /sayt_sil knatank.az")
+            return
+        operation = "add" if cmd == "/sayt_elave" else "remove"
+        domains = await priority.update(identity.telegram_user_id, operation, value)
+        await message.reply_text(
+            ("Sayt əlavə edildi: " if operation == "add" else "Sayt silindi: ")
+            + value.strip()
+            + "\nCari prioritetlər: "
+            + (", ".join(domains) if domains else "siyahı boşdur")
+        )
+    except InvalidPrioritySite as error:
+        await message.reply_text(str(error))
+    except PrioritySitePermissionDenied:
+        await message.reply_text(messages.NO_PERMISSION)
+    except SQLAlchemyError:
+        logger.exception("Priority website configuration failed")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+
+
 async def handle_internet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _handle_web_command(update, context, combined=False)
 
@@ -3125,5 +3188,8 @@ COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "leqv_et": handle_revoke_reference,
     "baza": handle_baza,
     "internet": handle_internet,
+    "saytlar": handle_priority_sites,
+    "sayt_elave": handle_priority_sites,
+    "sayt_sil": handle_priority_sites,
     "tamaxtar": handle_tamaxtar,
 }
