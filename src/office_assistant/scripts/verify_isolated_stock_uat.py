@@ -34,7 +34,7 @@ from office_assistant.infrastructure.database.session import create_session_fact
 
 DB_NAME = "office_assistant_stock_acceptance_test"
 HOST_PREFIX = "tgstage_stock_drill_"
-PRODUCT_CODE = "QA-STOCK-ACCEPT-26"
+PRODUCT_CODE = "QASTOCKACCEPT26"
 
 
 def safe_target(settings: Settings) -> bool:
