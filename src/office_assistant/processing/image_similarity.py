@@ -17,14 +17,17 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
-DHASH_DISTANCE_LIMIT = 6
-AHASH_DISTANCE_LIMIT = 11
+DHASH_DISTANCE_LIMIT = 4
+AHASH_DISTANCE_LIMIT = 8
+# Near-duplicate mode must not equate unrelated objects with similar gray geometry.
+MAX_COLOR_TILE_DIFFERENCE = 22.0
 
 
 @dataclass(frozen=True, slots=True)
 class ImageFingerprint:
     dhash: int
     ahash: int
+    color_tiles: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +57,11 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
         with Image.open(BytesIO(data)) as raw:
             if raw.width * raw.height > MAX_IMAGE_PIXELS:
                 return None
-            image = ImageOps.exif_transpose(raw).convert("L")
+            oriented = ImageOps.exif_transpose(raw).convert("RGB")
+            color_grid = oriented.resize((4, 4), Image.Resampling.LANCZOS)
+            colors = cast(list[tuple[int, int, int]], list(color_grid.get_flattened_data()))
+            color_tiles = tuple(channel for pixel in colors for channel in pixel)
+            image = oriented.convert("L")
             small = image.resize((9, 8), Image.Resampling.LANCZOS)
             a_small = image.resize((8, 8), Image.Resampling.LANCZOS)
             # L-mode pixels are 8-bit scalars; Pillow's general stubs also admit tuples.
@@ -74,7 +81,7 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
             left = pixels[row * 9 + column]
             right = pixels[row * 9 + column + 1]
             dhash = (dhash << 1) | int(left > right)
-    return ImageFingerprint(dhash, ahash)
+    return ImageFingerprint(dhash, ahash, color_tiles)
 
 
 @lru_cache(maxsize=2048)
@@ -117,6 +124,15 @@ def shortlist(
         d = (query_hash.dhash ^ ref_hash.dhash).bit_count()
         a = (query_hash.ahash ^ ref_hash.ahash).bit_count()
         if d > DHASH_DISTANCE_LIMIT or a > AHASH_DISTANCE_LIMIT:
+            continue
+        # A gray hash can collide for red vs blue or wholly different objects.
+        # Require the same coarse spatial colour layout for near-duplicates;
+        # cross-angle recognition belongs to the separately calibrated model.
+        tile_delta = sum(
+            abs(a - b)
+            for a, b in zip(query_hash.color_tiles, ref_hash.color_tiles, strict=True)
+        ) / len(query_hash.color_tiles)
+        if tile_delta > MAX_COLOR_TILE_DIFFERENCE:
             continue
         # Fingerprint similarity is not proof that the current file is the
         # human-approved reference. In live lookups the caller supplies the
