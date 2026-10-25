@@ -142,7 +142,7 @@ class MiniAppPhotoLookup:
                         photo,
                         [SemanticReference(code, key, sha) for code, key, sha in approved],
                     ),
-                    timeout=25.0,
+                    timeout=5.0,
                 )
             except TimeoutError:
                 return PhotoLookupResult(
