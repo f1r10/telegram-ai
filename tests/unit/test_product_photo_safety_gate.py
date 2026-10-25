@@ -46,7 +46,5 @@ def test_gray_shape_collision_but_different_product_color_abstains(tmp_path: Pat
     other = _two_tone((0, 102, 0))
     (tmp_path / "ref.png").write_bytes(reference)
     approved = [VisualCandidate("WATCH1234", "ref.png", sha256(reference).hexdigest())]
-    assert [item.product_code for item in shortlist(reference, approved, tmp_path)] == [
-        "WATCH1234"
-    ]
+    assert [item.product_code for item in shortlist(reference, approved, tmp_path)] == ["WATCH1234"]
     assert shortlist(other, approved, tmp_path) == []
