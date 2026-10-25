@@ -85,9 +85,7 @@ async def prepare_catalog(
     selected_approved = approved[:limit]
     selected_pdf = pdf[:limit]
     if not apply:
-        return CatalogWarmSummary(
-            len(selected_approved), len(selected_pdf), 0, 0, truncated, False
-        )
+        return CatalogWarmSummary(len(selected_approved), len(selected_pdf), 0, 0, truncated, False)
 
     storage = LocalFileStorage(settings.file_storage_path)
     service = SemanticVisualSearch(
@@ -125,9 +123,7 @@ def main() -> None:
     args = parser.parse_args()
     logging.disable(logging.WARNING)
     try:
-        result = asyncio.run(
-            prepare_catalog(load_settings(), apply=args.apply, limit=args.limit)
-        )
+        result = asyncio.run(prepare_catalog(load_settings(), apply=args.apply, limit=args.limit))
     except Exception as error:
         print(f"CATALOG_VISUAL_PREWARM=FAILED error_type={type(error).__name__}")
         raise SystemExit(1) from None
