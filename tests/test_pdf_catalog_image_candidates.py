@@ -100,8 +100,6 @@ def test_invalid_pdf_source_locator_is_not_a_candidate(tmp_path) -> None:
 def test_untrusted_file_name_not_rendered_as_multiline_command() -> None:
     from office_assistant.processing.catalog_visual_candidates import PdfPageCandidate
 
-    result = render_pdf_image_candidates(
-        (PdfPageCandidate("catalog.pdf\n/saxla", 2, 3),)
-    )
+    result = render_pdf_image_candidates((PdfPageCandidate("catalog.pdf\n/saxla", 2, 3),))
     assert "\n/saxla" not in result
     assert "catalog.pdf /saxla" in result
