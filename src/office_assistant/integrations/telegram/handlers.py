@@ -2512,6 +2512,20 @@ def _is_photo_lookup_request(caption: str | None) -> bool:
     )
 
 
+def _explicit_pdf_photo_lookup(caption: str | None) -> bool:
+    """A PDF visual suggestion is not evidence of an approved catalog SKU.
+
+    Only a deliberate request for a PDF source page may enter this weaker
+    path; the default 'bizdə varmı?' photo path must never return a PDF
+    illustration as a company product match.
+    """
+
+    if not caption:
+        return False
+    phrase = " ".join(caption.casefold().split())
+    return any(part in phrase for part in ("pdf", "kataloq şəkli", "kataloqdakı şəkil"))
+
+
 async def _reply_pdf_catalog_candidates(
     message: Message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -2729,7 +2743,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
         try:
             possible = await asyncio.wait_for(
                 asyncio.to_thread(shortlist, picture, references, services.storage.root),
-                timeout=5.0,
+                timeout=3.0,
             )
         except TimeoutError:
             logger.info("Confirmed-photo near-duplicate lookup timed out")
@@ -2757,7 +2771,7 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                             for code, storage_key, digest in rows[:500]
                         ],
                     ),
-                    timeout=9.0,
+                    timeout=6.0,
                 )
             except TimeoutError:
                 logger.info("Confirmed-photo semantic lookup timed out")
@@ -2779,14 +2793,13 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 return
             semantic_unavailable = semantic is None or semantic.unavailable
 
-        # A previously saved but unconfirmed photo must still be searched
-        # against PDF catalog pictures. Storage identity is not a product
-        # identity, nor a reason to bypass source-scoped visual matching.
-        # Confirmed product identities were handled above.
-        if await _reply_pdf_catalog_candidates(
-            message, context, services, identity.telegram_user_id, picture
-        ):
-            return
+        # PDF art is evidence of a source page, never an authoritative SKU.
+        # Run this costly source search only when explicitly requested.
+        if _explicit_pdf_photo_lookup(message.caption):
+            if await _reply_pdf_catalog_candidates(
+                message, context, services, identity.telegram_user_id, picture
+            ):
+                return
         if asset_id is not None:
             await message.reply_text(
                 "Şəkil faylı yadda saxlanılıb, amma heç bir aktiv məhsul koduna "
@@ -2805,6 +2818,16 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
             )
             return
         warning = " Arxivin yalnız ilk 500 nümunəsi yoxlanılıb." if incomplete else ""
+        if not references:
+            await message.reply_text(
+                "Kataloqda aktiv məhsula bağlanmış təsdiqli foto nümunəsi yoxdur. "
+                "Şəkildən məhsulun kimliyini və ya stokunu təxmin edə bilmərəm. "
+                "Admin məhsulu /mehsul_elave əmri ilə qeydiyyata almalı, "
+                "sonra şəkil üçün /saxla təsdiqi verməlidir. "
+                "Mövcud PDF şəkillərinin axtarışı üçün fotoya "
+                "«PDF kataloq şəkli axtar» qeydi əlavə edin."
+            )
+            return
         await message.reply_text(
             "Təsdiqlənmiş nümunələr arasında eyni və ya kifayət qədər "
             "oxşar şəkil tapılmadı. Bu, məhsulun bizdə olmadığını sübut etmir. "
