@@ -140,9 +140,10 @@ from office_assistant.processing.catalog_visual_candidates import (
     PdfPageCandidate,
     match_pdf_image_sources,
     render_pdf_image_candidates,
+    semantic_pdf_image_candidates,
 )
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
-from office_assistant.processing.pdf_visual_row import read_pdf_visual_row
+from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
@@ -2504,8 +2505,41 @@ async def _reply_pdf_catalog_candidates(
     if not sources:
         return False
     matches = await asyncio.to_thread(match_pdf_image_sources, image_bytes, sources, storage.root)
+    semantic_incomplete = False
+    unavailable = False
+    if not matches and services.semantic_visual is not None:
+        try:
+            matches, semantic_incomplete, unavailable = await asyncio.wait_for(
+                asyncio.to_thread(
+                    semantic_pdf_image_candidates,
+                    image_bytes,
+                    sources,
+                    services.semantic_visual,
+                ),
+                timeout=25.0,
+            )
+        except TimeoutError:
+            unavailable = True
+        if unavailable:
+            logger.info("Catalog semantic image comparison unavailable")
     if not matches:
-        return False
+        if services.semantic_visual is None:
+            note = (
+                "PDF kataloqunda yaxın nüsxə tapılmadı. İnternetdən götürülən "
+                "başqa fotoların müqayisəsi üçün semantik şəkil axtarışı aktiv deyil."
+            )
+        elif unavailable:
+            note = (
+                "PDF kataloqunda yaxın nüsxə tapılmadı. Semantik şəkil modeli "
+                "bu anda əlçatan deyil; nəticəsiz axtarışı məhsulun yoxluğu saymıram."
+            )
+        else:
+            note = (
+                "PDF kataloqunda bu foto üçün etibarlı vizual namizəd alınmadı. "
+                "Bu, məhsulun kataloqda olmadığını sübut etmir."
+            )
+        await message.reply_text(note, reply_markup=_answer_keyboard())
+        return True
 
     # Resolve product text only from the original matched PDF page's native
     # drawing geometry. Never look for generic page text by SKU keywords.
@@ -2522,9 +2556,9 @@ async def _reply_pdf_catalog_candidates(
         except (StorageError, ValueError):
             return candidate
         try:
-            label = await asyncio.wait_for(
+            details = await asyncio.wait_for(
                 asyncio.to_thread(
-                    read_pdf_visual_row,
+                    read_pdf_visual_details,
                     original_path,
                     candidate.page,
                     candidate.image_index,
@@ -2532,8 +2566,12 @@ async def _reply_pdf_catalog_candidates(
                 timeout=8.0,
             )
         except TimeoutError:
-            label = None
-        return replace(candidate, nearby_label=label) if label else candidate
+            return candidate
+        return replace(
+            candidate,
+            nearby_label=details.nearby_label,
+            visual_row=details.visual_row,
+        )
 
     matches = tuple([await enrich_pdf_row(candidate) for candidate in matches])
     data = getattr(context, "user_data", None)
@@ -2544,7 +2582,10 @@ async def _reply_pdf_catalog_candidates(
             data[CATALOG_SOURCE_TICKET_KEY] = ticket
     keyboard = _catalog_source_keyboard(ticket) if data is not None else _answer_keyboard()
     await message.reply_text(
-        render_pdf_image_candidates(matches, incomplete=len(rows) > MAX_PDF_REFERENCES),
+        render_pdf_image_candidates(
+            matches,
+            incomplete=len(rows) > MAX_PDF_REFERENCES or semantic_incomplete,
+        ),
         reply_markup=keyboard,
     )
     return True

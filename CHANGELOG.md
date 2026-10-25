@@ -4,6 +4,16 @@ All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled
 
 ## [Unreleased]
 
+### PDF catalog photo retrieval and visible row position (2026-10-25)
+
+- Stop presenting PDF content-stream image sequence as the on-page product image number. Display a top-to-bottom visual row number only when source geometry supports it; otherwise omit the number.
+- When no near-identical embedded PDF image is found, compare catalog image occurrences with a locally provisioned, opt-in CLIP visual embedding model; retain original PDF source buttons and candidate-only identity safeguards.
+- In staging, enable visual semantic search by default with a bounded 200-reference window, but require an explicit one-time operator download and prewarm of model weights. Query photos are not retained.
+- Distinguish unavailable/disabled semantic matching from a genuine absence of visually grounded catalog evidence; never infer inventory or approved product identity from similarity.
+- Synthetic tests cover changed image bytes and unknown photos, numbering independent of draw order, and unconfirmed sources. Live internet-photo recall and false-positive rate remain acceptance tasks.
+
+## [Unreleased]
+
 ### Embedded PDF photo lookup candidates (2026-10-25)
 
 - Keep explicitly confirmed active product photos authoritative for exact product-image lookup; when those yield no result, inspect a bounded set of already-registered PDF-embedded image assets for read-only near-duplicate candidates.
