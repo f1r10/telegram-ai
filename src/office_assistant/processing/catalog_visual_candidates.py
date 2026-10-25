@@ -276,7 +276,7 @@ def render_pdf_image_candidates(
             lines.append("  Məhsul adı: PDF-dən təhlükəsiz müəyyən edilmədi")
         location = f"  Mənbə: {filename} · səhifə {item.page}"
         if item.visual_row is not None:
-            location += f" · yuxarıdan {item.visual_row}-ci şəkil"
+            location += f" · yuxarıdan {item.visual_row}-ci məhsul şəkli"
         lines.append(location)
         if item.match_type == "semantic":
             lines.append("  Fərqli fotolar üzrə semantik oxşarlıq: təsdiqlənməmiş namizəd")
