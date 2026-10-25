@@ -127,10 +127,11 @@ class PrioritySitesService:
                 raise RuntimeError("Priority website metadata unavailable")
             try:
                 loaded = json.loads(row.value or "[]")
-                domains = list(dict.fromkeys(
-                    normalize_priority_domain(item) for item in loaded
-                    if isinstance(item, str)
-                ))
+                domains = list(
+                    dict.fromkeys(
+                        normalize_priority_domain(item) for item in loaded if isinstance(item, str)
+                    )
+                )
             except (ValueError, TypeError):
                 domains = []
             if action == "add":
