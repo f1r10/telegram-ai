@@ -2619,7 +2619,7 @@ async def handle_catalog_product_add_callback(
     if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
         await query.edit_message_text(messages.NO_PERMISSION)
         return
-    draft = cast(ProductRegistrationDraft, selected[2])
+    draft = selected[2]
     try:
         product = await ProductService(services.session_factory).create_product(
             identity.telegram_user_id, display_code=draft.code, name=draft.name
