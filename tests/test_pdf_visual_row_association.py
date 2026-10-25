@@ -86,6 +86,9 @@ def test_wrapped_catalog_title_and_ambiguity_controls() -> None:
     ]
     assert _caption_for_image(rect, lines) == "2 KANALLI KECEN TRAMPLIN 100*30*6 SM"
     assert _caption_for_image(rect, [(220.0, 800.0, "WRONG PRODUCT")]) is None
-    assert _caption_for_image(
-        rect, [(220.0, 525.0, "FIRST PRODUCT"), (220.0, 490.0, "SECOND PRODUCT")]
-    ) is None
+    assert (
+        _caption_for_image(
+            rect, [(220.0, 525.0, "FIRST PRODUCT"), (220.0, 490.0, "SECOND PRODUCT")]
+        )
+        is None
+    )
