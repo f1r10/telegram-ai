@@ -270,3 +270,22 @@ Recurring reminders remain out of scope (`recurrence_rule` column reserved, unus
 
  recurring reminders, scanned-PDF OCR, image embeddings,
 exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
+
+## Visual photo retrieval hardening — 2026-10-26
+
+- [x] Ordinary Telegram photo search includes a bounded non-authoritative PDF image
+      near-duplicate fallback when approved product-photo search does not match.
+- [x] Add a fine spatial-colour check on near duplicates and bordered PDF image
+      candidates to reduce coarse-hash false suggestions.
+- [x] Raise opt-in local semantic model reference coverage to 500 and provide
+      a dry-run/--apply offline prewarming command for up to 500 approved photo
+      references plus up to 500 embedded PDF image occurrences.
+- [ ] Add a Qdrant ANN image collection with current-reference revocation and
+      active-document provenance filtering; today's warm vector files are NOT ANN.
+- [ ] Calibrate different-angle recall and unrelated-object false suggestions on
+      the owner's independent private real-phone holdout before enabling semantic
+      candidate display.
+- [ ] Recheck active approved photo count on Kali staging, then run a real
+      Telegram photo reference /saxla lifecycle and mobile latency p50/p95.
+- [ ] Complete operator-approved staging deployment and owner acceptance; the
+      GitHub unit/integration suite alone does not close photo UAT.
