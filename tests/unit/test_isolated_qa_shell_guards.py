@@ -7,7 +7,7 @@ def test_disposable_stock_launcher_never_targets_live_postgres() -> None:
     script = Path("scripts/run_isolated_stock_uat.sh").read_text(encoding="utf-8")
     assert "--tmpfs /var/lib/postgresql/data" in script
     assert "tgstage_stock_drill_" in script
-    assert 'POSTGRES_HOST=$container' in script
+    assert "POSTGRES_HOST=$container" in script
     assert "--no-deps" in script
     assert "TELEGRAM_POLLING_ENABLED=false" in script
     assert "docker rm -f" in script
