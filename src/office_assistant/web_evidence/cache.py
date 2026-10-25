@@ -16,6 +16,7 @@ from office_assistant.web_evidence.models import (
     WebSearchResponse,
     WebSearchResult,
 )
+from office_assistant.web_evidence.priority_sites import PrioritySitesService
 from office_assistant.web_evidence.normalization import (
     cache_key,
     is_time_sensitive_query,
@@ -33,7 +34,9 @@ class WebSearchService:
         *,
         stable_ttl_seconds: int = 86400,
         fresh_ttl_seconds: int = 900,
+        priority_sites: PrioritySitesService | None = None,
     ) -> None:
+        self.priority_sites = priority_sites
         self.session_factory = session_factory
         self.primary = primary
         self.fallback = fallback
@@ -41,6 +44,63 @@ class WebSearchService:
         self.fresh_ttl = timedelta(seconds=max(fresh_ttl_seconds, 0))
 
     async def search(
+        self, request: WebSearchRequest, *, usable: ResultUsability | None = None
+    ) -> WebSearchResponse:
+        # Explicit domain-restricted searches must not be silently overridden.
+        if self.priority_sites is None or request.allowed_domains or request.blocked_domains:
+            return await self._search_one(request, usable=usable)
+        domains = await self.priority_sites.list_domains()
+        if not domains:
+            return await self._search_one(request, usable=usable)
+
+        preferred: list[WebSearchResult] = []
+        seen: set[str] = set()
+        first: WebSearchResponse | None = None
+        for domain in domains:
+            restricted = request.model_copy(update={"allowed_domains": [domain]})
+            try:
+                candidate = await self._search_one(restricted, usable=usable)
+            except WebProviderError as error:
+                logger.info(
+                    "Preferred website search unavailable | domain=%s error_type=%s",
+                    domain,
+                    type(error).__name__,
+                )
+                continue
+            if first is None:
+                first = candidate
+            for result in candidate.results:
+                # Do not trust provider-side filtering alone.
+                hostname = result.domain.casefold().rstrip(".")
+                if (
+                    (hostname == domain or hostname.endswith("." + domain))
+                    and (usable is None or usable(result))
+                    and result.url not in seen
+                ):
+                    seen.add(result.url)
+                    preferred.append(result)
+            # Two usable references provide a minimum source base; otherwise
+            # continue other preferred domains and then fall back to general web.
+            if len(preferred) >= 2:
+                break
+
+        if len(preferred) >= 2 and first is not None:
+            return first.model_copy(
+                update={"results": preferred[: request.max_results], "provider": first.provider}
+            )
+        try:
+            general = await self._search_one(request, usable=usable)
+        except WebProviderError:
+            if preferred and first is not None:
+                return first.model_copy(update={"results": preferred[: request.max_results]})
+            raise
+        for result in general.results:
+            if result.url not in seen and (usable is None or usable(result)):
+                preferred.append(result)
+                seen.add(result.url)
+        return general.model_copy(update={"results": preferred[: request.max_results]})
+
+    async def _search_one(
         self, request: WebSearchRequest, *, usable: ResultUsability | None = None
     ) -> WebSearchResponse:
         key, normalized = cache_key(request)
