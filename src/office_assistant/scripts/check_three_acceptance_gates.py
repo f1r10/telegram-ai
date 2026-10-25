@@ -41,16 +41,16 @@ async def read_counts(settings: Settings) -> GateCounts:
     try:
         async with factory() as session:
             warehouses = await session.scalar(
-                select(func.count()).select_from(InventoryWarehouse).where(
-                    InventoryWarehouse.status == "ACTIVE"
-                )
+                select(func.count())
+                .select_from(InventoryWarehouse)
+                .where(InventoryWarehouse.status == "ACTIVE")
             )
             units = await session.scalar(select(func.count()).select_from(InventoryProductUnit))
             balances = await session.scalar(select(func.count()).select_from(InventoryBalance))
             reservations = await session.scalar(
-                select(func.count()).select_from(InventoryReservation).where(
-                    InventoryReservation.status == "ACTIVE"
-                )
+                select(func.count())
+                .select_from(InventoryReservation)
+                .where(InventoryReservation.status == "ACTIVE")
             )
             references = await session.scalar(
                 select(func.count())
