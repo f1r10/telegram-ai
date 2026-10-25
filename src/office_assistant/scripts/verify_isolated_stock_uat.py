@@ -69,7 +69,9 @@ async def scenario(settings: Settings) -> dict[str, object]:
     try:
         async with factory.begin() as session:
             admin = User(telegram_user_id=939287001, role=UserRole.ADMIN, status=UserStatus.ACTIVE)
-            employee = User(telegram_user_id=939287002, role=UserRole.USER, status=UserStatus.ACTIVE)
+            employee = User(
+                telegram_user_id=939287002, role=UserRole.USER, status=UserStatus.ACTIVE
+            )
             session.add_all([admin, employee])
             await session.flush()
             admin_id = admin.id
