@@ -5,11 +5,12 @@
 
 from pathlib import Path
 
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
 
 from office_assistant.processing.pdf_visual_row import (
     _caption_for_image,
+    read_pdf_visual_details,
     read_pdf_visual_row,
 )
 
@@ -64,6 +65,37 @@ def test_matched_image_receives_only_its_own_neighboring_product_row(tmp_path: P
     _make_two_product_pdf(path)
     assert read_pdf_visual_row(path, 1, 1) == "KONUS PLASTIK 100 SM 5 KG"
     assert read_pdf_visual_row(path, 1, 2) == "SURUSKEN YER"
+
+
+def test_pdf_draw_order_is_not_visible_top_to_bottom_position(tmp_path: Path) -> None:
+    path = tmp_path / "synthetic-catalog.pdf"
+    _make_two_product_pdf(path)
+    original = read_pdf_visual_details(path, 1, 1)
+    bottom = read_pdf_visual_details(path, 1, 2)
+    assert original.nearby_label == "KONUS PLASTIK 100 SM 5 KG"
+    assert original.visual_row == 1
+    assert bottom.visual_row == 2
+
+    # Reverse the two Do operations while retaining their on-page positions:
+    # index 1 now visually belongs to row 2, index 2 belongs to row 1.
+    reader = PdfReader(str(path))
+    writer = PdfWriter()
+    writer.add_page(reader.pages[0])
+    page = writer.pages[0]
+    content = page["/Contents"].get_object()
+    raw = content.get_data().decode("ascii")
+    top = "q 80 0 0 80 70 450 cm /Img Do Q\n"
+    bottom_img = "q 75 0 0 75 70 300 cm /Img Do Q\n"
+    assert top in raw and bottom_img in raw
+    raw = raw.replace(top, "").replace(bottom_img, "")
+    raw = bottom_img + top + raw
+    content.set_data(raw.encode("ascii"))
+    with path.open("wb") as out:
+        writer.write(out)
+    first = read_pdf_visual_details(path, 1, 1)
+    second = read_pdf_visual_details(path, 1, 2)
+    assert first.visual_row == 2
+    assert second.visual_row == 1
 
 
 def test_missing_native_text_does_not_reuse_another_products_label(tmp_path: Path) -> None:
