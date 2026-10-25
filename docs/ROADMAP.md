@@ -294,3 +294,6 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       and Mini App optional semantic stage to 5s; CI regression test added.
 - [ ] Confirm real end-to-end mobile photo p95 against the five-second target;
       stage budgets alone are not an end-to-end guarantee.
+
+- [x] Add safe, code-only Kali staging photo rollout script and explicit real-photo manual UAT checklist; keep visual semantic matching OFF by default when unset.
+- [ ] Execute Kali staging rollout with verified backup and capture five operator-owned photo outcomes, active reference count, actual model status and response latency.
