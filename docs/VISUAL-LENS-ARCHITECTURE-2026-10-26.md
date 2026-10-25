@@ -57,3 +57,20 @@ Use existing `office_assistant.scripts.evaluate_visual_photos` in default dry-ru
 - **Wave 4:** optional consent-based external visual search and Mini App mobile photo UI once HTTPS/signed Telegram launch is accepted.
 
 No phase should be marked accepted until the corresponding real-corpus/latency/privacy evidence exists.
+
+## 8. Default PDF-image evidence fallback
+
+Ordinary Telegram photo search previously skipped embedded PDF imagery unless the
+caption explicitly mentioned a PDF. When there are **no approved active SKU photo
+references**, a read-only, **near-duplicate-only** scan of existing indexed PDF
+image occurrences is now attempted with a 2-second comparison timeout. Source
+results identify PDF pages, **not product identity**. Explicit PDF requests
+retain their existing fuller behavior; semantic PDF inference is not enabled
+by this implicit fallback. This is not a full cross-angle unified image index.
+
+Next design gate: product-balanced, precomputed image vectors for both approved
+SKU photos and document occurrences; isolate the PDF evidence namespace from
+human-approved SKU relations, attach document-page/product-label provenance,
+and shortlist using indexed ANN plus local OCR/crop rerank. Index all active
+sources rather than silently treating a capped first 500 as complete. Validate
+real negative images and latency before any automatic semantic PDF fallback.
