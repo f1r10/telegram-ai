@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     visual_semantic_enabled: bool = False
     visual_semantic_model_version: str = "clip-vit-b32-v1"
     visual_semantic_min_score: float = Field(default=0.60, ge=0.0, le=1.0)
-    visual_semantic_max_references: int = Field(default=80, ge=1, le=500)
+    visual_semantic_max_references: int = Field(default=500, ge=1, le=500)
     rag_retrieval_limit: int = 5
     rag_max_context_tokens: int = 3200
     chat_history_max_messages: int = 6

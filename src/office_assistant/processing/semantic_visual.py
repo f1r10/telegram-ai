@@ -25,7 +25,7 @@ from office_assistant.processing.image_similarity import MAX_IMAGE_BYTES, MAX_IM
 
 CLIP_MODEL = "Qdrant/clip-ViT-B-32-vision"
 CLIP_DIMENSION = 512
-MAX_REFERENCES = 80
+MAX_REFERENCES = 500
 MODEL_VERSION = "clip-vit-b32-v1"
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _VERSION = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}\Z")

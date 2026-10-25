@@ -57,3 +57,42 @@ Use existing `office_assistant.scripts.evaluate_visual_photos` in default dry-ru
 - **Wave 4:** optional consent-based external visual search and Mini App mobile photo UI once HTTPS/signed Telegram launch is accepted.
 
 No phase should be marked accepted until the corresponding real-corpus/latency/privacy evidence exists.
+
+## 8. Default PDF-image evidence fallback
+
+Ordinary Telegram photo search previously skipped embedded PDF imagery unless the
+caption explicitly mentioned a PDF. When approved SKU photo lookup returns no match, a read-only,
+**near-duplicate-only** scan of existing indexed PDF image occurrences is now attempted with a 2-second comparison timeout. Source
+results identify PDF pages, **not product identity**. Explicit PDF requests
+retain their existing fuller behavior; semantic PDF inference is not enabled
+by this implicit fallback. This is not a full cross-angle unified image index.
+
+Next design gate: product-balanced, precomputed image vectors for both approved
+SKU photos and document occurrences; isolate the PDF evidence namespace from
+human-approved SKU relations, attach document-page/product-label provenance,
+and shortlist using indexed ANN plus local OCR/crop rerank. Index all active
+sources rather than silently treating a capped first 500 as complete. Validate
+real negative images and latency before any automatic semantic PDF fallback.
+
+## 9. Local offline visual catalog preparation (bounded implementation)
+
+The separately opt-in image encoder can now prepare up to **500 approved active SKU
+photo references** and up to **500 active embedded PDF image occurrences** using
+versioned, content-hash-addressed local vectors. This does not activate the
+model and does not create product claims from PDF images. For an authorized
+staging host, use the following commands without exporting pictures:
+
+```bash
+uv run python -m office_assistant.scripts.prepare_visual_catalog
+uv run python -m office_assistant.scripts.prepare_visual_catalog --apply
+```
+
+The first command is a count-only dry run. The second requires the compatible
+model to have already been installed offline. Both report aggregate coverage,
+including whether their selection was truncated. The query path still uses a
+bounded local reference scan, **not** a dedicated Qdrant ANN image collection;
+the index redesign and real negative/cross-angle phone calibration remain open.
+Fine spatial colour comparison now supplements coarse image hashes on the
+near-duplicate path, including border-cropped PDF candidates, to reduce
+unrelated-object suggestions. Its thresholds must be assessed against real
+positive and negative images, not treated as proof of identity.

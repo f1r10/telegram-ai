@@ -18,13 +18,12 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from office_assistant.processing.catalog_category_verifier import LocalCatalogCategoryVerifier
 from office_assistant.processing.image_similarity import (
-    AHASH_DISTANCE_LIMIT,
-    DHASH_DISTANCE_LIMIT,
     MAX_IMAGE_BYTES,
     MAX_IMAGE_PIXELS,
     ImageFingerprint,
     VisualCandidate,
     fingerprint,
+    fingerprint_near_duplicate,
     shortlist,
 )
 from office_assistant.processing.semantic_visual import (
@@ -141,7 +140,7 @@ def _white_border_matches(
             continue
         dh = (query_hash.dhash ^ reference.dhash).bit_count()
         ah = (query_hash.ahash ^ reference.ahash).bit_count()
-        if dh <= DHASH_DISTANCE_LIMIT and ah <= AHASH_DISTANCE_LIMIT:
+        if fingerprint_near_duplicate(query_hash, reference):
             ranked.append((dh + ah, dh, str(item.occurrence_id)))
     ranked.sort()
     return [code for _, _, code in ranked[:limit]]

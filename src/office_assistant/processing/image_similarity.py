@@ -21,6 +21,8 @@ DHASH_DISTANCE_LIMIT = 4
 AHASH_DISTANCE_LIMIT = 8
 # Near-duplicate mode must not equate unrelated objects with similar gray geometry.
 MAX_COLOR_TILE_DIFFERENCE = 22.0
+# Finer spatial colour grid blocks coarse-hash collisions between unrelated objects.
+MAX_FINE_TILE_DIFFERENCE = 18.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +30,7 @@ class ImageFingerprint:
     dhash: int
     ahash: int
     color_tiles: tuple[int, ...]
+    fine_tiles: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +64,9 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
             color_grid = oriented.resize((4, 4), Image.Resampling.LANCZOS)
             colors = cast(list[tuple[int, int, int]], list(color_grid.get_flattened_data()))
             color_tiles = tuple(channel for pixel in colors for channel in pixel)
+            fine_grid = oriented.resize((16, 16), Image.Resampling.LANCZOS)
+            fine_colors = cast(list[tuple[int, int, int]], list(fine_grid.get_flattened_data()))
+            fine_tiles = tuple(channel for pixel in fine_colors for channel in pixel)
             image = oriented.convert("L")
             small = image.resize((9, 8), Image.Resampling.LANCZOS)
             a_small = image.resize((8, 8), Image.Resampling.LANCZOS)
@@ -81,7 +87,31 @@ def fingerprint(data: bytes) -> ImageFingerprint | None:
             left = pixels[row * 9 + column]
             right = pixels[row * 9 + column + 1]
             dhash = (dhash << 1) | int(left > right)
-    return ImageFingerprint(dhash, ahash, color_tiles)
+    return ImageFingerprint(dhash, ahash, color_tiles, fine_tiles)
+
+
+def fingerprint_near_duplicate(query: ImageFingerprint, reference: ImageFingerprint) -> bool:
+    """Require texture, coarse color AND fine spatial layout agreement.
+
+    This identifies a possible recompressed/resized duplicate, never product identity.
+    Separate views belong to the calibrated semantic retrieval path.
+    """
+
+    dh = (query.dhash ^ reference.dhash).bit_count()
+    ah = (query.ahash ^ reference.ahash).bit_count()
+    if dh > DHASH_DISTANCE_LIMIT or ah > AHASH_DISTANCE_LIMIT:
+        return False
+    coarse = sum(
+        abs(left - right)
+        for left, right in zip(query.color_tiles, reference.color_tiles, strict=True)
+    ) / len(query.color_tiles)
+    if coarse > MAX_COLOR_TILE_DIFFERENCE:
+        return False
+    fine = sum(
+        abs(left - right)
+        for left, right in zip(query.fine_tiles, reference.fine_tiles, strict=True)
+    ) / len(query.fine_tiles)
+    return fine <= MAX_FINE_TILE_DIFFERENCE
 
 
 @lru_cache(maxsize=2048)
@@ -123,15 +153,7 @@ def shortlist(
             continue
         d = (query_hash.dhash ^ ref_hash.dhash).bit_count()
         a = (query_hash.ahash ^ ref_hash.ahash).bit_count()
-        if d > DHASH_DISTANCE_LIMIT or a > AHASH_DISTANCE_LIMIT:
-            continue
-        # A gray hash can collide for red vs blue or wholly different objects.
-        # Require the same coarse spatial colour layout for near-duplicates;
-        # cross-angle recognition belongs to the separately calibrated model.
-        tile_delta = sum(
-            abs(a - b) for a, b in zip(query_hash.color_tiles, ref_hash.color_tiles, strict=True)
-        ) / len(query_hash.color_tiles)
-        if tile_delta > MAX_COLOR_TILE_DIFFERENCE:
+        if not fingerprint_near_duplicate(query_hash, ref_hash):
             continue
         # Fingerprint similarity is not proof that the current file is the
         # human-approved reference. In live lookups the caller supplies the

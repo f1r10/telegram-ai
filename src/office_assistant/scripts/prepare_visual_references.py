@@ -85,7 +85,7 @@ async def approved_references(settings: Settings, *, limit: int) -> list[Semanti
 
 
 async def prepare_references(
-    settings: Settings, *, apply: bool = False, limit: int = 80
+    settings: Settings, *, apply: bool = False, limit: int = 500
 ) -> WarmSummary:
     if not 1 <= limit <= 500:
         raise ValueError("limit must be from 1 to 500")
@@ -123,7 +123,7 @@ async def prepare_references(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Perform local model inference")
-    parser.add_argument("--limit", type=int, default=80)
+    parser.add_argument("--limit", type=int, default=500)
     args = parser.parse_args()
     logging.disable(logging.WARNING)
     try:
