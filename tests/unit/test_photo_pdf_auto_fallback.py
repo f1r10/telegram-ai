@@ -3,20 +3,16 @@
 import ast
 from pathlib import Path
 
-HANDLERS = (
-    Path(__file__).resolve().parents[2]
-    / "src/office_assistant/integrations/telegram/handlers.py"
-)
+ROOT = Path(__file__).resolve().parents[2]
+HANDLERS = ROOT / "src/office_assistant/integrations/telegram/handlers.py"
 
 
 def _function(name: str) -> ast.AsyncFunctionDef:
-    source = HANDLERS.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    return next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == name
-    )
+    tree = ast.parse(HANDLERS.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"Function {name} not found")
 
 
 def test_ordinary_photo_search_also_checks_pdf_after_failed_product_match() -> None:
@@ -43,9 +39,7 @@ def test_ordinary_photo_search_also_checks_pdf_after_failed_product_match() -> N
 
 def test_quick_pdf_fallback_is_bounded_and_skips_semantic_model() -> None:
     fallback = _function("_reply_pdf_catalog_candidates")
-    source = ast.get_source_segment(
-        HANDLERS.read_text(encoding="utf-8"), fallback
-    )
+    source = ast.get_source_segment(HANDLERS.read_text(encoding="utf-8"), fallback)
     assert source is not None
     assert "timeout=2.0 if quick_only else 5.0" in source
     assert "not quick_only and services.semantic_visual is not None" in source
