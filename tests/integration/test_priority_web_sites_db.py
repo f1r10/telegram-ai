@@ -7,7 +7,13 @@ from sqlalchemy import delete, select
 
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
-from office_assistant.infrastructure.database.models import AuditEvent, SystemMetadata, User, UserRole, UserStatus
+from office_assistant.infrastructure.database.models import (
+    AuditEvent,
+    SystemMetadata,
+    User,
+    UserRole,
+    UserStatus,
+)
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.web_evidence.priority_sites import (
     PRIORITY_SITES_KEY,
@@ -49,8 +55,16 @@ def test_preferred_domains_survive_service_reload_and_reject_staff_writes() -> N
             async with factory.begin() as session:
                 session.add_all(
                     [
-                        User(telegram_user_id=ADMIN_TG, role=UserRole.ADMIN, status=UserStatus.ACTIVE),
-                        User(telegram_user_id=STAFF_TG, role=UserRole.USER, status=UserStatus.ACTIVE),
+                        User(
+                            telegram_user_id=ADMIN_TG,
+                            role=UserRole.ADMIN,
+                            status=UserStatus.ACTIVE,
+                        ),
+                        User(
+                            telegram_user_id=STAFF_TG,
+                            role=UserRole.USER,
+                            status=UserStatus.ACTIVE,
+                        ),
                     ]
                 )
             assert await preference.list_domains() == ()
