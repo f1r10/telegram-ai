@@ -158,9 +158,7 @@ def match_pdf_image_sources(
     matches = shortlist(query_bytes, references, storage_root, max_results=limit)
     match_ids = [item.product_code for item in matches]
     if len(match_ids) < limit:
-        for match_id in _white_border_matches(
-            query_bytes, rows, storage_root, limit=limit
-        ):
+        for match_id in _white_border_matches(query_bytes, rows, storage_root, limit=limit):
             if match_id not in match_ids:
                 match_ids.append(match_id)
             if len(match_ids) >= limit:
@@ -193,16 +191,11 @@ def render_pdf_image_candidates(
         # formatting instructions or control characters.
         filename = " ".join(item.filename.split())[:96]
         lines.append(f"• {filename} — səhifə {item.page}, şəkil {item.image_index}")
-    limit_note = (
-        "\nYoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb."
-        if incomplete
-        else ""
-    )
+    limit_note = "\nYoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb." if incomplete else ""
     return (
         "📄 PDF KATALOQDA VİZUAL OXŞAR ŞƏKİLLƏR\n\n"
         + "\n".join(lines)
         + "\n\nBu yalnız PDF-dəki şəkillərə mümkün vizual uyğunluqdur. "
         "Məhsul adı, kodu, eyniliyi və anbar qalığı təsdiqlənmir. "
-        "Dəqiq məhsul təsviri üçün göstərilən səhifədəki sətri yoxlayın."
-        + limit_note
+        "Dəqiq məhsul təsviri üçün göstərilən səhifədəki sətri yoxlayın." + limit_note
     )
