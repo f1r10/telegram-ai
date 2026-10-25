@@ -16,6 +16,10 @@ from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from office_assistant.processing.semantic_visual import (
+    SemanticReference,
+    SemanticVisualSearch,
+)
 from office_assistant.processing.image_similarity import (
     AHASH_DISTANCE_LIMIT,
     DHASH_DISTANCE_LIMIT,
@@ -49,6 +53,8 @@ class PdfPageCandidate:
     source_file_id: int | None = None
     occurrence_id: int | None = None
     nearby_label: str | None = None
+    visual_row: int | None = None
+    match_type: str = "near_duplicate"
 
 
 def _white_background_fingerprint(data: bytes) -> ImageFingerprint | None:
@@ -189,6 +195,56 @@ def match_pdf_image_sources(
     return tuple(unique.values())
 
 
+def semantic_pdf_image_candidates(
+    query_bytes: bytes,
+    sources: list[PdfImageSource],
+    semantic: SemanticVisualSearch,
+    *,
+    limit: int = 3,
+) -> tuple[tuple[PdfPageCandidate, ...], bool, bool]:
+    """Find different photographs using the opt-in local CLIP encoder.
+
+    PDF hits are unverified evidence only. Never treat a similarity vector
+    as an approved product, identity match, price, or inventory record.
+    """
+
+    if not 1 <= limit <= 10:
+        raise ValueError("Invalid catalog semantic limit")
+    allowed = {
+        str(item.occurrence_id): item
+        for item in sources[:MAX_PDF_REFERENCES]
+        if item.occurrence_id > 0 and item.source_file_id is not None
+    }
+    if not allowed:
+        return (), False, False
+    refs = [
+        SemanticReference(key, item.storage_key, item.content_sha256)
+        for key, item in allowed.items()
+    ]
+    outcome = semantic.search(query_bytes, refs, limit=limit)
+    matches: list[PdfPageCandidate] = []
+    used: set[tuple[int, int]] = set()
+    for item in outcome.candidates:
+        source = allowed.get(item.product_code)
+        if source is None or source.source_file_id is None:
+            continue
+        key = (source.source_file_id, source.image_index)
+        if key in used:
+            continue
+        used.add(key)
+        matches.append(
+            PdfPageCandidate(
+                source.filename,
+                source.page,
+                source.image_index,
+                source_file_id=source.source_file_id,
+                occurrence_id=source.occurrence_id,
+                match_type="semantic",
+            )
+        )
+    return tuple(matches), outcome.incomplete, outcome.unavailable
+
+
 def render_pdf_image_candidates(
     matches: tuple[PdfPageCandidate, ...], *, incomplete: bool = False
 ) -> str:
@@ -201,7 +257,12 @@ def render_pdf_image_candidates(
         # Filenames are untrusted upload metadata and are never treated as
         # formatting instructions or control characters.
         filename = " ".join(item.filename.split())[:96]
-        lines.append(f"• {filename} — səhifə {item.page}, şəkil {item.image_index}")
+        location = f"səhifə {item.page}"
+        if item.visual_row is not None:
+            location += f", yuxarıdan {item.visual_row}-ci məhsul şəkli"
+        lines.append(f"• {filename} — {location}")
+        if item.match_type == "semantic":
+            lines.append("   Müxtəlif fotolar üzrə semantik oxşarlıq: təsdiqlənməmiş namizəd")
         if item.nearby_label:
             lines.append(f"   PDF-də yaxın məhsul sətri: {item.nearby_label}")
     limit_note = "\nYoxlama yalnız ilk 500 PDF şəkil qeydi ilə məhdudlaşıb." if incomplete else ""
