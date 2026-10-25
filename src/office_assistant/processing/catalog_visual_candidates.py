@@ -16,10 +16,6 @@ from typing import cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from office_assistant.processing.semantic_visual import (
-    SemanticReference,
-    SemanticVisualSearch,
-)
 from office_assistant.processing.image_similarity import (
     AHASH_DISTANCE_LIMIT,
     DHASH_DISTANCE_LIMIT,
@@ -29,6 +25,10 @@ from office_assistant.processing.image_similarity import (
     VisualCandidate,
     fingerprint,
     shortlist,
+)
+from office_assistant.processing.semantic_visual import (
+    SemanticReference,
+    SemanticVisualSearch,
 )
 
 MAX_PDF_REFERENCES = 500
