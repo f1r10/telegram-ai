@@ -16,11 +16,11 @@ from office_assistant.web_evidence.models import (
     WebSearchResponse,
     WebSearchResult,
 )
-from office_assistant.web_evidence.priority_sites import PrioritySitesService
 from office_assistant.web_evidence.normalization import (
     cache_key,
     is_time_sensitive_query,
 )
+from office_assistant.web_evidence.priority_sites import PrioritySitesService
 
 logger = logging.getLogger(__name__)
 
