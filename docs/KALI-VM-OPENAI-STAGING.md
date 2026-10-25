@@ -194,6 +194,19 @@ Existing assets, original bytes, session associations and original parse-run rec
 
 **Distinct tests:** (1) Send a printed-label PNG as a **document** and save it; wait until indexed, then ask `/baza QA-IMG-682 məhsulunun qutu miqdarı və partiya kodu nədir?` and check the source filename. (2) For on-demand **OpenAI Vision**, send the picture as a Telegram **photo with the `/baza ...` question in the same message's caption**; a separate later `/baza Şəkildəki ...` message has no attached image and cannot implicitly refer to the earlier file. These are different features. If local OCR cannot read stylized handwriting or nontext visuals, do not infer stock or product identity. Use only synthetic samples until private-data handling is approved.
 
+## Visual catalog deployment verification (read-only)
+
+After building the staging app from the merged source, run:
+
+    docker compose -f docker-compose.staging.yml --env-file .env run --rm app \
+      uv run --no-dev python -m office_assistant.scripts.diagnose_catalog_visual --probe-model
+
+Output must show status READY, semantic_enabled true, and active_pdf_images > 0.
+SEMANTIC_DISABLED indicates the effective .env flag overrides Compose defaults;
+MODEL_OR_EMBEDDINGS_UNAVAILABLE indicates the model could not embed a sample.
+Do not claim internet-photo support when this probe fails. The probe does not
+download a model or send any photo to a remote provider.
+
 ## Visual catalog matching after PR #101: model provisioning and acceptance
 
 The original PDF image index is internal draw-order metadata and may not equal
