@@ -61,9 +61,8 @@ No phase should be marked accepted until the corresponding real-corpus/latency/p
 ## 8. Default PDF-image evidence fallback
 
 Ordinary Telegram photo search previously skipped embedded PDF imagery unless the
-caption explicitly mentioned a PDF. When there are **no approved active SKU photo
-references**, a read-only, **near-duplicate-only** scan of existing indexed PDF
-image occurrences is now attempted with a 2-second comparison timeout. Source
+caption explicitly mentioned a PDF. When approved SKU photo lookup returns no match, a read-only,
+**near-duplicate-only** scan of existing indexed PDF image occurrences is now attempted with a 2-second comparison timeout. Source
 results identify PDF pages, **not product identity**. Explicit PDF requests
 retain their existing fuller behavior; semantic PDF inference is not enabled
 by this implicit fallback. This is not a full cross-angle unified image index.
