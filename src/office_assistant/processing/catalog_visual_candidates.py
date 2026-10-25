@@ -38,6 +38,7 @@ class PdfImageSource:
     image_index: int
     storage_key: str
     content_sha256: str
+    source_file_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,8 @@ class PdfPageCandidate:
     filename: str
     page: int
     image_index: int
+    source_file_id: int | None = None
+    occurrence_id: int | None = None
 
 
 def _white_background_fingerprint(data: bytes) -> ImageFingerprint | None:
@@ -174,7 +177,13 @@ def match_pdf_image_sources(
         key = (source.filename, source.page, source.image_index)
         unique.setdefault(
             key,
-            PdfPageCandidate(source.filename, source.page, source.image_index),
+            PdfPageCandidate(
+                source.filename,
+                source.page,
+                source.image_index,
+                source_file_id=source.source_file_id,
+                occurrence_id=source.occurrence_id,
+            ),
         )
     return tuple(unique.values())
 
