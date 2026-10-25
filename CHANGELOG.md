@@ -1,5 +1,7 @@
 # Changelog
 
+- Visual-photo follow-up: ordinary Telegram lookup checks bounded PDF image evidence after confirmed SKU candidates fail; fine 16x16 color-layout filtering tightens near-duplicate matches (including bordered PDF artwork); optional local visual prewarm now covers up to 500 approved photo references and 500 PDF image occurrences per source type. Real device and model calibration remain open.
+
 All notable changes to this project. Phases follow `docs/ROADMAP.md` (reconciled 2026-10-06).
 
 ## [Unreleased]
