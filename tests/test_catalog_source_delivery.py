@@ -1,5 +1,8 @@
 """Offline source-ticket and Telegram delivery regressions (no live data)."""
 
+# Test the private Telegram adapter boundary without exporting it as public API.
+# pyright: reportPrivateUsage=false
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
