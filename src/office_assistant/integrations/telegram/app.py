@@ -21,6 +21,7 @@ from office_assistant.integrations.telegram.handlers import (
     SERVICES_KEY,
     TelegramServices,
     handle_answer_navigation,
+    handle_catalog_product_add_callback,
     handle_catalog_source_button,
     handle_delete_callback,
     handle_document,
@@ -115,6 +116,9 @@ def create_telegram_application(
     application.add_handler(CallbackQueryHandler(handle_answer_navigation, pattern=r"^nav:"))
     application.add_handler(CallbackQueryHandler(handle_source_button, pattern=r"^src:"))
     application.add_handler(CallbackQueryHandler(handle_catalog_source_button, pattern=r"^cat:"))
+    application.add_handler(
+        CallbackQueryHandler(handle_catalog_product_add_callback, pattern=r"^pa:")
+    )
     application.add_handler(CallbackQueryHandler(handle_sales_callback, pattern=r"^sl:"))
     application.add_handler(CallbackQueryHandler(handle_stock_callback, pattern=r"^st:"))
     application.add_handler(CallbackQueryHandler(handle_sales_import_callback, pattern=r"^si:"))
