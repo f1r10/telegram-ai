@@ -2483,7 +2483,9 @@ async def _reply_pdf_catalog_candidates(
         ).all()
     sources: list[PdfImageSource] = []
     original_keys: dict[int, tuple[str, bool]] = {}
-    for occurrence_id, file_id, filename, original_key, locator, key, digest in rows[:MAX_PDF_REFERENCES]:
+    for occurrence_id, file_id, filename, original_key, locator, key, digest in rows[
+        :MAX_PDF_REFERENCES
+    ]:
         original_keys[occurrence_id] = (original_key, "form_xobject" in locator)
         page = locator.get("page")
         index = locator.get("image_index")
