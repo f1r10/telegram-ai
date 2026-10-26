@@ -7,6 +7,8 @@ No model weights are downloaded by a Telegram query.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
+from importlib import import_module
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -33,6 +35,30 @@ class _Model(Protocol):
     def __call__(self, **kwargs: object) -> _ModelOutput: ...
 
 
+class _LoadedModel(_Model, Protocol):
+    def eval(self) -> _LoadedModel: ...
+
+    def to(self, device: str) -> _LoadedModel: ...
+
+
+class _Torch(Protocol):
+    def set_num_threads(self, count: int) -> None: ...
+
+    def inference_mode(self) -> AbstractContextManager[None]: ...
+
+
+class _ModelFactory(Protocol):
+    def from_pretrained(
+        self, model_id: str, *, cache_dir: str, local_files_only: bool
+    ) -> _LoadedModel: ...
+
+
+class _ProcessorFactory(Protocol):
+    def from_pretrained(
+        self, model_id: str, *, cache_dir: str, local_files_only: bool
+    ) -> _Processor: ...
+
+
 class _Processor(Protocol):
     def __call__(self, *, images: Image.Image, return_tensors: str) -> dict[str, object]: ...
 
@@ -53,25 +79,19 @@ class LocalDinoMeanEncoder:
     def embed(self, paths: list[Path]) -> list[list[float]]:
         # Heavy imports happen only when an operator explicitly enables this
         # encoder. local_files_only prevents network access for missing weights.
-        import torch
-        from transformers import AutoImageProcessor, AutoModel
+        torch = cast(_Torch, import_module("torch"))
+        transformers = import_module("transformers")
+        processors = cast(_ProcessorFactory, getattr(transformers, "AutoImageProcessor"))
+        models = cast(_ModelFactory, getattr(transformers, "AutoModel"))
 
         if self._model is None or self._processor is None:
             torch.set_num_threads(2)
-            self._processor = cast(
-                _Processor,
-                AutoImageProcessor.from_pretrained(
-                    MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
-                ),
+            self._processor = processors.from_pretrained(
+                MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
             )
-            self._model = cast(
-                _Model,
-                AutoModel.from_pretrained(
-                    MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
-                )
-                .eval()
-                .to("cpu"),
-            )
+            self._model = models.from_pretrained(
+                MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
+            ).eval().to("cpu")
         processor, model = self._processor, self._model
         vectors: list[list[float]] = []
         for path in paths:
