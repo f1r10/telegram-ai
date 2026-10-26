@@ -297,3 +297,13 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 
 - [x] Add safe, code-only Kali staging photo rollout script and explicit real-photo manual UAT checklist; keep visual semantic matching OFF by default when unset.
 - [ ] Execute Kali staging rollout with verified backup and capture five operator-owned photo outcomes, active reference count, actual model status and response latency.
+
+- [x] Add an opt-in local DINOv2 Small mean-pooling 384-d encoder, informed by
+      `f1r10/local-image-search`, without replacing the PostgreSQL product registry
+      or existing CLIP vector cache. Regression CI must pass before merging.
+- [ ] Provision reviewed optional CPU-only Torch/Transformers and DINOv2 weights
+      on the staging host without implicit downloads during Telegram turns.
+- [ ] Benchmark DINOv2 mean-pooling with private held-out real phone images;
+      tune the candidate threshold and check false suggestions before enabling.
+- [ ] Compare optional YOLO crop off/auto on non-watch inventory after
+      dependency/license review; no Ultralytics dependency in the base bot.
