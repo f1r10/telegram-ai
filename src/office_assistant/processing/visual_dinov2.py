@@ -81,8 +81,8 @@ class LocalDinoMeanEncoder:
         # encoder. local_files_only prevents network access for missing weights.
         torch = cast(_Torch, import_module("torch"))
         transformers = import_module("transformers")
-        processors = cast(_ProcessorFactory, getattr(transformers, "AutoImageProcessor"))
-        models = cast(_ModelFactory, getattr(transformers, "AutoModel"))
+        processors = cast(_ProcessorFactory, transformers.AutoImageProcessor)
+        models = cast(_ModelFactory, transformers.AutoModel)
 
         if self._model is None or self._processor is None:
             torch.set_num_threads(2)
