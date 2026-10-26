@@ -80,15 +80,10 @@ def test_dino_mean_vectors_use_separate_384_cache_and_rank_active_skus(
     assert encoder.calls == 3
 
     digest = sha256(body).hexdigest()
-    cache = (
-        tmp_path / "models" / "visual-embeddings" / DINO_MODEL_VERSION
-        / digest[:2] / (digest + ".json")
-    )
+    root = tmp_path / "models" / "visual-embeddings"
+    cache = root / DINO_MODEL_VERSION / digest[:2] / (digest + ".json")
     assert cache.is_file()
-    assert not (
-        tmp_path / "models" / "visual-embeddings" / "clip-vit-b32-v1"
-        / digest[:2] / (digest + ".json")
-    ).exists()
+    assert not (root / "clip-vit-b32-v1" / digest[:2] / (digest + ".json")).exists()
     # Revoke all active references: stale DINO cache is not proof of identity.
     assert service.search(photo(228), []).candidates == ()
 
