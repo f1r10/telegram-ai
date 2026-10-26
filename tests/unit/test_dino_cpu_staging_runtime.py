@@ -1,7 +1,6 @@
 """CPU-only staging runtime must remain opt-in, safe and independent."""
 
 from pathlib import Path
-from typing import cast
 
 import pytest
 
