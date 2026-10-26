@@ -1,0 +1,78 @@
+name: Optional DINOv2 real CPU smoke
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile.visual-cpu
+      - docker-compose.visual-cpu.yml
+      - src/office_assistant/processing/visual_dinov2.py
+      - src/office_assistant/scripts/prepare_dino_runtime.py
+      - .github/workflows/dinov2-cpu-smoke.yml
+  workflow_dispatch:
+
+jobs:
+  real-model-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate optional Docker Compose override without secrets
+        run: |
+          printf 'POSTGRES_DB=ci_demo\\nPOSTGRES_USER=ci_demo\\nPOSTGRES_PASSWORD=ci_demo\\n' > .env
+          docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml --env-file .env config --quiet
+          rm .env
+      - name: Install CPU-only Torch
+        run: |
+          python -m pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install isolated model dependencies
+        run: |
+          python -m pip install --no-cache-dir transformers==4.49.0 "Pillow>=10.4,<13"
+      - name: Download public model explicitly and probe offline inference
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HOME: ${{ runner.temp }}/dino-model-cache
+          OMP_NUM_THREADS: "2"
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          import io
+          import time
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          import numpy as np
+          from PIL import Image
+          from transformers import AutoImageProcessor, AutoModel
+          from office_assistant.processing.visual_dinov2 import LocalDinoMeanEncoder, MODEL_ID
+          from office_assistant.processing.semantic_visual import DINO_DIMENSION, unit_vector
+
+          root = Path(__import__("os").environ["HF_HOME"])
+          AutoImageProcessor.from_pretrained(MODEL_ID, cache_dir=str(root), local_files_only=False)
+          AutoModel.from_pretrained(MODEL_ID, cache_dir=str(root), local_files_only=False)
+          with TemporaryDirectory() as folder:
+              path = Path(folder) / "only-synthetic.png"
+              Image.new("RGB", (224, 224), (80, 90, 110)).save(path)
+              encoder = LocalDinoMeanEncoder(root)
+              timings = []
+              vectors = []
+              for _ in range(2):
+                  start = time.perf_counter()
+                  result = encoder.embed([path])
+                  timings.append(round((time.perf_counter() - start) * 1000))
+                  assert len(result) == 1
+                  assert len(result[0]) == DINO_DIMENSION
+                  assert unit_vector(result[0], dimension=DINO_DIMENSION) is not None
+                  vectors.append(np.asarray(result[0], dtype=np.float32))
+              assert np.allclose(vectors[0], vectors[1], rtol=1e-4, atol=1e-4)
+              print("DINO_CPU_REAL_MODEL=PASS dimensions=384")
+              print("synthetic_only=true warm_inference_ms=", timings[1])
+              print("No customer catalog or Telegram photos were used.")
+          PY
+      - name: Build opt-in CPU application image
+        run: |
+          docker build -f Dockerfile.visual-cpu -t office-dino-cpu:ci .
+      - name: Verify CPU model packages inside app image with no network
+        run: |
+          docker run --rm --network none --entrypoint /app/.venv/bin/python office-dino-cpu:ci -c "import torch, transformers; from office_assistant.processing.visual_dinov2 import LocalDinoMeanEncoder; print('DINO_CPU_DOCKER=PASS')"

@@ -1,5 +1,7 @@
 # Changelog
 
+- DINOv2 CPU staging: optional Docker/Compose image, explicit operator-only weight preparation, 384-dimensional synthetic offline model probe, guarded catalog prewarm and private acceptance runbook; default Telegram image and visual semantic switch remain unchanged.
+
 - Add optional offline DINOv2 Small mean-pooled 384-dimensional visual candidate encoder informed by `f1r10/local-image-search`, with source-hash checks and model-version cache isolation. Not enabled or deployed by default; real product holdout still required.
 - Kali staging photo UAT: add guarded check/deploy script for existing tgstage app/worker, make staged semantic inference default OFF, and document the five operator-owned real-photo acceptance scenarios. No live VM deployment was performed by CI.
 

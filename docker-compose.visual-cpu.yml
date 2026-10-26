@@ -1,0 +1,51 @@
+# Add this file only for staged visual-CPU experiments:
+# docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml ...
+# It must not override the existing PostgreSQL/Qdrant/storage volumes.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.visual-cpu
+    command: ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "office_assistant.main"]
+    environment:
+      # Separate opt-in flag: an old CLIP setting in .env cannot activate DINO.
+      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-false}
+      VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+
+  # Explicit command-line target; does not poll Telegram or write catalog rows.
+  # Runs only when the operator explicitly names this profile service.
+  visual-cpu-ops:
+    profiles: ["visual-cpu-ops"]
+    build:
+      context: .
+      dockerfile: Dockerfile.visual-cpu
+    command:
+      - uv
+      - run
+      - --no-sync
+      - --no-dev
+      - python
+      - -m
+      - office_assistant.scripts.prepare_dino_runtime
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      FILE_STORAGE_PATH: /data/storage
+      EMBEDDING_CACHE_PATH: /models/cache
+      VISUAL_SEMANTIC_ENABLED: "false"
+      VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      model-cache-init:
+        condition: service_completed_successfully
+    volumes:
+      - app_storage:/data/storage
+      - model_cache:/models
+    security_opt:
+      - no-new-privileges:true
