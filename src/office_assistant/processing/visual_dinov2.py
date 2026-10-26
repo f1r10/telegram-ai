@@ -89,9 +89,13 @@ class LocalDinoMeanEncoder:
             self._processor = processors.from_pretrained(
                 MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
             )
-            self._model = models.from_pretrained(
-                MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
-            ).eval().to("cpu")
+            self._model = (
+                models.from_pretrained(
+                    MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
+                )
+                .eval()
+                .to("cpu")
+            )
         processor, model = self._processor, self._model
         vectors: list[list[float]] = []
         for path in paths:
