@@ -19,6 +19,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Validate optional Docker Compose override without secrets
+        run: |
+          printf 'POSTGRES_DB=ci_demo\\nPOSTGRES_USER=ci_demo\\nPOSTGRES_PASSWORD=ci_demo\\n' > .env
+          docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml --env-file .env config --quiet
+          rm .env
       - name: Install CPU-only Torch
         run: |
           python -m pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
