@@ -1,4 +1,4 @@
-"""Opt-in, offline-only CLIP image candidate retrieval.
+"""Opt-in, offline-only CLIP or DINOv2 image candidate retrieval.
 
 A similarity is NEVER an identification, confirmation, stock or price fact.
 Only active, human-confirmed references supplied by the database may be scored.
@@ -25,6 +25,8 @@ from office_assistant.processing.image_similarity import MAX_IMAGE_BYTES, MAX_IM
 
 CLIP_MODEL = "Qdrant/clip-ViT-B-32-vision"
 CLIP_DIMENSION = 512
+DINO_DIMENSION = 384
+DINO_MODEL_VERSION = "dinov2-small-mean-v1"
 MAX_REFERENCES = 500
 MODEL_VERSION = "clip-vit-b32-v1"
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -124,8 +126,10 @@ class ReferenceWarmResult:
     unavailable: bool = False
 
 
-def unit_vector(values: list[float]) -> tuple[float, ...] | None:
-    if len(values) != CLIP_DIMENSION or not all(math.isfinite(value) for value in values):
+def unit_vector(
+    values: list[float], *, dimension: int = CLIP_DIMENSION
+) -> tuple[float, ...] | None:
+    if len(values) != dimension or not all(math.isfinite(value) for value in values):
         return None
     length = math.sqrt(sum(value * value for value in values))
     if not math.isfinite(length) or length <= 1e-12:
@@ -154,7 +158,9 @@ def _thumbnail(data: bytes, path: Path) -> bool:
     return True
 
 
-def _read_cached(path: Path, digest: str, version: str) -> tuple[float, ...] | None:
+def _read_cached(
+    path: Path, digest: str, version: str, *, dimension: int = CLIP_DIMENSION
+) -> tuple[float, ...] | None:
     try:
         if not path.is_file() or path.stat().st_size > 32_768:
             return None
@@ -168,16 +174,16 @@ def _read_cached(path: Path, digest: str, version: str) -> tuple[float, ...] | N
         if not isinstance(vector, list):
             return None
         raw = cast(list[object], vector)
-        if len(raw) != CLIP_DIMENSION:
+        if len(raw) != dimension:
             return None
         numbers = [
             float(item)
             for item in raw
             if isinstance(item, (int, float)) and not isinstance(item, bool)
         ]
-        if len(numbers) != CLIP_DIMENSION:
+        if len(numbers) != dimension:
             return None
-        return unit_vector(numbers)
+        return unit_vector(numbers, dimension=dimension)
     except (OSError, ValueError, TypeError):
         return None
 
@@ -225,7 +231,15 @@ class SemanticVisualSearch:
             raise ValueError("Invalid visual reference limit")
         self.storage_root = storage_root.resolve()
         self.cache_root = model_cache_root.resolve()
-        self.encoder = encoder or LocalClipEncoder(self.cache_root)
+        if encoder is not None:
+            self.encoder = encoder
+        elif version == DINO_MODEL_VERSION:
+            from office_assistant.processing.visual_dinov2 import LocalDinoMeanEncoder
+
+            self.encoder = LocalDinoMeanEncoder(self.cache_root)
+        else:
+            self.encoder = LocalClipEncoder(self.cache_root)
+        self.dimension = DINO_DIMENSION if version == DINO_MODEL_VERSION else CLIP_DIMENSION
         self.version = version
         self.min_score = min_score
         self.max_references = max_references
@@ -238,7 +252,7 @@ class SemanticVisualSearch:
             self.cache_root / "visual-embeddings" / self.version / digest[:2] / (digest + ".json")
         )
         if cacheable:
-            cached = _read_cached(location, digest, self.version)
+            cached = _read_cached(location, digest, self.version, dimension=self.dimension)
             if cached is not None:
                 return cached
         with tempfile.TemporaryDirectory(prefix="office-visual-", dir=None) as work:
@@ -248,7 +262,7 @@ class SemanticVisualSearch:
             vectors = self.encoder.embed([image_path])
         if len(vectors) != 1:
             return None
-        normal = unit_vector(vectors[0])
+        normal = unit_vector(vectors[0], dimension=self.dimension)
         if normal is not None and cacheable:
             try:
                 _write_cached(location, digest, self.version, normal)
