@@ -107,3 +107,39 @@ after cancellation, and Telegram transfer, PostgreSQL, PDF source enrichment,
 and other work are additional. No result or stock fact is fabricated at timeout.
 Operator-owned mobile p50/p95 measurement is still required before any
 latency release gate can be accepted.
+
+## 11. Optional DINOv2 mean-pooling from local-image-search (2026-10-26)
+
+Source: https://github.com/f1r10/local-image-search, `app/vision_pipeline.py`
+and `app/embedding.py`. The owner reports encouraging real image search
+results in the independent app; its published GitHub CI establishes synthetic
+CPU model execution, **not** our company photos' recognition accuracy.
+
+A small opt-in adapter now supports version `dinov2-small-mean-v1` in
+`SemanticVisualSearch`: pre-provisioned **facebook/dinov2-small** CPU
+weights, `last_hidden_state.mean(dim=1)` and L2 normalization, yielding
+384-dimensional embeddings. It is intentionally YOLO-free: stock COCO YOLOv8n
+does not contain a wristwatch category, and the original crop behavior is
+configuration-dependent. Therefore this is **not** a bit-identical reproduction
+of all `local-image-search` provider modes. Independent version keys and
+dimension checks prevent mixing new DINO vectors with existing 512-dimensional
+CLIP vectors. Source bytes still need active human approval and SHA verification
+before candidate scoring. The query image/embedding is not persisted.
+
+**Deployment state: OFF by default.** The base image does not ship optional
+Torch / Transformers and the encoder passes `local_files_only=True`. Install
+CPU-only PyTorch and Transformers in a reviewed optional staging image, provision
+both processor and model weights into the same embedding cache root **offline**,
+and set the version only after that and a successful operator-led dry-run:
+```text
+VISUAL_SEMANTIC_ENABLED=true
+VISUAL_SEMANTIC_MODEL_VERSION=dinov2-small-mean-v1
+```
+These settings are illustrative, **not** instructions to enable uncalibrated
+production suggestions. Run `office_assistant.scripts.prepare_visual_catalog`
+without `--apply` first; then prewarm with `--apply` on the offline model
+host only. Check the same private camera-photo holdout for recall@1/3,
+unrelated-object candidate rate and warm p95 before enabling the Telegram
+flag. Existing `VISUAL_SEMANTIC_MIN_SCORE=0.60` is CLIP-derived and is
+**not** a calibrated DINOv2 threshold. Copy no public-test catalog SQLite
+rows or user photos across repositories; preserve PostgreSQL as authority.
