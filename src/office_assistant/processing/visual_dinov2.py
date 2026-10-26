@@ -68,7 +68,9 @@ class LocalDinoMeanEncoder:
                 _Model,
                 AutoModel.from_pretrained(
                     MODEL_ID, cache_dir=str(self.cache_root), local_files_only=True
-                ).eval().to("cpu"),
+                )
+                .eval()
+                .to("cpu"),
             )
         processor, model = self._processor, self._model
         vectors: list[list[float]] = []
