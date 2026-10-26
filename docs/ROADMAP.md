@@ -307,3 +307,11 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       tune the candidate threshold and check false suggestions before enabling.
 - [ ] Compare optional YOLO crop off/auto on non-watch inventory after
       dependency/license review; no Ultralytics dependency in the base bot.
+
+- [x] Provide an opt-in, CPU-only DINOv2 staging app/ops image and Compose override,
+      explicit public-weight download + offline synthetic dimension probe, and
+      separate offline approved/PDF source prewarm procedure without modifying the
+      base Telegram image or main data stores.
+- [ ] Validate real Torch/DINO weights and Compose overlay on CI, then confirm
+      actual Kali CPU model performance and owner-labelled photo holdout before
+      any semantic feature flag is enabled.
