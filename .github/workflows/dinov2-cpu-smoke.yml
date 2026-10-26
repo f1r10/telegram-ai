@@ -70,3 +70,9 @@ jobs:
               print("synthetic_only=true warm_inference_ms=", timings[1])
               print("No customer catalog or Telegram photos were used.")
           PY
+      - name: Build opt-in CPU application image
+        run: |
+          docker build -f Dockerfile.visual-cpu -t office-dino-cpu:ci .
+      - name: Verify CPU model packages inside app image with no network
+        run: |
+          docker run --rm --network none --entrypoint /app/.venv/bin/python office-dino-cpu:ci -c "import torch, transformers; from office_assistant.processing.visual_dinov2 import LocalDinoMeanEncoder; print('DINO_CPU_DOCKER=PASS')"
