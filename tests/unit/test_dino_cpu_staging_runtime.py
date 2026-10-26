@@ -53,9 +53,7 @@ def test_dino_probe_rejects_wrong_vector_dimension(
         prepare_dino_runtime.probe_dino(tmp_path)
 
 
-def test_explicit_download_is_required(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_explicit_download_is_required(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     downloaded: list[Path] = []
 
     class Encoder:
@@ -67,9 +65,7 @@ def test_explicit_download_is_required(
             return [[1.0] + [0.0] * (DINO_DIMENSION - 1)]
 
     monkeypatch.setattr(prepare_dino_runtime, "LocalDinoMeanEncoder", Encoder)
-    monkeypatch.setattr(
-        prepare_dino_runtime, "download_dino_weights", downloaded.append
-    )
+    monkeypatch.setattr(prepare_dino_runtime, "download_dino_weights", downloaded.append)
     prepare_dino_runtime.probe_dino(tmp_path, download_model=True)
     assert downloaded == [tmp_path]
 
