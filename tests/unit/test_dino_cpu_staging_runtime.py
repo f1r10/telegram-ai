@@ -27,11 +27,11 @@ def test_dino_probe_uses_only_synthetic_picture_by_default(
             return [[1.0] + [0.0] * (DINO_DIMENSION - 1)]
 
     monkeypatch.setattr(prepare_dino_runtime, "LocalDinoMeanEncoder", Encoder)
-    monkeypatch.setattr(
-        prepare_dino_runtime,
-        "download_dino_weights",
-        lambda root: pytest.fail("Default probe must not fetch model weights"),
-    )
+    def forbid_download(root: Path) -> None:
+        del root
+        pytest.fail("Default probe must not fetch model weights")
+
+    monkeypatch.setattr(prepare_dino_runtime, "download_dino_weights", forbid_download)
     result = prepare_dino_runtime.probe_dino(tmp_path)
     assert result.dimension == DINO_DIMENSION
     assert len(calls) == 1
