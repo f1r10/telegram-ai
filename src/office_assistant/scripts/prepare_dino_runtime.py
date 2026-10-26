@@ -42,9 +42,7 @@ def download_dino_weights(cache_root: Path) -> None:
     processor = cast(_Factory, transformers.AutoImageProcessor)
     model = cast(_Factory, transformers.AutoModel)
     for factory in (processor, model):
-        factory.from_pretrained(
-            MODEL_ID, cache_dir=str(cache_root), local_files_only=False
-        )
+        factory.from_pretrained(MODEL_ID, cache_dir=str(cache_root), local_files_only=False)
 
 
 def probe_dino(cache_root: Path, *, download_model: bool = False) -> DinoProbe:
