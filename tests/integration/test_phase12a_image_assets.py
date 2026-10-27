@@ -11,12 +11,12 @@ from typing import Any, cast
 
 import pytest
 from docx import Document
-from PIL import Image, ImageDraw
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.packuri import PackURI
 from docx.opc.part import Part
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
+from PIL import Image, ImageDraw
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
