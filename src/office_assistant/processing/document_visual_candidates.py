@@ -88,9 +88,7 @@ async def active_document_images(
         )
     ).all()
     sources = [
-        DocumentImageSource(
-            occurrence_id, file_id, filename, origin, locator, key, digest
-        )
+        DocumentImageSource(occurrence_id, file_id, filename, origin, locator, key, digest)
         for occurrence_id, file_id, filename, origin, locator, key, digest in rows[:limit]
     ]
     return sources, len(rows) > limit
@@ -141,9 +139,7 @@ def find_document_images(
             ]
     if ids:
         hits = tuple(
-            DocumentImageHit(indexed[key], "near_duplicate")
-            for key in ids
-            if key in indexed
+            DocumentImageHit(indexed[key], "near_duplicate") for key in ids if key in indexed
         )
         return hits, len(sources) > MAX_DOCUMENT_IMAGES, False
 
