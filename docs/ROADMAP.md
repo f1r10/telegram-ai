@@ -315,3 +315,9 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 - [ ] Validate real Torch/DINO weights and Compose overlay on CI, then confirm
       actual Kali CPU model performance and owner-labelled photo holdout before
       any semantic feature flag is enabled.
+
+- [x] Add bounded in-process hot reuse of SHA-verified semantic vectors for
+      unchanged authorized catalog/PDF source images; invalidate on file edits,
+      removal, source path changes and use only the current DB reference list.
+- [ ] Measure cold vs warm p50/p95 against private 100–500-image corpora on Kali;
+      an in-process cache does not replace persistent ANN or calibrated negatives.

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from stat import S_ISREG
 from typing import Protocol, cast
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -211,7 +212,12 @@ def _write_cached(path: Path, digest: str, version: str, vector: tuple[float, ..
 
 
 class SemanticVisualSearch:
-    """Synchronous bounded image scoring; invoke from an isolated executor."""
+    """Synchronous bounded image scoring; invoke from an isolated executor.
+
+    The hot cache stores vectors only, never original reference bytes. It is
+    keyed by source digest and checked against the current file identity on
+    every use. The caller must still supply current authorized DB references.
+    """
 
     def __init__(
         self,
@@ -244,6 +250,11 @@ class SemanticVisualSearch:
         self.min_score = min_score
         self.max_references = max_references
         self._lock = threading.Lock()
+        # Bounded process-local acceleration after the first content SHA check.
+        # An active relation is NOT remembered: only callers' current refs score.
+        self._verified_vectors: dict[
+            tuple[str, str], tuple[tuple[str, int, int, int, int, int], tuple[float, ...]]
+        ] = {}
 
     def _vector(
         self, data: bytes, digest: str, *, cacheable: bool = True
@@ -286,6 +297,56 @@ class SemanticVisualSearch:
             return None
         return body if sha256(body).hexdigest() == reference.content_sha256 else None
 
+    def _source_signature(
+        self, reference: SemanticReference
+    ) -> tuple[str, int, int, int, int, int] | None:
+        """Resolve sandbox location and cheaply detect changed/deleted sources.
+
+        Source SHA is checked on the first use and again whenever metadata
+        changes. Size, device, inode, mtime and ctime all participate to detect
+        ordinary file replacement, edits, and revocations of file storage.
+        """
+        if not _SHA.fullmatch(reference.content_sha256):
+            return None
+        try:
+            full = (self.storage_root / reference.storage_key).resolve()
+            full.relative_to(self.storage_root)
+            info = full.stat()
+        except (OSError, ValueError):
+            return None
+        if not S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_IMAGE_BYTES:
+            return None
+        return (
+            str(full),
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+        )
+
+    def _reference_vector(self, reference: SemanticReference) -> tuple[float, ...] | None:
+        """Score only current caller references; rehash changed files fail closed."""
+        key = (reference.storage_key, reference.content_sha256)
+        signature = self._source_signature(reference)
+        if signature is None:
+            self._verified_vectors.pop(key, None)
+            return None
+        cached = self._verified_vectors.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        self._verified_vectors.pop(key, None)
+        body = self._verified_reference(reference)
+        if body is None or signature != self._source_signature(reference):
+            return None
+        vector = self._vector(body, reference.content_sha256)
+        if vector is None or signature != self._source_signature(reference):
+            return None
+        if len(self._verified_vectors) >= self.max_references * 2:
+            self._verified_vectors.clear()
+        self._verified_vectors[key] = (signature, vector)
+        return vector
+
     def warm_references(self, references: list[SemanticReference]) -> ReferenceWarmResult:
         """Explicit operator-only precomputation; no question photos are retained."""
 
@@ -297,12 +358,8 @@ class SemanticVisualSearch:
         try:
             for reference in selected:
                 inspected += 1
-                body = self._verified_reference(reference)
-                if body is None:
-                    skipped += 1
-                    continue
                 try:
-                    if self._vector(body, reference.content_sha256) is None:
+                    if self._reference_vector(reference) is None:
                         skipped += 1
                     else:
                         warmed += 1
@@ -347,11 +404,8 @@ class SemanticVisualSearch:
                 return SemanticSearchResult((), 0, incomplete)
             scored: dict[str, float] = {}
             for reference in selected:
-                body = self._verified_reference(reference)
-                if body is None:
-                    continue
                 try:
-                    vector = self._vector(body, reference.content_sha256)
+                    vector = self._reference_vector(reference)
                 except (OSError, ValueError):
                     continue
                 if vector is None:
