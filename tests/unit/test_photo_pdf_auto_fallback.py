@@ -26,8 +26,7 @@ def test_ordinary_photo_search_checks_embedded_documents_after_sku_lookup() -> N
     ]
     assert len(calls) == 1
     assert any(
-        isinstance(node, ast.If) and calls[0] in ast.walk(node.test)
-        for node in ast.walk(lookup)
+        isinstance(node, ast.If) and calls[0] in ast.walk(node.test) for node in ast.walk(lookup)
     )
 
 
