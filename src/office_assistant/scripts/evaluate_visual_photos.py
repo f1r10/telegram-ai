@@ -264,7 +264,11 @@ def evaluate_photos(
             ),
         }
     return PhotoEvaluation(
-        tuple(outcomes), totals, scenarios, unavailable, incomplete,
+        tuple(outcomes),
+        totals,
+        scenarios,
+        unavailable,
+        incomplete,
         summarize_latency_ms(timings_ms),
     )
 
