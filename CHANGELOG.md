@@ -1,5 +1,7 @@
 # Changelog
 
+- Visual search: bounded per-process vector hot cache avoids rereading unchanged SHA-verified reference images on repeated semantic queries; live active DB relations and file mutation/path checks remain authoritative. Cold performance and real-photo accuracy unverified.
+
 - DINOv2 CPU staging: optional Docker/Compose image, explicit operator-only weight preparation, 384-dimensional synthetic offline model probe, guarded catalog prewarm and private acceptance runbook; default Telegram image and visual semantic switch remain unchanged.
 
 - Add optional offline DINOv2 Small mean-pooled 384-dimensional visual candidate encoder informed by `f1r10/local-image-search`, with source-hash checks and model-version cache isolation. Not enabled or deployed by default; real product holdout still required.
