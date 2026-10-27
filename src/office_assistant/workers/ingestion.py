@@ -21,8 +21,8 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
-from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
+from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
 
 
