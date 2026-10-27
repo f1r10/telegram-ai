@@ -19,6 +19,12 @@ from office_assistant.infrastructure.database.models import (
     ProductImageRelation,
     ProductImageRelationConfirmation,
 )
+from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
+    active_document_images,
+    document_image_location,
+    find_document_images,
+)
 from office_assistant.processing.image_metadata import image_signature
 from office_assistant.processing.image_similarity import (
     MAX_IMAGE_BYTES,
@@ -47,6 +53,7 @@ class PhotoLookupResult:
     method: str
     incomplete: bool
     notice: str
+    documents: tuple[DocumentImageHit, ...] = ()
 
     def payload(self) -> dict[str, object]:
         return {
@@ -55,6 +62,15 @@ class PhotoLookupResult:
             "method": self.method,
             "incomplete": self.incomplete,
             "notice": self.notice,
+            "sources": [
+                {
+                    "filename": " ".join(hit.source.filename.split())[:96],
+                    "type": hit.source.origin.replace("_EMBEDDED", ""),
+                    "location": document_image_location(hit.source),
+                    "method": hit.match_type,
+                }
+                for hit in self.documents
+            ],
         }
 
 
@@ -169,6 +185,37 @@ class MiniAppPhotoLookup:
                     _WARNING,
                 )
             incomplete = incomplete or result.incomplete
+
+        # Documents are evidence, never product codes. Do not insert occurrence
+        # IDs into the SKU list or mistake a DOCX/XLSX picture for stock.
+        async with self.session_factory() as session:
+            documents, document_incomplete = await active_document_images(session)
+        if documents:
+            try:
+                hits, limited, _unavailable = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        find_document_images,
+                        photo,
+                        documents,
+                        self.storage_root,
+                        semantic=self.semantic,
+                    ),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                hits = ()
+                limited = False
+            if hits:
+                return PhotoLookupResult(
+                    "source_candidates",
+                    (),
+                    "embedded_document",
+                    incomplete or document_incomplete or limited,
+                    "Şəkil aktiv PDF, DOCX və ya XLSX faylında tapılmış ola bilər. "
+                    "Mənbə təsdiqlənmiş məhsul kodu, qiymət və ya stok deyil.",
+                    hits,
+                )
+            incomplete = incomplete or document_incomplete or limited
 
         if existing is not None:
             return PhotoLookupResult(
