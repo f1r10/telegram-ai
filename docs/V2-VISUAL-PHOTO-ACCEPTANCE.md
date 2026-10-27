@@ -148,3 +148,25 @@ A dry run still reports zero performance claims: it does not load model
 weights or process photo queries. With few real cases, p95 is a sample maximum
 rather than a robust service-level bound; repeat with enough diverse real
 phone photos and note whether cold or warm model was measured.
+
+## PDF/DOCX/XLSX image-source parity (2026-10-27)
+
+With the worker's offline model disabled, upload a known synthetic picture
+within an approved PDF page, DOCX paragraph/table, and XLSX worksheet/anchor
+cell; explicitly commit each file and verify an `ImageAssetOccurrence` is
+registered with the original parent file. Search with the same ordinary phone
+picture via Telegram **and** the optional Mini App. A source-only match must
+identify the document and grounded locator, not an approved SKU, stock or
+price. Telegram original-file buttons require an actor-bound occurrence ticket
+and the parent file must still be ACTIVE at download time. The Mini App shows
+source metadata as text, not a product-code button or unauthenticated file URL.
+
+Repeat after deleting/invalidating the parent file: neither surface may use
+or deliver the stale occurrence even if a local embedding is cached. Test a
+model-unavailable case: near-duplicate source search should remain accessible.
+Newly committed document images prewarm automatically on the opt-in model
+worker (at most 100 source occurrences per file); use operator `--apply`
+backfill for historic documents. Coverage is bounded to 500 recent active
+embedded image occurrences and truncated results must say so. Unsupported
+image streams and formats not handled by the parser (e.g. PowerPoint) are not
+silently counted as searchable. Independent real-angle recall/p95 remain OPEN.

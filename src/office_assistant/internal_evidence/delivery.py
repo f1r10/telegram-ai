@@ -165,7 +165,7 @@ class SourceFileDeliveryService:
         file_id: int,
         occurrence_id: int,
     ) -> DeliverableFile:
-        """Deliver only an ACTIVE parent PDF of the exact matched image occurrence.
+        """Deliver only the ACTIVE parent document of the matched image occurrence.
 
         Caller must provide a short-lived actor-bound token (not public file IDs).
         The database source lineage and original blob location are rechecked here
@@ -190,25 +190,31 @@ class SourceFileDeliveryService:
                     FileObject.id == file_id,
                     FileObject.state == FileObjectState.ACTIVE,
                     ImageAssetOccurrence.id == occurrence_id,
-                    ImageAssetOccurrence.origin_type == ImageAssetOrigin.PDF_EMBEDDED,
+                    ImageAssetOccurrence.origin_type.in_(
+                        (
+                            ImageAssetOrigin.PDF_EMBEDDED,
+                            ImageAssetOrigin.DOCX_EMBEDDED,
+                            ImageAssetOrigin.XLSX_EMBEDDED,
+                        )
+                    ),
                 )
             )
             if original is None:
-                raise FileDeliveryError("Matched PDF image source is no longer available")
+                raise FileDeliveryError("Matched document image source is no longer available")
             filename = _safe_filename(original.original_filename)
             content_type = original.content_type
             storage_key = original.storage_key
-        if not filename.lower().endswith(".pdf"):
-            raise FileDeliveryError("Catalog image parent must be a PDF")
+        if Path(filename).suffix.lower() not in {".pdf", ".docx", ".xlsx"}:
+            raise FileDeliveryError("Catalog image parent type is not allowed")
         try:
             path = self.storage.path_for_key(storage_key)
             path.relative_to(self.storage.blob_root)
         except (StorageError, ValueError) as error:
             raise FileDeliveryError("Catalog source path is invalid") from error
         if not path.is_file():
-            raise FileDeliveryError("Original PDF blob is missing")
+            raise FileDeliveryError("Original source document is missing")
         if self.storage.size(path) > self.max_bytes:
-            raise FileDeliveryError("Original PDF exceeds delivery limit")
+            raise FileDeliveryError("Original document exceeds delivery limit")
         return DeliverableFile(path, filename, content_type, file_id)
 
     async def resolve_recent_url(

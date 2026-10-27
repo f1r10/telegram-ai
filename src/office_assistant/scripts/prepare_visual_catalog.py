@@ -1,4 +1,4 @@
-"""Prewarm approved SKU and embedded-PDF image vectors on the private host.
+"""Prewarm approved SKU and active PDF/DOCX/XLSX embedded-image vectors on the private host.
 
 All embedding inference runs offline using an already installed model.
 Query photos are never stored. Only counts are printed; this is not
@@ -33,18 +33,18 @@ from office_assistant.scripts.prepare_visual_references import approved_referenc
 @dataclass(frozen=True, slots=True)
 class CatalogWarmSummary:
     approved: int
-    pdf: int
+    documents: int
     prepared: int
     skipped: int
     truncated: bool
     unavailable: bool
 
 
-async def pdf_image_references(settings: Settings, *, limit: int) -> list[SemanticReference]:
-    """Use only indexed image assets belonging to currently active PDF files."""
+async def document_image_references(settings: Settings, *, limit: int) -> list[SemanticReference]:
+    """Index all PDF, DOCX and XLSX images under currently ACTIVE originals."""
 
     if not 1 <= limit <= 500:
-        raise ValueError("PDF reference limit must be from 1 to 500")
+        raise ValueError("Document reference limit must be from 1 to 500")
     engine = create_database_engine(settings)
     factory = create_session_factory(engine)
     try:
@@ -60,7 +60,13 @@ async def pdf_image_references(settings: Settings, *, limit: int) -> list[Semant
                     .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
                     .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
                     .where(
-                        ImageAssetOccurrence.origin_type == ImageAssetOrigin.PDF_EMBEDDED,
+                        ImageAssetOccurrence.origin_type.in_(
+                            (
+                                ImageAssetOrigin.PDF_EMBEDDED,
+                                ImageAssetOrigin.DOCX_EMBEDDED,
+                                ImageAssetOrigin.XLSX_EMBEDDED,
+                            )
+                        ),
                         FileObject.state == FileObjectState.ACTIVE,
                     )
                     .order_by(ImageAssetOccurrence.id.desc())
@@ -80,12 +86,14 @@ async def prepare_catalog(
     if not 1 <= limit <= 500:
         raise ValueError("Catalog image limit must be from 1 to 500")
     approved = await approved_references(settings, limit=limit)
-    pdf = await pdf_image_references(settings, limit=limit)
-    truncated = len(approved) > limit or len(pdf) > limit
+    documents = await document_image_references(settings, limit=limit)
+    truncated = len(approved) > limit or len(documents) > limit
     selected_approved = approved[:limit]
-    selected_pdf = pdf[:limit]
+    selected_documents = documents[:limit]
     if not apply:
-        return CatalogWarmSummary(len(selected_approved), len(selected_pdf), 0, 0, truncated, False)
+        return CatalogWarmSummary(
+            len(selected_approved), len(selected_documents), 0, 0, truncated, False
+        )
 
     storage = LocalFileStorage(settings.file_storage_path)
     service = SemanticVisualSearch(
@@ -99,16 +107,16 @@ async def prepare_catalog(
     if first.unavailable:
         return CatalogWarmSummary(
             len(selected_approved),
-            len(selected_pdf),
+            len(selected_documents),
             first.warmed,
             first.skipped,
             truncated or first.incomplete,
             True,
         )
-    second = await asyncio.to_thread(service.warm_references, selected_pdf)
+    second = await asyncio.to_thread(service.warm_references, selected_documents)
     return CatalogWarmSummary(
         len(selected_approved),
-        len(selected_pdf),
+        len(selected_documents),
         first.warmed + second.warmed,
         first.skipped + second.skipped,
         truncated or first.incomplete or second.incomplete,
@@ -130,7 +138,7 @@ def main() -> None:
     status = "UNAVAILABLE" if result.unavailable else "APPLIED" if args.apply else "DRY_RUN"
     print(
         f"CATALOG_VISUAL_PREWARM={status} approved={result.approved} "
-        f"pdf={result.pdf} prepared={result.prepared} skipped={result.skipped} "
+        f"documents={result.documents} prepared={result.prepared} skipped={result.skipped} "
         f"truncated={str(result.truncated).lower()}"
     )
     if result.unavailable:

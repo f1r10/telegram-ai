@@ -10,7 +10,9 @@ import pytest
 from PIL import Image, ImageDraw
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.miniapp.photo_lookup import InvalidLookupPhoto, MiniAppPhotoLookup
+from office_assistant.processing.document_visual_candidates import DocumentImageSource
 from office_assistant.processing.semantic_visual import (
     CLIP_DIMENSION,
     SemanticVisualSearch,
@@ -33,8 +35,16 @@ def picture(color: tuple[int, int, int], *, side: bool = False) -> bytes:
 
 
 class FakeSession:
-    def __init__(self, rows: list[tuple[str, str, str]], *, known_asset: bool = False) -> None:
+    def __init__(
+        self,
+        rows: list[tuple[str, str, str]],
+        *,
+        known_asset: bool = False,
+        embedded_rows: list[tuple[int, int, str, str, dict[str, object], str, str]] | None = None,
+    ) -> None:
         self.rows = rows
+        self.embedded_rows = embedded_rows or []
+        self._selected_rows: list[tuple[object, ...]] = []
         self.known_asset = known_asset
         self.executed = 0
 
@@ -49,10 +59,15 @@ class FakeSession:
 
     async def execute(self, _query: object) -> "FakeSession":
         self.executed += 1
+        self._selected_rows = (
+            list(self.embedded_rows)
+            if "image_asset_occurrences" in str(_query)
+            else list(self.rows)
+        )
         return self
 
-    def all(self) -> list[tuple[str, str, str]]:
-        return self.rows
+    def all(self) -> list[tuple[object, ...]]:
+        return self._selected_rows
 
 
 class FakeFactory:
@@ -249,3 +264,57 @@ def test_mobile_near_match_rejects_mutated_approved_photo_bytes(
     result = asyncio.run(service.lookup(changed))
     assert result.status == "not_found"
     assert result.codes == ()
+
+
+def test_mobile_returns_document_sources_without_product_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def no_holder(
+        self: ProductImageRelationRepository, digest: str, *, active_product_only: bool = False
+    ) -> None:
+        del self, digest, active_product_only
+        return None
+
+    monkeypatch.setattr(
+        ProductImageRelationRepository, "active_confirmation_holder_by_content", no_holder
+    )
+    body = picture((180, 60, 20))
+    (tmp_path / "embedded.png").write_bytes(body)
+    record = DocumentImageSource(
+        40,
+        99,
+        "qiymetler.xlsx",
+        ImageAssetOrigin.XLSX_EMBEDDED,
+        {"sheet": "Mallar", "anchor_cell": "C7"},
+        "embedded.png",
+        sha256(body).hexdigest(),
+    )
+    sess = FakeSession(
+        [],
+        embedded_rows=[
+            (
+                record.occurrence_id,
+                record.source_file_id,
+                record.filename,
+                record.origin,
+                record.locator,
+                record.storage_key,
+                record.content_sha256,
+            )
+        ],
+    )
+    result = asyncio.run(make_service(tmp_path, sess).lookup(body))
+    assert result.status == "source_candidates"
+    assert result.codes == ()
+    assert result.method == "embedded_document"
+    payload = result.payload()
+    assert payload["codes"] == []
+    assert payload["sources"] == [
+        {
+            "filename": "qiymetler.xlsx",
+            "type": "XLSX",
+            "location": "vərəq Mallar, xana C7",
+            "method": "near_duplicate",
+        }
+    ]
+    assert "stok deyil" in result.notice

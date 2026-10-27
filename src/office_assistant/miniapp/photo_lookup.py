@@ -19,6 +19,12 @@ from office_assistant.infrastructure.database.models import (
     ProductImageRelation,
     ProductImageRelationConfirmation,
 )
+from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
+    active_document_images,
+    document_image_location,
+    find_document_images,
+)
 from office_assistant.processing.image_metadata import image_signature
 from office_assistant.processing.image_similarity import (
     MAX_IMAGE_BYTES,
@@ -47,15 +53,27 @@ class PhotoLookupResult:
     method: str
     incomplete: bool
     notice: str
+    documents: tuple[DocumentImageHit, ...] = ()
 
     def payload(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "status": self.status,
             "codes": list(self.codes),
             "method": self.method,
             "incomplete": self.incomplete,
             "notice": self.notice,
         }
+        if self.documents:
+            result["sources"] = [
+                {
+                    "filename": " ".join(hit.source.filename.split())[:96],
+                    "type": hit.source.origin.replace("_EMBEDDED", ""),
+                    "location": document_image_location(hit.source),
+                    "method": hit.match_type,
+                }
+                for hit in self.documents
+            ]
+        return result
 
 
 class MiniAppPhotoLookup:
@@ -134,6 +152,7 @@ class MiniAppPhotoLookup:
                 incomplete,
                 _WARNING,
             )
+        model_failed = False
         if approved and self.semantic is not None:
             try:
                 result = await asyncio.wait_for(
@@ -145,30 +164,59 @@ class MiniAppPhotoLookup:
                     timeout=5.0,
                 )
             except TimeoutError:
+                model_failed = True
+            else:
+                if result.unavailable:
+                    model_failed = True
+                elif result.candidates:
+                    return PhotoLookupResult(
+                        "candidates",
+                        tuple(x.product_code for x in result.candidates),
+                        "cross_angle",
+                        incomplete or result.incomplete,
+                        _WARNING,
+                    )
+                incomplete = incomplete or result.incomplete
+
+        # Documents are evidence, never product codes. Do not insert occurrence
+        # IDs into the SKU list or mistake a DOCX/XLSX picture for stock.
+        async with self.session_factory() as session:
+            documents, document_incomplete = await active_document_images(session)
+        if documents:
+            try:
+                hits, limited, _unavailable = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        find_document_images,
+                        photo,
+                        documents,
+                        self.storage_root,
+                        semantic=self.semantic,
+                    ),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                hits = ()
+                limited = False
+            if hits:
                 return PhotoLookupResult(
-                    "unavailable",
+                    "source_candidates",
                     (),
-                    "offline_model",
-                    incomplete,
-                    "Şəkil modeli cavab vermədi. Məhsulu kodla axtarın.",
+                    "embedded_document",
+                    incomplete or document_incomplete or limited,
+                    "Şəkil aktiv PDF, DOCX və ya XLSX faylında tapılmış ola bilər. "
+                    "Mənbə təsdiqlənmiş məhsul kodu, qiymət və ya stok deyil.",
+                    hits,
                 )
-            if result.unavailable:
-                return PhotoLookupResult(
-                    "unavailable",
-                    (),
-                    "offline_model",
-                    incomplete or result.incomplete,
-                    "Şəkil modeli hazırda əlçatan deyil. Məhsulu kodla axtarın.",
-                )
-            if result.candidates:
-                return PhotoLookupResult(
-                    "candidates",
-                    tuple(x.product_code for x in result.candidates),
-                    "cross_angle",
-                    incomplete or result.incomplete,
-                    _WARNING,
-                )
-            incomplete = incomplete or result.incomplete
+            incomplete = incomplete or document_incomplete or limited
+
+        if model_failed:
+            return PhotoLookupResult(
+                "unavailable",
+                (),
+                "offline_model",
+                incomplete,
+                "Şəkil modeli hazırda əlçatan deyil. Məhsulu kodla axtarın.",
+            )
 
         if existing is not None:
             return PhotoLookupResult(

@@ -1,5 +1,9 @@
 # Changelog
 
+- Mini App photo search now displays PDF/DOCX/XLSX image-source candidates with document type and page/paragraph/worksheet location separately from approved product codes; source metadata is never a confirmed SKU or stock fact.
+
+- Visual source search now includes images embedded in active PDF/DOCX/XLSX files with source file+page/paragraph/table/worksheet provenance and original-file navigation; model opt-in worker prewarms image vectors after upload and backfill covers all three file formats. No SKU identity, price or inventory is inferred from document pictures.
+
 - Visual holdout evaluator now emits aggregate local processing latency samples/p50/p95/max with no per-photo identifiers. It does not claim end-to-end Telegram latency or real-world recognition acceptance.
 
 - Visual search: bounded per-process vector hot cache avoids rereading unchanged SHA-verified reference images on repeated semantic queries; live active DB relations and file mutation/path checks remain authoritative. Cold performance and real-photo accuracy unverified.

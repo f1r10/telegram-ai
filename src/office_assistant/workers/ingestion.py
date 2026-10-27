@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import signal
+from pathlib import Path
 
 from office_assistant.ai.factory import create_language_model
 from office_assistant.core.clock import SystemClock
@@ -20,6 +21,7 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
+from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
 
@@ -58,6 +60,17 @@ async def run() -> None:
         index_embedding_model=settings.embedding_model,
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
+        visual_semantic=(
+            SemanticVisualSearch(
+                storage_root=Path(settings.file_storage_path),
+                model_cache_root=Path(settings.embedding_cache_path),
+                version=settings.visual_semantic_model_version,
+                min_score=settings.visual_semantic_min_score,
+                max_references=settings.visual_semantic_max_references,
+            )
+            if settings.visual_semantic_enabled
+            else None
+        ),
     )
     replay = (
         OcrReplayService(factory, LocalFileStorage(settings.file_storage_path), settings)

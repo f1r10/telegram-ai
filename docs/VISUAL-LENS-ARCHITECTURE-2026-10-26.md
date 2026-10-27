@@ -163,3 +163,34 @@ repeated warm lookups avoid repetitive disk reads and SHA work. End-to-end
 latency, multi-angle accuracy, and a calibrated DINO threshold remain separate
 real-photo acceptance gates; no product identity or stock is asserted from a
 semantic score.
+
+## 13. Embedded-document image coverage and upload preparation (2026-10-27)
+
+The ingestion parser already extracts and stores separate `ImageAsset` content and
+`ImageAssetOccurrence` provenance for **PDF, DOCX, and XLSX** pictures, without
+inventing user uploads. The missing stage was exposing all these occurrences to
+visual source lookup and preparing their embeddings. Ordinary Telegram photo
+search now checks active, explicitly confirmed SKU photos first, followed by
+all currently ACTIVE parent-document image occurrences (PDF, DOCX, XLSX).
+An evidence match shows the parent filename and a grounded locator — PDF page,
+DOCX paragraph/table, or XLSX worksheet/cell — **without** treating document
+art as an approved product reference, price or stock entry. Source buttons
+reference an actor-bound, expiring occurrence ticket and the delivery service
+rechecks current original document status and type each time.
+
+The operator prewarm command `python -m office_assistant.scripts.prepare_visual_catalog`
+now reports the aggregate `documents` image count across PDF/DOCX/XLSX, not
+only `pdf`. With the **same offline model installed and enabled explicitly on
+the worker**, successfully processed newly uploaded files prewarm at most 100
+source image embeddings per file *after* the parse transaction commits.
+This image-cache step is derived/best-effort: the upload remains saved when a
+local model is unavailable, and the query path can still compute a missing
+vector after model provisioning. Existing documents require the one-time
+operator `--apply` backfill. The visual CPU Compose overlay includes app,
+worker and Mini App runtimes and is disabled by default.
+
+Limits: the photo search checks at most 500 recent active embedded occurrences;
+truncation is shown, so this is not yet an unlimited whole-company ANN index.
+Unsupported/ambiguous picture payloads remain unindexed with a parser warning.
+No PDF page is invented for DOCX/XLSX pictures. No production or Kali rollout,
+real cross-angle accuracy benchmark or Telegram latency acceptance is implied.
