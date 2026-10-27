@@ -317,8 +317,12 @@ class SemanticVisualSearch:
         if not S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_IMAGE_BYTES:
             return None
         return (
-            str(full), info.st_dev, info.st_ino, info.st_size,
-            info.st_mtime_ns, info.st_ctime_ns,
+            str(full),
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
         )
 
     def _reference_vector(self, reference: SemanticReference) -> tuple[float, ...] | None:
