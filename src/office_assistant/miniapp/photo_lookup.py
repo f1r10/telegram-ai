@@ -56,13 +56,15 @@ class PhotoLookupResult:
     documents: tuple[DocumentImageHit, ...] = ()
 
     def payload(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "status": self.status,
             "codes": list(self.codes),
             "method": self.method,
             "incomplete": self.incomplete,
             "notice": self.notice,
-            "sources": [
+        }
+        if self.documents:
+            result["sources"] = [
                 {
                     "filename": " ".join(hit.source.filename.split())[:96],
                     "type": hit.source.origin.replace("_EMBEDDED", ""),
@@ -70,8 +72,8 @@ class PhotoLookupResult:
                     "method": hit.match_type,
                 }
                 for hit in self.documents
-            ],
-        }
+            ]
+        return result
 
 
 class MiniAppPhotoLookup:
