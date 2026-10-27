@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 from docx import Document
+from PIL import Image, ImageDraw
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.opc.packuri import PackURI
 from docx.opc.part import Part
@@ -47,6 +48,7 @@ from office_assistant.infrastructure.database.models import (
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
 from office_assistant.processing.image_assets import ImageAssetRegistry
+from office_assistant.processing.semantic_visual import CLIP_DIMENSION, SemanticVisualSearch
 from office_assistant.processing.worker_service import IngestionJobService
 
 pytestmark = pytest.mark.integration
@@ -554,5 +556,59 @@ def test_bytes_that_are_not_an_image_register_nothing_and_copy_nothing() -> None
         assert registration is None
         assert await _counts(factory) == (0, 0)
         assert [path for path in storage.image_asset_root.rglob("*") if path.is_file()] == []
+
+    _scenario(behavior)
+
+
+def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
+    """An approved ingestion can precompute image vectors without importing Torch."""
+
+    class StubEncoder:
+        calls = 0
+
+        def embed(self, paths: list[Path]) -> list[list[float]]:
+            self.calls += len(paths)
+            return [[1.0] + [0.0] * (CLIP_DIMENSION - 1) for _ in paths]
+
+    async def behavior(
+        factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
+    ) -> None:
+        image = Image.new("RGB", (128, 128), (200, 30, 20))
+        ImageDraw.Draw(image).rectangle((20, 25, 102, 105), fill="blue")
+        payload = BytesIO()
+        image.save(payload, format="PNG")
+        content = payload.getvalue()
+        document = _docx_bytes(content)
+        file_id, _, _, _ = await _seed_file(
+            factory, storage, filename="embedded-photo.docx",
+            data=document, with_run=False
+        )
+        cache = storage.root / "models-for-test"
+        encoder = StubEncoder()
+        semantic = SemanticVisualSearch(
+            storage_root=storage.root,
+            model_cache_root=cache,
+            encoder=encoder,
+        )
+        service = IngestionJobService(factory, storage, visual_semantic=semantic)
+        claim = await service.claim_next("docx-visual-test")
+        assert claim is not None
+        await service.process(claim)
+        assert encoder.calls >= 1
+        async with factory() as session:
+            occurrences = (
+                await session.execute(
+                    select(ImageAssetOccurrence).where(
+                        ImageAssetOccurrence.source_file_id == file_id
+                    )
+                )
+            ).scalars().all()
+            assert len(occurrences) == 2
+            asset = await session.get(ImageAsset, occurrences[0].image_asset_id)
+            assert asset is not None
+        digest = sha256(content).hexdigest()
+        vector_file = cache / "visual-embeddings" / semantic.version / digest[:2] / (digest + ".json")
+        assert vector_file.is_file()
+        assert vector_file.read_text("utf-8").find(digest) >= 0
 
     _scenario(behavior)
