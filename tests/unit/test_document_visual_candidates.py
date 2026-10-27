@@ -36,7 +36,10 @@ class ColorEncoder:
 
 
 def source(
-    root: Path, number: int, origin: ImageAssetOrigin, locator: dict[str, object],
+    root: Path,
+    number: int,
+    origin: ImageAssetOrigin,
+    locator: dict[str, object],
     body: bytes,
 ) -> DocumentImageSource:
     name = f"embedded-{number}.png"
@@ -54,23 +57,30 @@ def source(
 def test_embedded_sources_from_all_three_file_types_are_searchable(tmp_path: Path) -> None:
     files = [
         source(
-            tmp_path, 1, ImageAssetOrigin.PDF_EMBEDDED,
-            {"page": 2, "image_index": 1}, picture((230, 15, 15)),
+            tmp_path,
+            1,
+            ImageAssetOrigin.PDF_EMBEDDED,
+            {"page": 2, "image_index": 1},
+            picture((230, 15, 15)),
         ),
         source(
-            tmp_path, 2, ImageAssetOrigin.DOCX_EMBEDDED,
-            {"table_index": 1, "row": 3, "column": 1}, picture((15, 230, 15)),
+            tmp_path,
+            2,
+            ImageAssetOrigin.DOCX_EMBEDDED,
+            {"table_index": 1, "row": 3, "column": 1},
+            picture((15, 230, 15)),
         ),
         source(
-            tmp_path, 3, ImageAssetOrigin.XLSX_EMBEDDED,
-            {"sheet": "Məhsullar", "anchor_cell": "D12"}, picture((15, 15, 230)),
+            tmp_path,
+            3,
+            ImageAssetOrigin.XLSX_EMBEDDED,
+            {"sheet": "Məhsullar", "anchor_cell": "D12"},
+            picture((15, 15, 230)),
         ),
     ]
     for item in files:
         image = (tmp_path / item.storage_key).read_bytes()
-        hits, truncated, unavailable = find_document_images(
-            image, files, tmp_path, quick_only=True
-        )
+        hits, truncated, unavailable = find_document_images(image, files, tmp_path, quick_only=True)
         assert not truncated and not unavailable
         assert any(hit.source.occurrence_id == item.occurrence_id for hit in hits)
         text = render_document_image_hits(hits)
@@ -88,8 +98,11 @@ def test_distinct_phone_photo_retrieves_unverified_docx_semantic_candidate(
     tmp_path: Path,
 ) -> None:
     reference = source(
-        tmp_path, 4, ImageAssetOrigin.DOCX_EMBEDDED,
-        {"paragraph_index": 0}, picture((235, 23, 21)),
+        tmp_path,
+        4,
+        ImageAssetOrigin.DOCX_EMBEDDED,
+        {"paragraph_index": 0},
+        picture((235, 23, 21)),
     )
     semantic = SemanticVisualSearch(
         storage_root=tmp_path,
@@ -111,8 +124,11 @@ def test_distinct_phone_photo_retrieves_unverified_docx_semantic_candidate(
 def test_tampered_embedded_image_does_not_match_old_digest(tmp_path: Path) -> None:
     old = picture((240, 15, 15))
     item = source(
-        tmp_path, 5, ImageAssetOrigin.XLSX_EMBEDDED,
-        {"sheet": "A", "anchor_cell": "A1"}, old,
+        tmp_path,
+        5,
+        ImageAssetOrigin.XLSX_EMBEDDED,
+        {"sheet": "A", "anchor_cell": "A1"},
+        old,
     )
     (tmp_path / item.storage_key).write_bytes(picture((15, 15, 240)))
     hits, _, _ = find_document_images(old, [item], tmp_path, quick_only=True)
@@ -120,7 +136,5 @@ def test_tampered_embedded_image_does_not_match_old_digest(tmp_path: Path) -> No
 
 
 def test_empty_sources_and_invalid_limits_are_safe(tmp_path: Path) -> None:
-    matches, truncated, unavailable = find_document_images(
-        picture((60, 110, 180)), [], tmp_path
-    )
+    matches, truncated, unavailable = find_document_images(picture((60, 110, 180)), [], tmp_path)
     assert matches == () and not truncated and not unavailable
