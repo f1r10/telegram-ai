@@ -91,7 +91,9 @@ async def prepare_catalog(
     selected_approved = approved[:limit]
     selected_documents = documents[:limit]
     if not apply:
-        return CatalogWarmSummary(len(selected_approved), len(selected_documents), 0, 0, truncated, False)
+        return CatalogWarmSummary(
+            len(selected_approved), len(selected_documents), 0, 0, truncated, False
+        )
 
     storage = LocalFileStorage(settings.file_storage_path)
     service = SemanticVisualSearch(
