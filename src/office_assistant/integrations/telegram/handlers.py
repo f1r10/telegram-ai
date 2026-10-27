@@ -140,11 +140,6 @@ from office_assistant.internal_evidence.models import ImageReading, InternalAnsw
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.catalog_category_verifier import local_category_verifier
-from office_assistant.processing.document_visual_candidates import (
-    active_document_images,
-    find_document_images,
-    render_document_image_hits,
-)
 from office_assistant.processing.catalog_visual_candidates import (
     MAX_PDF_REFERENCES,
     PdfImageSource,
@@ -152,6 +147,11 @@ from office_assistant.processing.catalog_visual_candidates import (
     match_pdf_image_sources,
     render_pdf_image_candidates,
     semantic_pdf_image_candidates,
+)
+from office_assistant.processing.document_visual_candidates import (
+    active_document_images,
+    find_document_images,
+    render_document_image_hits,
 )
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
