@@ -342,9 +342,7 @@ class IngestionJobService:
             ).all()
         if len(rows) > 100:
             logger.info("Document visual prewarm bounded | file_id=%s limit=100", file_id)
-        references = [
-            SemanticReference(str(id_), key, digest) for id_, key, digest in rows[:100]
-        ]
+        references = [SemanticReference(str(id_), key, digest) for id_, key, digest in rows[:100]]
         if not references:
             return
         result = await asyncio.to_thread(self.visual_semantic.warm_references, references)
