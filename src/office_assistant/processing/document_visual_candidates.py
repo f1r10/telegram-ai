@@ -116,21 +116,30 @@ def find_document_images(
     matches = shortlist(image, visual, storage_root, max_results=limit)
     ids = [item.product_code for item in matches]
     if not ids:
-        pdf = [
-            PdfImageSource(
-                item.occurrence_id,
-                item.filename,
-                item.locator["page"],
-                item.locator["image_index"],
-                item.storage_key,
-                item.content_sha256,
-                source_file_id=item.source_file_id,
+        pdf: list[PdfImageSource] = []
+        for item in candidates:
+            if item.origin != ImageAssetOrigin.PDF_EMBEDDED:
+                continue
+            page = item.locator.get("page")
+            index = item.locator.get("image_index")
+            if (
+                not isinstance(page, int)
+                or isinstance(page, bool)
+                or not isinstance(index, int)
+                or isinstance(index, bool)
+            ):
+                continue
+            pdf.append(
+                PdfImageSource(
+                    item.occurrence_id,
+                    item.filename,
+                    page,
+                    index,
+                    item.storage_key,
+                    item.content_sha256,
+                    source_file_id=item.source_file_id,
+                )
             )
-            for item in candidates
-            if item.origin == ImageAssetOrigin.PDF_EMBEDDED
-            and type(item.locator.get("page")) is int
-            and type(item.locator.get("image_index")) is int
-        ]
         if pdf:
             ids = [
                 str(item.occurrence_id)
