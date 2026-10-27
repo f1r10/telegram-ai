@@ -609,7 +609,8 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
             asset = await session.get(ImageAsset, occurrences[0].image_asset_id)
             assert asset is not None
         digest = sha256(content).hexdigest()
-        vector_file = cache / "visual-embeddings" / semantic.version / digest[:2] / (digest + ".json")
+        vector_root = cache / "visual-embeddings" / semantic.version / digest[:2]
+        vector_file = vector_root / (digest + ".json")
         assert vector_file.is_file()
         assert digest in vector_file.read_text("utf-8")
         async with factory() as session:
