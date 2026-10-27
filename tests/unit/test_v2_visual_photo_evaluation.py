@@ -23,6 +23,7 @@ from office_assistant.scripts.evaluate_visual_photos import (
     PhotoCase,
     evaluate_photos,
     read_photo_manifest,
+    summarize_latency_ms,
 )
 
 
@@ -121,6 +122,30 @@ def test_real_photo_bytes_evaluate_exact_and_cross_angle_without_identity_claim(
     assert result.totals["recall_at_1"] == 1.0
     assert result.totals["negative_candidate_rate"] == 0.0
     assert result.scenarios["different_angle"]["top1_recall"] == 1.0
+    assert result.latency_ms["samples"] == len(cases)
+    assert isinstance(result.latency_ms["p95_ms"], float)
+    assert isinstance(result.latency_ms["p50_ms"], float)
+    assert result.latency_ms["max_ms"] is not None
+
+
+def test_local_latency_summary_uses_nearest_rank_p95_and_rejects_bad_samples() -> None:
+    summary = summarize_latency_ms([300.0, 100.0, 500.0, 200.0, 400.0])
+    assert summary == {
+        "samples": 5,
+        "p50_ms": 300.0,
+        "p95_ms": 500.0,
+        "max_ms": 500.0,
+    }
+    assert summarize_latency_ms([]) == {
+        "samples": 0,
+        "p50_ms": None,
+        "p95_ms": None,
+        "max_ms": None,
+    }
+    with pytest.raises(ValueError):
+        summarize_latency_ms([float("nan")])
+    with pytest.raises(ValueError):
+        summarize_latency_ms([-1.0])
 
 
 def test_misleading_negative_candidacy_is_measured_not_reported_as_identity(
