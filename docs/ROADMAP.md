@@ -337,3 +337,8 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 - [ ] Measure all-format catalog coverage and index freshness in real Kali
       staging, including large PDFs/Excel/Word, unsupported illustrations,
       deleted files, and read-only source-document navigation.
+
+- [x] Add Mini App `source_candidates` result and safe display of active
+      PDF/DOCX/XLSX image provenance, with no source IDs masquerading as SKUs.
+- [ ] Extend source evidence UX with authenticated Mini App original-file
+      download once actor-bound per-result file tickets and access checks are tested.
