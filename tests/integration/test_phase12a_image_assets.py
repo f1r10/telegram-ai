@@ -47,6 +47,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.processing.document_visual_candidates import active_document_images
 from office_assistant.processing.image_assets import ImageAssetRegistry
 from office_assistant.processing.semantic_visual import CLIP_DIMENSION, SemanticVisualSearch
 from office_assistant.processing.worker_service import IngestionJobService
@@ -609,6 +610,22 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
         digest = sha256(content).hexdigest()
         vector_file = cache / "visual-embeddings" / semantic.version / digest[:2] / (digest + ".json")
         assert vector_file.is_file()
-        assert vector_file.read_text("utf-8").find(digest) >= 0
+        assert digest in vector_file.read_text("utf-8")
+        async with factory() as session:
+            sources, truncated = await active_document_images(session)
+            assert not truncated
+            assert {source.occurrence_id for source in sources if source.source_file_id == file_id}
+            assert all(
+                source.origin == ImageAssetOrigin.DOCX_EMBEDDED
+                for source in sources if source.source_file_id == file_id
+            )
+        # A deleted original cannot stay visible merely because its vectors exist.
+        async with factory.begin() as session:
+            original = await session.get(FileObject, file_id)
+            assert original is not None
+            original.state = FileObjectState.DELETED
+        async with factory() as session:
+            sources, _ = await active_document_images(session)
+            assert all(source.source_file_id != file_id for source in sources)
 
     _scenario(behavior)
