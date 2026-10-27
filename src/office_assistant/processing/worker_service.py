@@ -18,6 +18,8 @@ from office_assistant.infrastructure.database.models import (
     ExtractionJobStatus,
     FileObject,
     FileObjectState,
+    ImageAsset,
+    ImageAssetOccurrence,
     ImageAssetOrigin,
     IngestionItemType,
     IngestionJob,
@@ -37,6 +39,7 @@ from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrService
+from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +82,7 @@ class IngestionJobService:
         index_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         index_chunking_version: str = "v1-medium-1800-180",
         structured_extraction_enabled: bool = False,
+        visual_semantic: SemanticVisualSearch | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.storage = storage
@@ -90,6 +94,7 @@ class IngestionJobService:
         self.index_embedding_model = index_embedding_model
         self.index_chunking_version = index_chunking_version
         self.structured_extraction_enabled = structured_extraction_enabled
+        self.visual_semantic = visual_semantic
 
     async def claim_next(self, worker_id: str) -> JobClaim | None:
         now = datetime.now(UTC)
@@ -287,6 +292,17 @@ class IngestionJobService:
                         source_parse_run_id=run_id,
                         locator=image.locator,
                     )
+        # Derived vectors are expendable and never part of the source transaction.
+        # A model failure must not roll back or retry an otherwise valid upload.
+        if self.visual_semantic is not None:
+            try:
+                await self._warm_file_images(file_id)
+            except Exception as error:  # noqa: BLE001 - optional model must not fail ingestion
+                logger.warning(
+                    "Document visual prewarm unavailable | file_id=%s error_type=%s",
+                    file_id,
+                    type(error).__name__,
+                )
         logger.info(
             "File processed | job_id=%s file_id=%s parser=%s status=%s blocks=%s",
             claim.job_id,
@@ -296,6 +312,49 @@ class IngestionJobService:
             len(parsed.blocks),
         )
         return status
+
+    async def _warm_file_images(self, file_id: int) -> None:
+        """Prepare new document image vectors after commit, without blocking DB writes.
+
+        This is opt-in and bounded per file. If the local model is absent,
+        ingestion still succeeds and the later search can attempt lazy loading.
+        """
+        if self.visual_semantic is None:
+            return
+        async with self.session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        ImageAssetOccurrence.id,
+                        ImageAsset.storage_key,
+                        ImageAsset.content_sha256,
+                    )
+                    .select_from(ImageAssetOccurrence)
+                    .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                    .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+                    .where(
+                        ImageAssetOccurrence.source_file_id == file_id,
+                        FileObject.state == FileObjectState.ACTIVE,
+                    )
+                    .order_by(ImageAssetOccurrence.id)
+                    .limit(101)
+                )
+            ).all()
+        if len(rows) > 100:
+            logger.info("Document visual prewarm bounded | file_id=%s limit=100", file_id)
+        references = [
+            SemanticReference(str(id_), key, digest) for id_, key, digest in rows[:100]
+        ]
+        if not references:
+            return
+        result = await asyncio.to_thread(self.visual_semantic.warm_references, references)
+        logger.info(
+            "Document visual prewarm | file_id=%s prepared=%s skipped=%s unavailable=%s",
+            file_id,
+            result.warmed,
+            result.skipped,
+            result.unavailable,
+        )
 
     async def _failed_result(
         self,
