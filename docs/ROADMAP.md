@@ -327,3 +327,13 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       or raw user photos in the published report.
 - [ ] Measure separate true Telegram upload-to-reply p95 on the owner staging
       bot: offline evaluator excludes Telegram transfer/DB/startup latency.
+
+- [x] Expand read-only image evidence retrieval to active PDF, DOCX and XLSX
+      embedded occurrences, preserving original source locators and file delivery
+      without promoting source artwork to a verified SKU.
+- [x] Prepare active document-image vectors on explicit operator backfill and
+      opt-in upload-worker prewarm (100 source images per file, best effort);
+      keep default worker/model OFF and preserve source transaction success.
+- [ ] Measure all-format catalog coverage and index freshness in real Kali
+      staging, including large PDFs/Excel/Word, unsupported illustrations,
+      deleted files, and read-only source-document navigation.
