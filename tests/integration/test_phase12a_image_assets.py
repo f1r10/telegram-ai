@@ -625,7 +625,7 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
                 for source in sources
                 if source.source_file_id == file_id
             )
-        delivery = SourceFileDeliveryService(factory, storage)
+        delivery = SourceFileDeliveryService(factory, storage, max_bytes=25 * 1024 * 1024)
         original = await delivery.resolve_catalog_original(
             TELEGRAM_USER_ID, file_id=file_id, occurrence_id=occurrences[0].id
         )
