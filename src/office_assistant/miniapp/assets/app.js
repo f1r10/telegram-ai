@@ -314,7 +314,7 @@
     busy = true;
     ui.photoSearch.disabled = true;
     ui.photoResults.replaceChildren();
-    photoMessage("Təsdiqlənmiş məhsul fotoları yoxlanılır…");
+    photoMessage("Məhsul nümunələri və fayllardakı şəkillər yoxlanılır…");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
     try {
@@ -335,13 +335,15 @@
       if (response.status === 429) throw new Error("Çox sayda sorğu göndərilib. Bir qədər sonra sınayın.");
       if (!response.ok) throw new Error("Şəkil axtarışı mümkün olmadı. Telegram botundan istifadə edin.");
       const result = await response.json();
-      if (!["exact", "candidates", "not_found", "unavailable", "unconfirmed"].includes(result.status)) {
+      if (!["exact", "candidates", "source_candidates", "not_found", "unavailable", "unconfirmed"].includes(result.status)) {
         throw new Error("Məhsul yoxlaması etibarlı nəticə qaytarmadı.");
       }
       if (result.status === "exact") {
         photoMessage("Təsdiqlənmiş eyni şəkil tapıldı.");
       } else if (result.status === "candidates") {
         photoMessage("Oxşar fotolar tapıldı. Məhsul kodunu mütləq yoxlayın.");
+      } else if (result.status === "source_candidates") {
+        photoMessage("Faylların daxilində oxşar şəkil mənbələri tapıldı.");
       } else {
         photoMessage("Təsdiqlənmiş məhsul müəyyən edilmədi.");
       }
@@ -352,6 +354,18 @@
         const limit = document.createElement("p");
         limit.textContent = "Arxivin yalnız bir hissəsi yoxlanılıb.";
         ui.photoResults.append(limit);
+      }
+      for (const item of Array.isArray(result.sources) ? result.sources.slice(0, 3) : []) {
+        if (typeof item !== "object" || item === null) continue;
+        const name = typeof item.filename === "string" ? item.filename.slice(0, 96) : "";
+        const kind = typeof item.type === "string" ? item.type.slice(0, 16) : "";
+        const where = typeof item.location === "string" ? item.location.slice(0, 100) : "";
+        if (!name) continue;
+        const element = document.createElement("p");
+        element.className = "candidate";
+        element.textContent = name + " (" + kind + ") · " + where +
+          " — sənəd şəkli, məhsul kimliyi təsdiqlənməyib";
+        ui.photoResults.append(element);
       }
       for (const code of Array.isArray(result.codes) ? result.codes.slice(0, 3) : []) {
         if (typeof code !== "string" || code.length > 70) continue;
