@@ -582,8 +582,7 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
         content = payload.getvalue()
         document = _docx_bytes(content)
         file_id, _, _, _ = await _seed_file(
-            factory, storage, filename="embedded-photo.docx",
-            data=document, with_run=False
+            factory, storage, filename="embedded-photo.docx", data=document, with_run=False
         )
         cache = storage.root / "models-for-test"
         encoder = StubEncoder()
@@ -599,12 +598,16 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
         assert encoder.calls >= 1
         async with factory() as session:
             occurrences = (
-                await session.execute(
-                    select(ImageAssetOccurrence).where(
-                        ImageAssetOccurrence.source_file_id == file_id
+                (
+                    await session.execute(
+                        select(ImageAssetOccurrence).where(
+                            ImageAssetOccurrence.source_file_id == file_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(occurrences) == 2
             asset = await session.get(ImageAsset, occurrences[0].image_asset_id)
             assert asset is not None
@@ -619,7 +622,8 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
             assert {source.occurrence_id for source in sources if source.source_file_id == file_id}
             assert all(
                 source.origin == ImageAssetOrigin.DOCX_EMBEDDED
-                for source in sources if source.source_file_id == file_id
+                for source in sources
+                if source.source_file_id == file_id
             )
         delivery = SourceFileDeliveryService(factory, storage)
         original = await delivery.resolve_catalog_original(
