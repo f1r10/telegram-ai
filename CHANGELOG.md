@@ -1,5 +1,7 @@
 # Changelog
 
+- Visual holdout evaluator now emits aggregate local processing latency samples/p50/p95/max with no per-photo identifiers. It does not claim end-to-end Telegram latency or real-world recognition acceptance.
+
 - Visual search: bounded per-process vector hot cache avoids rereading unchanged SHA-verified reference images on repeated semantic queries; live active DB relations and file mutation/path checks remain authoritative. Cold performance and real-photo accuracy unverified.
 
 - DINOv2 CPU staging: optional Docker/Compose image, explicit operator-only weight preparation, 384-dimensional synthetic offline model probe, guarded catalog prewarm and private acceptance runbook; default Telegram image and visual semantic switch remain unchanged.
