@@ -225,7 +225,9 @@ def evaluate_photos(
             if found.incomplete:
                 incomplete = True
             codes = tuple(item.product_code for item in found.candidates)
-            outcomes.append(Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes))
+            outcomes.append(
+                Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes)
+            )
         finally:
             timings_ms.append((perf_counter() - started) * 1000)
     totals = evaluate([case.truth for case in cases], outcomes)
