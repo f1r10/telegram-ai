@@ -152,6 +152,7 @@ class MiniAppPhotoLookup:
                 incomplete,
                 _WARNING,
             )
+        model_failed = False
         if approved and self.semantic is not None:
             try:
                 result = await asyncio.wait_for(
@@ -163,30 +164,19 @@ class MiniAppPhotoLookup:
                     timeout=5.0,
                 )
             except TimeoutError:
-                return PhotoLookupResult(
-                    "unavailable",
-                    (),
-                    "offline_model",
-                    incomplete,
-                    "Şəkil modeli cavab vermədi. Məhsulu kodla axtarın.",
-                )
-            if result.unavailable:
-                return PhotoLookupResult(
-                    "unavailable",
-                    (),
-                    "offline_model",
-                    incomplete or result.incomplete,
-                    "Şəkil modeli hazırda əlçatan deyil. Məhsulu kodla axtarın.",
-                )
-            if result.candidates:
-                return PhotoLookupResult(
-                    "candidates",
-                    tuple(x.product_code for x in result.candidates),
-                    "cross_angle",
-                    incomplete or result.incomplete,
-                    _WARNING,
-                )
-            incomplete = incomplete or result.incomplete
+                model_failed = True
+            else:
+                if result.unavailable:
+                    model_failed = True
+                elif result.candidates:
+                    return PhotoLookupResult(
+                        "candidates",
+                        tuple(x.product_code for x in result.candidates),
+                        "cross_angle",
+                        incomplete or result.incomplete,
+                        _WARNING,
+                    )
+                incomplete = incomplete or result.incomplete
 
         # Documents are evidence, never product codes. Do not insert occurrence
         # IDs into the SKU list or mistake a DOCX/XLSX picture for stock.
@@ -218,6 +208,15 @@ class MiniAppPhotoLookup:
                     hits,
                 )
             incomplete = incomplete or document_incomplete or limited
+
+        if model_failed:
+            return PhotoLookupResult(
+                "unavailable",
+                (),
+                "offline_model",
+                incomplete,
+                "Şəkil modeli hazırda əlçatan deyil. Məhsulu kodla axtarın.",
+            )
 
         if existing is not None:
             return PhotoLookupResult(
