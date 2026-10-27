@@ -131,3 +131,20 @@ fingerprint is still cached. A valid original reference continues to
 match resized or recompressed query photographs. If the original image
 is corrupt or missing, the result abstains; neither the local photo
 cache nor the provider model is an authority for business identities.
+
+## Local timing evidence (2026-10-27)
+
+On `--apply`, the private evaluator reports an aggregate `local_latency_ms`
+object with `samples`, `p50_ms`, `p95_ms` and `max_ms`. It uses an
+uninterpolated nearest-rank p95 and never prints per-photo timings, photo
+paths or product codes. Timing includes each photo's local read, fingerprint,
+exact hash check, near-duplicate comparison, and any opt-in CLIP/DINOv2
+inference. It excludes Telegram file transfer, PostgreSQL reference loading,
+reference pre-validation done before the loop, PDF enrichment and message
+transport. Consequently, **local p95 is not Telegram end-to-end p95**. Record
+both separately on staging before accepting the target of 5 seconds.
+
+A dry run still reports zero performance claims: it does not load model
+weights or process photo queries. With few real cases, p95 is a sample maximum
+rather than a robust service-level bound; repeat with enough diverse real
+phone photos and note whether cold or warm model was measured.

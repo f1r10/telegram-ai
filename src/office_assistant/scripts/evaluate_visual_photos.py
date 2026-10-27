@@ -4,7 +4,8 @@ Never send pictures to a provider. No query vectors are persisted, and reports
 contain aggregated statistics and manifest hashes, not filenames or product codes.
 
 Dry-run verifies manifest and reference coverage without running a local model.
---apply requires a previously provisioned FastEmbed CLIP model (offline-only).
+--apply requires a previously provisioned local CLIP or DINOv2 model.
+Measured per-query local processing time excludes Telegram download and DB loading.
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ import logging
 import re
 from dataclasses import dataclass
 from hashlib import sha256
+from math import ceil, isfinite
 from pathlib import Path
+from statistics import median
+from time import perf_counter
 from typing import cast
 
 from office_assistant.business.normalization import normalize_product_code
@@ -57,10 +61,27 @@ class PhotoEvaluation:
     scenarios: dict[str, dict[str, int | float | None]]
     unavailable: bool
     incomplete: bool
+    latency_ms: dict[str, int | float | None]
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
+
+
+def summarize_latency_ms(samples: list[float]) -> dict[str, int | float | None]:
+    """Aggregate only, using nearest-rank p95 (never expose per-photo identifiers)."""
+
+    if any(not isfinite(value) or value < 0 for value in samples):
+        raise ValueError("Invalid local photo timing sample")
+    if not samples:
+        return {"samples": 0, "p50_ms": None, "p95_ms": None, "max_ms": None}
+    ordered = sorted(samples)
+    return {
+        "samples": len(ordered),
+        "p50_ms": round(float(median(ordered)), 1),
+        "p95_ms": round(ordered[ceil(0.95 * len(ordered)) - 1], 1),
+        "max_ms": round(ordered[-1], 1),
+    }
 
 
 def read_photo_manifest(path: Path, *, photo_root: Path) -> list[PhotoCase]:
@@ -173,35 +194,42 @@ def evaluate_photos(
     incomplete = len(references) > len(selected) or len(valid) != len(selected)
     outcomes: list[Prediction] = []
     unavailable = False
+    timings_ms: list[float] = []
     for case in cases:
-        data = case.photo.read_bytes()
-        if fingerprint(data) is None:
-            # Invalid input cannot be counted as correct abstention in a
-            # commercial recognition test: the dataset must be fixed.
-            raise ValueError("A ground-truth photo is not a valid textured image")
-        digest = sha256(data).hexdigest()
-        exact_codes = sorted({r.product_code for r in refs if r.content_sha256 == digest})
-        if exact_codes:
-            # Same SHA is authoritative only because original bytes and DB
-            # explicit confirmation were BOTH rechecked above.
-            outcomes.append(Prediction(case.truth.query_id, "EXACT_MATCH", tuple(exact_codes)))
-            continue
-        near = shortlist(data, near_refs, root, max_results=5)
-        if near:
+        started = perf_counter()
+        try:
+            data = case.photo.read_bytes()
+            if fingerprint(data) is None:
+                # Invalid input cannot be counted as correct abstention in a
+                # commercial recognition test: the dataset must be fixed.
+                raise ValueError("A ground-truth photo is not a valid textured image")
+            digest = sha256(data).hexdigest()
+            exact_codes = sorted({r.product_code for r in refs if r.content_sha256 == digest})
+            if exact_codes:
+                # Same SHA is authoritative only because original bytes and DB
+                # explicit confirmation were BOTH rechecked above.
+                outcomes.append(Prediction(case.truth.query_id, "EXACT_MATCH", tuple(exact_codes)))
+                continue
+            near = shortlist(data, near_refs, root, max_results=5)
+            if near:
+                outcomes.append(
+                    Prediction(case.truth.query_id, "SIMILAR", tuple(x.product_code for x in near))
+                )
+                continue
+            if semantic is None:
+                outcomes.append(Prediction(case.truth.query_id, "NO_MATCH", ()))
+                continue
+            found = semantic.search(data, refs, limit=5)
+            if found.unavailable:
+                unavailable = True
+            if found.incomplete:
+                incomplete = True
+            codes = tuple(item.product_code for item in found.candidates)
             outcomes.append(
-                Prediction(case.truth.query_id, "SIMILAR", tuple(x.product_code for x in near))
+                Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes)
             )
-            continue
-        if semantic is None:
-            outcomes.append(Prediction(case.truth.query_id, "NO_MATCH", ()))
-            continue
-        found = semantic.search(data, refs, limit=5)
-        if found.unavailable:
-            unavailable = True
-        if found.incomplete:
-            incomplete = True
-        codes = tuple(item.product_code for item in found.candidates)
-        outcomes.append(Prediction(case.truth.query_id, "SIMILAR" if codes else "NO_MATCH", codes))
+        finally:
+            timings_ms.append((perf_counter() - started) * 1000)
     totals = evaluate([case.truth for case in cases], outcomes)
     cases_by_id = {case.truth.query_id: case.truth for case in cases}
     negative_cases = [case for case in cases if case.truth.exact_code is None]
@@ -235,7 +263,14 @@ def evaluate_photos(
                 len(negatives),
             ),
         }
-    return PhotoEvaluation(tuple(outcomes), totals, scenarios, unavailable, incomplete)
+    return PhotoEvaluation(
+        tuple(outcomes),
+        totals,
+        scenarios,
+        unavailable,
+        incomplete,
+        summarize_latency_ms(timings_ms),
+    )
 
 
 async def run_evaluation(
@@ -279,6 +314,7 @@ async def run_evaluation(
         "manifest_sha256": sha256(manifest.read_bytes()).hexdigest(),
         "metrics": result.totals,
         "by_scenario": result.scenarios,
+        "local_latency_ms": result.latency_ms,
     }
 
 

@@ -321,3 +321,9 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       removal, source path changes and use only the current DB reference list.
 - [ ] Measure cold vs warm p50/p95 against private 100–500-image corpora on Kali;
       an in-process cache does not replace persistent ANN or calibrated negatives.
+
+- [x] Extend owner-only photo holdout evaluator with aggregate per-query local
+      p50/p95/max processing duration; retain no image paths, case IDs, scores,
+      or raw user photos in the published report.
+- [ ] Measure separate true Telegram upload-to-reply p95 on the owner staging
+      bot: offline evaluator excludes Telegram transfer/DB/startup latency.
