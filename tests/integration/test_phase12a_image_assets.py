@@ -47,6 +47,7 @@ from office_assistant.infrastructure.database.models import (
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.internal_evidence.delivery import FileDeliveryError, SourceFileDeliveryService
 from office_assistant.processing.document_visual_candidates import active_document_images
 from office_assistant.processing.image_assets import ImageAssetRegistry
 from office_assistant.processing.semantic_visual import CLIP_DIMENSION, SemanticVisualSearch
@@ -619,6 +620,12 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
                 source.origin == ImageAssetOrigin.DOCX_EMBEDDED
                 for source in sources if source.source_file_id == file_id
             )
+        delivery = SourceFileDeliveryService(factory, storage)
+        original = await delivery.resolve_catalog_original(
+            TELEGRAM_USER_ID, file_id=file_id, occurrence_id=occurrences[0].id
+        )
+        assert original.filename == "embedded-photo.docx"
+        assert original.path.read_bytes() == document
         # A deleted original cannot stay visible merely because its vectors exist.
         async with factory.begin() as session:
             original = await session.get(FileObject, file_id)
@@ -627,5 +634,9 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
         async with factory() as session:
             sources, _ = await active_document_images(session)
             assert all(source.source_file_id != file_id for source in sources)
+        with pytest.raises(FileDeliveryError):
+            await delivery.resolve_catalog_original(
+                TELEGRAM_USER_ID, file_id=file_id, occurrence_id=occurrences[0].id
+            )
 
     _scenario(behavior)
