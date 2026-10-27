@@ -166,7 +166,7 @@ def find_document_images(
     return hits, len(sources) > MAX_DOCUMENT_IMAGES or result.incomplete, result.unavailable
 
 
-def _location(source: DocumentImageSource) -> str:
+def document_image_location(source: DocumentImageSource) -> str:
     locator = source.locator
     if source.origin == ImageAssetOrigin.PDF_EMBEDDED:
         page = locator.get("page")
@@ -201,7 +201,7 @@ def render_document_image_hits(
         filename = " ".join(hit.source.filename.split())[:96]
         kind = hit.source.origin.replace("_EMBEDDED", "")
         lines.append(f"{position}. {filename} ({kind})")
-        lines.append(f"   Yer: {_location(hit.source)}")
+        lines.append(f"   Yer: {document_image_location(hit.source)}")
         lines.append(
             "   Uyğunluq: fərqli foto üzrə ehtimal"
             if hit.match_type == "semantic"
