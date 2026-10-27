@@ -143,3 +143,23 @@ unrelated-object candidate rate and warm p95 before enabling the Telegram
 flag. Existing `VISUAL_SEMANTIC_MIN_SCORE=0.60` is CLIP-derived and is
 **not** a calibrated DINOv2 threshold. Copy no public-test catalog SQLite
 rows or user photos across repositories; preserve PostgreSQL as authority.
+
+## 12. Process-local verified vector hot cache (2026-10-27)
+
+The semantic shortlist now stores **only per-reference normalized vectors** in a
+bounded in-memory cache after the source bytes have passed the existing
+SHA-256 content check. Every query still reads a fresh, authorized active
+reference list from the application database; an explicitly revoked relation
+is **never** made active by the cache. A cache hit requires the same current
+resolved storage path, device, inode, size, `mtime_ns` and `ctime_ns`.
+Changed, missing or escaped paths fail closed and must be hashed again before
+scoring. No original reference bytes, query image, or query vector are kept in
+this hot cache. The process retains at most `2 * max_references` vector entries.
+
+This is **not** a Qdrant ANN product image index, nor a cryptographic guarantee
+against a privileged filesystem adversary who can forge unchanged metadata.
+The first lookup after a process restart still verifies all selected sources;
+repeated warm lookups avoid repetitive disk reads and SHA work. End-to-end
+latency, multi-angle accuracy, and a calibrated DINO threshold remain separate
+real-photo acceptance gates; no product identity or stock is asserted from a
+semantic score.
