@@ -140,6 +140,11 @@ from office_assistant.internal_evidence.models import ImageReading, InternalAnsw
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.catalog_category_verifier import local_category_verifier
+from office_assistant.processing.document_visual_candidates import (
+    active_document_images,
+    find_document_images,
+    render_document_image_hits,
+)
 from office_assistant.processing.catalog_visual_candidates import (
     MAX_PDF_REFERENCES,
     PdfImageSource,
@@ -2640,6 +2645,68 @@ async def handle_catalog_product_add_callback(
     )
 
 
+async def _reply_document_catalog_candidates(
+    message: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    actor_telegram_user_id: int,
+    image_bytes: bytes,
+) -> bool:
+    """Find evidence in currently active PDF, DOCX and XLSX parent documents.
+
+    Document images are not authoritative product references. The actor-bound
+    ticket resolves the original active file again on each download.
+    """
+
+    if services.session_factory is None or services.storage is None:
+        return False
+    async with services.session_factory() as session:
+        sources, incomplete = await active_document_images(session)
+    if not sources:
+        return False
+    try:
+        hits, limited, unavailable = await asyncio.wait_for(
+            asyncio.to_thread(
+                find_document_images,
+                image_bytes,
+                sources,
+                services.storage.root,
+                semantic=services.semantic_visual,
+            ),
+            timeout=8.0,
+        )
+    except TimeoutError:
+        logger.info("Document image source lookup timed out")
+        return False
+    if unavailable:
+        logger.info("Document image semantic lookup unavailable")
+    if not hits:
+        return False
+    data = getattr(context, "user_data", None)
+    ticket = issue_catalog_ticket(
+        actor_telegram_user_id,
+        tuple(
+            PdfPageCandidate(
+                hit.source.filename,
+                0,
+                0,
+                source_file_id=hit.source.source_file_id,
+                occurrence_id=hit.source.occurrence_id,
+            )
+            for hit in hits
+        ),
+    )
+    if data is not None:
+        data.pop(CATALOG_SOURCE_TICKET_KEY, None)
+        if ticket is not None:
+            data[CATALOG_SOURCE_TICKET_KEY] = ticket
+    await message.reply_text(
+        render_document_image_hits(hits, incomplete=incomplete or limited),
+        reply_markup=_catalog_source_keyboard(ticket) if data is not None else _answer_keyboard(),
+    )
+    return True
+
+
 async def _reply_pdf_catalog_candidates(
     message: Message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -2927,8 +2994,8 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
                 "İstinad yoxdursa, fərqli bucaqdan dəqiq tanınma mümkün olmaya bilər."
             )
             return
-        if await _reply_pdf_catalog_candidates(
-            message, context, services, identity.telegram_user_id, picture, quick_only=True
+        if await _reply_document_catalog_candidates(
+            message, context, services, identity.telegram_user_id, picture
         ):
             return
         if semantic_unavailable:
