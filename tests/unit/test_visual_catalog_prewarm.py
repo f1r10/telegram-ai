@@ -17,19 +17,19 @@ def test_visual_catalog_dry_run_covers_more_than_eighty_products(
         del settings, limit
         return [SemanticReference(f"SKU{i}", f"photo{i}.jpg", "a" * 64) for i in range(120)]
 
-    async def pdf(settings: Settings, *, limit: int) -> list[SemanticReference]:
+    async def documents(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
         return [SemanticReference("1", "asset.jpg", "b" * 64)]
 
     monkeypatch.setattr(prepare_visual_catalog, "approved_references", approved)
-    monkeypatch.setattr(prepare_visual_catalog, "pdf_image_references", pdf)
+    monkeypatch.setattr(prepare_visual_catalog, "document_image_references", documents)
     summary = asyncio.run(
         prepare_visual_catalog.prepare_catalog(
             Settings(file_storage_path=str(tmp_path)), apply=False, limit=500
         )
     )
     assert summary.approved == 120
-    assert summary.pdf == 1
+    assert summary.documents == 1
     assert summary.prepared == 0
     assert not summary.unavailable
     assert not summary.truncated
@@ -42,7 +42,7 @@ def test_visual_catalog_prewarms_both_sources_and_preserves_failure(
         del settings, limit
         return [SemanticReference("SKU1", "photo.jpg", "a" * 64)]
 
-    async def pdf(settings: Settings, *, limit: int) -> list[SemanticReference]:
+    async def documents(settings: Settings, *, limit: int) -> list[SemanticReference]:
         del settings, limit
         return [SemanticReference("1", "pdf.jpg", "b" * 64)]
 
@@ -56,14 +56,14 @@ def test_visual_catalog_prewarms_both_sources_and_preserves_failure(
             return ReferenceWarmResult(len(references), len(references), 0, False)
 
     monkeypatch.setattr(prepare_visual_catalog, "approved_references", approved)
-    monkeypatch.setattr(prepare_visual_catalog, "pdf_image_references", pdf)
+    monkeypatch.setattr(prepare_visual_catalog, "document_image_references", documents)
     monkeypatch.setattr(prepare_visual_catalog, "SemanticVisualSearch", Encoder)
     summary = asyncio.run(
         prepare_visual_catalog.prepare_catalog(
             Settings(file_storage_path=str(tmp_path)), apply=True, limit=500
         )
     )
-    assert (summary.approved, summary.pdf, summary.prepared) == (1, 1, 2)
+    assert (summary.approved, summary.documents, summary.prepared) == (1, 1, 2)
     assert not summary.unavailable
 
 
