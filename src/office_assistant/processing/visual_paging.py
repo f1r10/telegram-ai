@@ -25,9 +25,7 @@ class RankedPage:
     has_next: bool
 
 
-def indexed_page(
-    result: IndexedResults, page: int, *, size: int = PAGE_SIZE
-) -> RankedPage:
+def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) -> RankedPage:
     if size < 1 or size > 10 or page < 0:
         raise ValueError("Invalid visual page")
     merged: list[tuple[str, float, IndexedProduct | IndexedDocument]] = [
@@ -42,7 +40,7 @@ def indexed_page(
     selected = merged[page * size : (page + 1) * size]
     lines = [
         "📁 DINOv2 — BÜTÜN AKTİV ŞƏKİL İNDEKSİ",
-        f"Nəticə: {len(merged)} ən güclü namizəd | Səhifə: {page+1}/{pages}",
+        f"Nəticə: {len(merged)} ən güclü namizəd | Səhifə: {page + 1}/{pages}",
         "",
     ]
     docs: list[IndexedDocument] = []
