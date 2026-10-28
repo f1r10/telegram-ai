@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
@@ -184,7 +185,7 @@ class VisualANNIndex:
         """
         if not 1 <= batch_size <= 256:
             raise ValueError("Invalid reconciliation batch size")
-        offset: int | str | None = None
+        offset: models.ExtendedPointId | None = None
         scanned = removed = 0
         while True:
             records, next_offset = await self.client.scroll(
@@ -276,13 +277,15 @@ class VisualANNIndex:
             if stale:
                 await self.client.delete(
                     collection_name=self.collection,
-                    points_selector=models.PointIdsList(points=stale),
+                    points_selector=models.PointIdsList(
+                        points=[cast(models.ExtendedPointId, value) for value in stale]
+                    ),
                     wait=True,
                 )
                 removed += len(stale)
             if next_offset is None:
                 break
-            offset = next_offset
+            offset = cast(models.ExtendedPointId | None, next_offset)
         return scanned, removed
 
 
