@@ -96,7 +96,9 @@ class PhotoLookupResult:
             "notice": self.notice,
         }
         if self.ranked:
-            result["ranked"] = list(self.ranked)
+            # Never mutate reusable result objects while replacing private
+            # occurrence IDs with actor-specific short-lived source tickets.
+            result["ranked"] = [dict(candidate) for candidate in self.ranked]
         if self.documents:
             result["sources"] = [
                 {
