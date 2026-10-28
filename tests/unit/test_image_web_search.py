@@ -10,6 +10,7 @@ from PIL import Image
 
 from office_assistant.web_evidence.image_search import (
     ImageWebSearchBlocked,
+    ImageWebSearchUnavailable,
     YandexReverseImageSearch,
     image_web_page,
     parse_yandex_results,
@@ -108,7 +109,7 @@ def test_wrong_content_never_becomes_successful_search() -> None:
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             service = YandexReverseImageSearch(client=client)
-            with pytest.raises(Exception):
+            with pytest.raises(ImageWebSearchUnavailable):
                 await service.search(picture())
 
     asyncio.run(scenario())
