@@ -29,6 +29,7 @@ from office_assistant.processing.image_similarity import VisualCandidate, shortl
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 
 DOCUMENT_IMAGE_ORIGINS = (
+    ImageAssetOrigin.STANDALONE_UPLOAD,
     ImageAssetOrigin.PDF_EMBEDDED,
     ImageAssetOrigin.DOCX_EMBEDDED,
     ImageAssetOrigin.XLSX_EMBEDDED,
@@ -57,7 +58,7 @@ class DocumentImageHit:
 async def active_document_images(
     session: AsyncSession, *, limit: int = MAX_DOCUMENT_IMAGES
 ) -> tuple[list[DocumentImageSource], bool]:
-    """Read only embedded pictures whose parent file is currently ACTIVE.
+    """Read any indexed image, standalone or embedded, of an ACTIVE parent file.
 
     Return a truncation flag instead of misrepresenting a 500-picture sample
     as coverage of all documents.
@@ -173,6 +174,8 @@ def find_document_images(
 
 def document_image_location(source: DocumentImageSource) -> str:
     locator = source.locator
+    if source.origin == ImageAssetOrigin.STANDALONE_UPLOAD:
+        return "ayrıca saxlanmış şəkil"
     if source.origin == ImageAssetOrigin.PDF_EMBEDDED:
         page = locator.get("page")
         return f"səhifə {page}" if type(page) is int and page > 0 else "səhifə naməlum"

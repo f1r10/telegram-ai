@@ -42,6 +42,7 @@ from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
+from office_assistant.processing.visual_ann import IndexedVisualLookup, VisualANNIndex
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
 from office_assistant.web_evidence.image_search import YandexReverseImageSearch
@@ -212,6 +213,20 @@ def main() -> None:
         )
         photo_web = YandexReverseImageSearch()
         web_clients.append(photo_web)
+        visual_index = (
+            VisualANNIndex(settings.qdrant_url)
+            if settings.qdrant_url
+            and semantic_visual is not None
+            and settings.visual_semantic_model_version == "dinov2-small-mean-v1"
+            else None
+        )
+        if visual_index is not None:
+            web_clients.append(visual_index)
+        indexed_lookup = (
+            IndexedVisualLookup(session_factory, visual_index, semantic_visual)
+            if visual_index is not None and semantic_visual is not None
+            else None
+        )
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
@@ -236,6 +251,7 @@ def main() -> None:
             photo_priority_sites=PrioritySitesService(session_factory),
             image_reader=image_reader,
             semantic_visual=semantic_visual,
+            indexed_visual=indexed_lookup,
             reminders=ReminderService(session_factory, clock=SystemClock()),
             reference_images=ReferenceImageService(session_factory, storage),
             sales=SalesLedgerService(session_factory),

@@ -371,6 +371,28 @@ class SemanticVisualSearch:
         finally:
             self._lock.release()
 
+    def query_vector(self, body: bytes) -> tuple[float, ...] | None:
+        """No query photo/vector persists: inference is offline and ephemeral."""
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError("Visual model is busy")
+        try:
+            return self._vector(body, sha256(body).hexdigest(), cacheable=False)
+        finally:
+            self._lock.release()
+
+    def source_vector(self, reference: SemanticReference) -> tuple[float, ...] | None:
+        """Warm only digest-verified catalog assets; independent of product authority."""
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError("Visual model is busy")
+        try:
+            return self._reference_vector(reference)
+        finally:
+            self._lock.release()
+
+    def verify_source(self, storage_key: str, digest: str) -> bool:
+        """ANN candidate must still match current source SHA, not just Qdrant metadata."""
+        return self._verified_reference(SemanticReference("", storage_key, digest)) is not None
+
     def search(
         self,
         image_bytes: bytes,

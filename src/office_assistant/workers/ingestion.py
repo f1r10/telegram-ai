@@ -22,6 +22,7 @@ from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
+from office_assistant.processing.visual_ann import VisualANNIndex
 from office_assistant.processing.worker_service import IngestionJobService, worker_id
 from office_assistant.reminders.dispatch import ReminderDispatchService
 
@@ -33,6 +34,13 @@ async def run() -> None:
     # The writer of leases and reminder deadlines must agree with the server that stamps them.
     await check_clock_drift(engine, threshold_seconds=settings.clock_drift_warning_seconds)
     factory = create_session_factory(engine)
+    visual_ann = (
+        VisualANNIndex(settings.qdrant_url)
+        if settings.qdrant_url
+        and settings.visual_semantic_enabled
+        and settings.visual_semantic_model_version == "dinov2-small-mean-v1"
+        else None
+    )
     service = IngestionJobService(
         factory,
         LocalFileStorage(settings.file_storage_path),
@@ -60,6 +68,7 @@ async def run() -> None:
         index_embedding_model=settings.embedding_model,
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
+        visual_ann=visual_ann,
         visual_semantic=(
             SemanticVisualSearch(
                 storage_root=Path(settings.file_storage_path),
@@ -165,6 +174,8 @@ async def run() -> None:
                 continue
             await service.process(claim)
     finally:
+        if visual_ann is not None:
+            await visual_ann.close()
         if qdrant_store is not None:
             await qdrant_store.close()
         if extraction_model is not None:

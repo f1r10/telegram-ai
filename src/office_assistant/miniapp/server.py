@@ -38,6 +38,7 @@ from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
+from office_assistant.processing.visual_ann import IndexedVisualLookup, VisualANNIndex
 from office_assistant.web_evidence.image_search import YandexReverseImageSearch
 from office_assistant.web_evidence.priority_sites import PrioritySitesService
 
@@ -66,6 +67,7 @@ def main() -> None:
     ai: OpenAILanguageModel | None = None
     qdrant: QdrantKnowledgeStore | None = None
     evidence: InternalEvidenceService | None = None
+    visual_ann: VisualANNIndex | None = None
     photo_web = YandexReverseImageSearch()
 
     try:
@@ -135,6 +137,13 @@ def main() -> None:
             if settings.visual_semantic_enabled
             else None
         )
+        visual_ann = (
+            VisualANNIndex(settings.qdrant_url)
+            if visual is not None
+            and settings.qdrant_url
+            and settings.visual_semantic_model_version == "dinov2-small-mean-v1"
+            else None
+        )
         backend = MiniAppBackend(
             session_factory,
             bot_token=settings.telegram_bot_token.get_secret_value(),
@@ -155,6 +164,11 @@ def main() -> None:
                 session_factory,
                 storage_root=storage.root,
                 semantic=visual,
+                indexed=(
+                    IndexedVisualLookup(session_factory, visual_ann, visual)
+                    if visual_ann is not None and visual is not None
+                    else None
+                ),
             ),
             photo_web=photo_web,
             photo_priority_sites=PrioritySitesService(session_factory),
@@ -194,6 +208,8 @@ def main() -> None:
             if qdrant is not None:
                 await qdrant.close()
             await photo_web.close()
+            if visual_ann is not None:
+                await visual_ann.close()
             await engine.dispose()
 
         task = asyncio.run_coroutine_threadsafe(close_resources(), loop)

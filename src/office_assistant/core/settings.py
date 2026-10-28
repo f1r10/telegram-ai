@@ -104,9 +104,9 @@ class Settings(BaseSettings):
     openai_max_output_tokens: int = 700
     vision_model: str = "gpt-4o-mini"
     vision_max_image_bytes: int = 4 * 1024 * 1024
-    visual_semantic_enabled: bool = False
-    visual_semantic_model_version: str = "clip-vit-b32-v1"
-    visual_semantic_min_score: float = Field(default=0.60, ge=0.0, le=1.0)
+    visual_semantic_enabled: bool = True
+    visual_semantic_model_version: str = "dinov2-small-mean-v1"
+    visual_semantic_min_score: float = Field(default=0.82, ge=0.0, le=1.0)
     visual_semantic_max_references: int = Field(default=500, ge=1, le=500)
     rag_retrieval_limit: int = 5
     rag_max_context_tokens: int = 3200
