@@ -185,3 +185,22 @@ this does not magically provision weights, install the Kali image or validate
 real cross-angle recall. Full CPU deployment, index freshness metrics and
 real-phone false-positive / p95 acceptance remain to be verified on the actual
 Kali staging VM. Do not expose the model to production before these tests.
+
+## V1 derived-index reconciliation (2026-10-28)
+
+On `rebuild_visual_ann --apply`, the full active PostgreSQL corpus is
+re-indexed in bounded batches **before** the readiness flag is set. A final
+Qdrant scroll reconciles old visual points against current ACTIVE files and
+human-confirmed product relations, deletes revoked/superseded/changed-digest
+points from the **derived visual collection only**, and emits aggregate
+`VISUAL_ANN_RECONCILE inspected=N pruned=M`. Original uploads, business
+facts and text RAG indexes are untouched. If indexing or reconciliation
+fails, the index remains in `building` state: the bot must not claim it
+searched every active image. This is not a background maintenance service;
+repeat after a large import or authority change before final UAT.
+
+Search may overfetch up to 120 ANN vector candidates to recover up to 40
+currently valid results after revocation filtering. This is a **candidate
+window**, not an archive-size cap. Every shown result retains ACTIVE
+PostgreSQL/SHA source checks; a real-world p95 performance claim still
+requires an owner-supplied Kali benchmark.
