@@ -34,8 +34,10 @@ def test_ann_upserts_normalized_dimensions_only() -> None:
                 points=[
                     SimpleNamespace(
                         payload={
-                            "kind": "document", "record_id": "123",
-                            "digest": "a" * 64, "version": DINO_MODEL_VERSION,
+                            "kind": "document",
+                            "record_id": "123",
+                            "digest": "a" * 64,
+                            "version": DINO_MODEL_VERSION,
                         },
                         score=0.94,
                     ),
@@ -48,12 +50,15 @@ def test_ann_upserts_normalized_dimensions_only() -> None:
         client = FakeClient()
         index.client = cast(type(index.client), client)
         vector = (1.0,) + (0.0,) * (DINO_DIMENSION - 1)
-        assert await index.upsert(
-            [
-                IndexedVisualPoint("document", "123", "a" * 64, vector),
-                IndexedVisualPoint("document", "bad", "a" * 64, (1.0,)),
-            ]
-        ) == 1
+        assert (
+            await index.upsert(
+                [
+                    IndexedVisualPoint("document", "123", "a" * 64, vector),
+                    IndexedVisualPoint("document", "bad", "a" * 64, (1.0,)),
+                ]
+            )
+            == 1
+        )
         assert len(client.points) == 1
         rows = await index.query(vector)
         assert rows == [("document", "123", "a" * 64, 0.94)]
