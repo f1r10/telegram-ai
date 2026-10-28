@@ -10,9 +10,9 @@ from __future__ import annotations
 # Qdrant's generated client types are dynamic; narrow results at this boundary.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 
+import asyncio
 import logging
 from dataclasses import dataclass
-from hashlib import sha256
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
@@ -24,10 +24,10 @@ from office_assistant.infrastructure.database.models import (
     FileObjectState,
     ImageAsset,
     ImageAssetOccurrence,
-    ImageAssetOrigin,
     Product,
     ProductImageRelation,
     ProductImageRelationConfirmation,
+    SystemMetadata,
 )
 from office_assistant.processing.document_visual_candidates import (
     DOCUMENT_IMAGE_ORIGINS,
@@ -183,12 +183,21 @@ class IndexedVisualLookup:
     async def search(self, body: bytes) -> IndexedResults:
         if self.encoder.version != DINO_MODEL_VERSION:
             return IndexedResults((), (), unavailable=True)
+        # Never claim an incomplete first-batch index covers the entire archive.
+        async with self.factory() as session:
+            ready = await session.scalar(
+                select(SystemMetadata.value).where(
+                    SystemMetadata.key == "office_visual_dino_ann_ready_v1"
+                )
+            )
+        if ready != "ready":
+            return IndexedResults((), (), unavailable=True)
         try:
-            vector = self.encoder.query_vector(body)
+            vector = await asyncio.to_thread(self.encoder.query_vector, body)
             if vector is None:
                 return IndexedResults((), ())
             points = await self.index.query(vector)
-        except (OSError, ValueError, RuntimeError, ImportError, Exception) as error:
+        except Exception as error:  # noqa: BLE001 - remote ANN must fail closed
             logger.warning("Visual ANN unavailable | type=%s", type(error).__name__)
             return IndexedResults((), (), unavailable=True)
         products: dict[str, IndexedProduct] = {}
@@ -258,7 +267,9 @@ class IndexedVisualLookup:
                     file_id, name, origin, locator, key, sha = row
                     if sha != digest or not self.encoder.verify_source(key, sha):
                         continue
-                    source = DocumentImageSource(occurrence_id, file_id, name, origin, locator, key, sha)
+                    source = DocumentImageSource(
+                        occurrence_id, file_id, name, origin, locator, key, sha
+                    )
                     documents.append(IndexedDocument(source, score))
         return IndexedResults(
             tuple(sorted(products.values(), key=lambda item: -item.score)),
