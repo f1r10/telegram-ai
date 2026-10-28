@@ -17,12 +17,17 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from office_assistant.infrastructure.database.models import (
     FileObject,
     FileObjectState,
     ImageAsset,
     ImageAssetOccurrence,
+    ImageAssetOrigin,
+    IngestionItemType,
+    IngestionSession,
+    IngestionSessionItem,
     Product,
     ProductImageRelation,
     ProductImageRelationConfirmation,
@@ -265,8 +270,34 @@ class IndexedVisualLookup:
                     file_id, name, origin, locator, key, sha = row
                     if sha != digest or not self.encoder.verify_source(key, sha):
                         continue
+                    description = ""
+                    if origin == ImageAssetOrigin.STANDALONE_UPLOAD:
+                        file_item = aliased(IngestionSessionItem)
+                        instruction = aliased(IngestionSessionItem)
+                        description_row = await session.scalar(
+                            select(instruction.text_content)
+                            .select_from(file_item)
+                            .join(
+                                IngestionSession,
+                                IngestionSession.id == file_item.session_id,
+                            )
+                            .join(
+                                instruction,
+                                instruction.session_id == file_item.session_id,
+                            )
+                            .where(
+                                file_item.file_object_id == file_id,
+                                IngestionSession.status == "COMMITTED",
+                                instruction.item_type == IngestionItemType.INSTRUCTION,
+                                instruction.text_content.like("BİR ŞƏKİL QRUPU (%"),
+                            )
+                            .order_by(instruction.id.desc())
+                            .limit(1)
+                        )
+                        if isinstance(description_row, str):
+                            description = description_row.split("):", 1)[-1].strip()[:600]
                     source = DocumentImageSource(
-                        occurrence_id, file_id, name, origin, locator, key, sha
+                        occurrence_id, file_id, name, origin, locator, key, sha, description
                     )
                     documents.append(IndexedDocument(source, score))
         return IndexedResults(

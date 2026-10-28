@@ -155,7 +155,6 @@ from office_assistant.processing.catalog_visual_candidates import (
     semantic_pdf_image_candidates,
 )
 from office_assistant.processing.document_visual_candidates import (
-    DocumentImageHit,
     active_document_images,
     find_document_images,
     render_document_image_hits,
@@ -164,7 +163,8 @@ from office_assistant.processing.image_similarity import VisualCandidate, shortl
 from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
-from office_assistant.processing.visual_ann import IndexedVisualLookup
+from office_assistant.processing.visual_ann import IndexedResults, IndexedVisualLookup
+from office_assistant.processing.visual_paging import indexed_page
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.image_search import (
@@ -2872,11 +2872,71 @@ async def _reply_pdf_catalog_candidates(
     return True
 
 
+async def _send_indexed_visual_page(
+    message: Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    actor_id: int,
+    result: IndexedResults,
+    *,
+    photo_index: int = 0,
+    page: int = 0,
+    query: CallbackQuery | None = None,
+) -> None:
+    """Five ranked product/source candidates; expiring file buttons and live paging."""
+
+    view = indexed_page(result, page)
+    data = getattr(context, "user_data", None)
+    ticket = issue_catalog_ticket(
+        actor_id,
+        tuple(
+            PdfPageCandidate(
+                item.source.filename,
+                0,
+                0,
+                source_file_id=item.source.source_file_id,
+                occurrence_id=item.source.occurrence_id,
+            )
+            for item in view.docs
+        ),
+    )
+    if data is not None:
+        data.pop(CATALOG_SOURCE_TICKET_KEY, None)
+        if ticket is not None:
+            data[CATALOG_SOURCE_TICKET_KEY] = ticket
+    keyboard = _catalog_source_keyboard(ticket)
+    rows = [list(row) for row in keyboard.inline_keyboard]
+    state = data.get(PHOTO_FLOW_KEY) if data is not None else None
+    if isinstance(state, PhotoFlow) and state.valid(actor_id):
+        navigation: list[InlineKeyboardButton] = []
+        if view.has_previous:
+            navigation.append(
+                InlineKeyboardButton(
+                    "⬅️ Geri",
+                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page - 1}",
+                )
+            )
+        if view.has_next:
+            navigation.append(
+                InlineKeyboardButton(
+                    "İrəli ➡️",
+                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page + 1}",
+                )
+            )
+        if navigation:
+            rows.append(navigation)
+    markup = InlineKeyboardMarkup(rows)
+    if query is not None:
+        await query.edit_message_text(view.text, reply_markup=markup)
+        return
+    await message.reply_text(view.text, reply_markup=markup)
+
+
 async def _handle_exact_photo_lookup(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
     image_bytes: bytes | None = None,
+    photo_index: int = 0,
 ) -> None:
     """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
@@ -2936,47 +2996,12 @@ async def _handle_exact_photo_lookup(
             if services.indexed_visual is not None:
                 indexed = await services.indexed_visual.search(picture)
                 if not indexed.unavailable:
-                    if indexed.products:
-                        lines = "\\n".join(
-                            f"• {item.code} — oxşarlıq balı {item.score:.3f}"
-                            for item in indexed.products[:5]
-                        )
-                        await message.reply_text(
-                            "📦 DINOv2 / BÜTÜN BAZADA NAMİZƏDLƏR\\n\\n"
-                            + lines
-                            + "\\n\\nBunlar təsdiqlənmiş kod əlaqələrindən alınan "
-                            "vizual namizədlərdir, avtomatik məhsul və stok təsdiqi deyil."
-                        )
-                        return
-                    if indexed.documents:
-                        hits = tuple(
-                            DocumentImageHit(item.source, "semantic", item.score)
-                            for item in indexed.documents[:5]
-                        )
-                        ticket = issue_catalog_ticket(
-                            identity.telegram_user_id,
-                            tuple(
-                                PdfPageCandidate(
-                                    hit.source.filename,
-                                    0,
-                                    0,
-                                    source_file_id=hit.source.source_file_id,
-                                    occurrence_id=hit.source.occurrence_id,
-                                )
-                                for hit in hits
-                            ),
-                        )
-                        if data is not None and ticket is not None:
-                            data[CATALOG_SOURCE_TICKET_KEY] = ticket
-                        await message.reply_text(
-                            render_document_image_hits(hits),
-                            reply_markup=_catalog_source_keyboard(ticket),
-                        )
-                        return
-                    await message.reply_text(
-                        "Bütün aktiv vizual indeksdə bu foto üzrə kifayət qədər "
-                        "güclü namizəd tapılmadı. Şəkil əsasında məhsulun bazada "
-                        "olmadığını qəti söyləmək mümkün deyil."
+                    await _send_indexed_visual_page(
+                        message,
+                        context,
+                        identity.telegram_user_id,
+                        indexed,
+                        photo_index=photo_index,
                     )
                     return
             asset_id = await session.scalar(
@@ -3267,6 +3292,34 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             reply_markup=_web_photo_keyboard(flow, photo_index, page),
         )
         return
+    if action == "dbpg" and len(parts) == 5:
+        if services.indexed_visual is None or update.effective_message is None:
+            await query.edit_message_text("Tam vizual indeks hələ hazır deyil.")
+            return
+        try:
+            photo_index, page = int(parts[3]), int(parts[4])
+            if not (0 <= photo_index < len(flow.photos)) or not 0 <= page < 8:
+                raise ValueError
+        except ValueError:
+            await query.edit_message_text("Nəticə səhifəsi etibarsızdır.")
+            return
+        try:
+            body = await _photo_download(context, flow.photos[photo_index].file_id)
+            indexed = await services.indexed_visual.search(body)
+            if indexed.unavailable:
+                raise RuntimeError("DINO index unavailable")
+            await _send_indexed_visual_page(
+                update.effective_message,
+                context,
+                identity.telegram_user_id,
+                indexed,
+                photo_index=photo_index,
+                page=page,
+                query=query,
+            )
+        except (ValueError, RuntimeError, OSError, TelegramError):
+            await query.edit_message_text("Nəticə yenilənmədi. Şəkli yenidən axtarın.")
+        return
     if len(parts) != 3 or action not in {"save", "db", "web"}:
         return
     if action == "save":
@@ -3309,7 +3362,9 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                     chat_id=identity.telegram_user_id,
                     text=f"📷 Şəkil {position}/{len(flow.photos)}",
                 )
-            await _handle_exact_photo_lookup(update, context, image_bytes=body)
+            await _handle_exact_photo_lookup(
+                update, context, image_bytes=body, photo_index=position - 1
+            )
         return
     if services.photo_web is None:
         await query.edit_message_text("İnternet üzrə şəkil axtarışı hazırda quraşdırılmayıb.")

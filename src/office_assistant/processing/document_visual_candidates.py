@@ -46,6 +46,7 @@ class DocumentImageSource:
     locator: dict[str, object]
     storage_key: str
     content_sha256: str
+    description: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +211,8 @@ def render_document_image_hits(
         kind = hit.source.origin.replace("_EMBEDDED", "")
         lines.append(f"{position}. {filename} ({kind})")
         lines.append(f"   Yer: {document_image_location(hit.source)}")
+        if hit.source.description:
+            lines.append(f"   Məlumat: {hit.source.description[:320]}")
         lines.append(
             "   Uyğunluq: fərqli foto üzrə ehtimal"
             if hit.match_type == "semantic"
