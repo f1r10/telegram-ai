@@ -155,7 +155,6 @@ from office_assistant.processing.catalog_visual_candidates import (
     semantic_pdf_image_candidates,
 )
 from office_assistant.processing.document_visual_candidates import (
-    DocumentImageHit,
     active_document_images,
     find_document_images,
     render_document_image_hits,
@@ -163,9 +162,9 @@ from office_assistant.processing.document_visual_candidates import (
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
-from office_assistant.processing.visual_paging import indexed_page
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.processing.visual_ann import IndexedResults, IndexedVisualLookup
+from office_assistant.processing.visual_paging import indexed_page
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.image_search import (
