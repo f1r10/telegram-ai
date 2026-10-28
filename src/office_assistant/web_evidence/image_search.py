@@ -259,7 +259,9 @@ class YandexReverseImageSearch:
                     },
                     files={"upfile": ("photo.jpg", jpeg, "image/jpeg")},
                 )
-                if upload.status_code in {403, 429} or _challenge(upload.text[:8000], upload.status_code):
+                if upload.status_code in {403, 429} or _challenge(
+                    upload.text[:8000], upload.status_code
+                ):
                     raise ImageWebSearchBlocked("Yandex upload blocked")
                 upload.raise_for_status()
                 identifier = _cbir_id(upload.json())
@@ -289,7 +291,9 @@ class YandexReverseImageSearch:
                 self._blocked_until = monotonic() + BLOCK_SECONDS
                 raise
             except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as error:
-                logger.warning("Image web provider unavailable | error_type=%s", type(error).__name__)
+                logger.warning(
+                    "Image web provider unavailable | error_type=%s", type(error).__name__
+                )
                 raise ImageWebSearchUnavailable("Image search service unavailable") from error
             if len(self._cache) >= 128:
                 self._cache.clear()
@@ -325,7 +329,9 @@ class YandexReverseImageSearch:
         )
 
 
-def image_web_page(result: ImageWebResult, page: int, *, size: int = PAGE_SIZE) -> tuple[ImageWebHit, ...]:
+def image_web_page(
+    result: ImageWebResult, page: int, *, size: int = PAGE_SIZE
+) -> tuple[ImageWebHit, ...]:
     if size <= 0 or page < 0:
         raise ValueError("Invalid page")
     return result.results[page * size : (page + 1) * size]
