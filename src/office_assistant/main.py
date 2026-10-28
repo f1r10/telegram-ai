@@ -215,7 +215,8 @@ def main() -> None:
         web_clients.append(photo_web)
         visual_index = (
             VisualANNIndex(settings.qdrant_url)
-            if settings.qdrant_url and semantic_visual is not None
+            if settings.qdrant_url
+            and semantic_visual is not None
             and settings.visual_semantic_model_version == "dinov2-small-mean-v1"
             else None
         )
