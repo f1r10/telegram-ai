@@ -585,9 +585,7 @@ class MiniAppBackend:
             result = await self.photo_lookup.lookup(image_bytes)
         return result.payload()
 
-    async def photo_web_search(
-        self, init_data: str, *, image_bytes: bytes
-    ) -> dict[str, object]:
+    async def photo_web_search(self, init_data: str, *, image_bytes: bytes) -> dict[str, object]:
         """Explicit, signed consent to send exactly this photo to Yandex."""
 
         actor = await self.actor(init_data)
