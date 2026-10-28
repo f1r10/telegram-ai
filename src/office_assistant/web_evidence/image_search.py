@@ -126,10 +126,11 @@ def _decode_states(markup: str) -> list[dict[str, object]]:
         except (ValueError, TypeError):
             continue
         for candidate in (_item(decoded).get("initialState"), _item(decoded).get("state"), decoded):
-            if isinstance(candidate, dict) and any(
-                str(key).startswith("cbir") for key in candidate
-            ):
-                found.append(cast(dict[str, object], candidate))
+            if not isinstance(candidate, dict):
+                continue
+            fields = cast(dict[str, object], candidate)
+            if any(str(key).startswith("cbir") for key in fields):
+                found.append(fields)
                 break
     return found
 
@@ -273,7 +274,7 @@ def _challenge(body: str, status: int) -> bool:
 def _ranked(
     data: ImageWebResult, preferred_domains: tuple[str, ...], *, cache_hit: bool = False
 ) -> ImageWebResult:
-    hits = []
+    hits: list[ImageWebHit] = []
     for hit in data.results:
         preferred = any(
             hit.domain == domain or hit.domain.endswith("." + domain)
