@@ -46,7 +46,7 @@ _STATIC = {
 }
 _CSP = (
     "default-src 'none'; script-src 'self' https://telegram.org; "
-    "style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "style-src 'self'; img-src 'self' data: https:; connect-src 'self'; "
     "base-uri 'none'; form-action 'none'; object-src 'none'; "
     "frame-ancestors https://web.telegram.org https://*.telegram.org"
 )
@@ -536,7 +536,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             logger.warning("Mini App upload failed | error_type=%s", type(error).__name__)
             self._json(503, {"error": "service_unavailable"})
 
-    def _photo_lookup(self, signed: str) -> None:
+    def _photo_lookup(self, signed: str, *, web: bool = False) -> None:
         """Accept one bounded ephemeral JPEG/PNG without creating an upload."""
 
         lengths = self.headers.get_all("Content-Length", [])
@@ -567,7 +567,12 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             signature = image_signature(photo)
             if signature is None or signature.mime_type != media[0]:
                 raise InvalidLookupPhoto("Photo MIME does not match the actual bytes")
-            result = self._run(self._app().backend.photo(signed, image_bytes=photo))
+            if web:
+                result = self._run(
+                    self._app().backend.photo_web_search(signed, image_bytes=photo)
+                )
+            else:
+                result = self._run(self._app().backend.photo(signed, image_bytes=photo))
             assert isinstance(result, dict)
             self._json(200, cast(dict[str, object], result))
         except (MiniAppAuthenticationError, MiniAppAccessDenied, AuthorizationDenied):
@@ -645,6 +650,16 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 self._json(401, {"error": "telegram_authorization_required"})
                 return
             self._stock_xlsx_preview(signed)
+            return
+        if path.path == "/api/photo/web" and not path.query:
+            if not self._allowed_origin():
+                self._json(403, {"error": "origin_not_allowed"})
+                return
+            signed = self._authenticate_header()
+            if signed is None:
+                self._json(401, {"error": "telegram_authorization_required"})
+                return
+            self._photo_lookup(signed, web=True)
             return
         if path.path == "/api/photo/lookup" and not path.query:
             if not self._allowed_origin():
