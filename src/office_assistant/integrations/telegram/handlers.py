@@ -1592,6 +1592,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.UNKNOWN_USER)
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
+            elif await _save_photo_album_description(update, context, user):
+                return
             elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
                 return
             elif (
