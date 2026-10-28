@@ -155,12 +155,14 @@ from office_assistant.processing.catalog_visual_candidates import (
     semantic_pdf_image_candidates,
 )
 from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
     active_document_images,
     find_document_images,
     render_document_image_hits,
 )
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
+from office_assistant.processing.visual_ann import IndexedVisualLookup
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
@@ -217,6 +219,7 @@ class TelegramServices:
     photo_priority_sites: PrioritySitesService | None = None
     image_reader: ImageVisionExtractor | None = None
     semantic_visual: SemanticVisualSearch | None = None
+    indexed_visual: IndexedVisualLookup | None = None
     reminders: ReminderService | None = None
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
@@ -2928,6 +2931,54 @@ async def _handle_exact_photo_lookup(
                     "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
                 )
                 return
+            # Full-corpus ANN is authoritative for candidate *discovery* only.
+            # All ANN hits are revalidated against ACTIVE PostgreSQL and source SHA.
+            if services.indexed_visual is not None:
+                indexed = await services.indexed_visual.search(picture)
+                if not indexed.unavailable:
+                    if indexed.products:
+                        lines = "\\n".join(
+                            f"• {item.code} — oxşarlıq balı {item.score:.3f}"
+                            for item in indexed.products[:5]
+                        )
+                        await message.reply_text(
+                            "📦 DINOv2 / BÜTÜN BAZADA NAMİZƏDLƏR\\n\\n"
+                            + lines
+                            + "\\n\\nBunlar təsdiqlənmiş kod əlaqələrindən alınan "
+                            "vizual namizədlərdir, avtomatik məhsul və stok təsdiqi deyil."
+                        )
+                        return
+                    if indexed.documents:
+                        hits = tuple(
+                            DocumentImageHit(item.source, "semantic", item.score)
+                            for item in indexed.documents[:5]
+                        )
+                        ticket = issue_catalog_ticket(
+                            identity.telegram_user_id,
+                            tuple(
+                                PdfPageCandidate(
+                                    hit.source.filename,
+                                    0,
+                                    0,
+                                    source_file_id=hit.source.source_file_id,
+                                    occurrence_id=hit.source.occurrence_id,
+                                )
+                                for hit in hits
+                            ),
+                        )
+                        if data is not None and ticket is not None:
+                            data[CATALOG_SOURCE_TICKET_KEY] = ticket
+                        await message.reply_text(
+                            render_document_image_hits(hits),
+                            reply_markup=_catalog_source_keyboard(ticket),
+                        )
+                        return
+                    await message.reply_text(
+                        "Bütün aktiv vizual indeksdə bu foto üzrə kifayət qədər "
+                        "güclü namizəd tapılmadı. Şəkil əsasında məhsulun bazada "
+                        "olmadığını qəti söyləmək mümkün deyil."
+                    )
+                    return
             asset_id = await session.scalar(
                 select(ImageAsset.id).where(ImageAsset.content_sha256 == digest)
             )
