@@ -568,9 +568,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             if signature is None or signature.mime_type != media[0]:
                 raise InvalidLookupPhoto("Photo MIME does not match the actual bytes")
             if web:
-                result = self._run(
-                    self._app().backend.photo_web_search(signed, image_bytes=photo)
-                )
+                result = self._run(self._app().backend.photo_web_search(signed, image_bytes=photo))
             else:
                 result = self._run(self._app().backend.photo(signed, image_bytes=photo))
             assert isinstance(result, dict)
