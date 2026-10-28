@@ -280,8 +280,9 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 - [x] Raise opt-in local semantic model reference coverage to 500 and provide
       a dry-run/--apply offline prewarming command for up to 500 approved photo
       references plus up to 500 embedded PDF image occurrences.
-- [ ] Add a Qdrant ANN image collection with current-reference revocation and
-      active-document provenance filtering; today's warm vector files are NOT ANN.
+- [x] Add a separate DINOv2 Qdrant ANN image collection, whole-corpus keyset
+      backfill and current active-product/document SHA verification (PR #125).
+      Live Kali backfill, stale-point cleanup and acceptance remain open.
 - [ ] Calibrate different-angle recall and unrelated-object false suggestions on
       the owner's independent private real-phone holdout before enabling semantic
       candidate display.
