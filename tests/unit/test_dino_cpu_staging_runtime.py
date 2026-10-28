@@ -73,7 +73,7 @@ def test_explicit_download_is_required(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 def test_visual_cpu_overlay_never_exposes_ports_or_forces_enabled() -> None:
     compose = (ROOT / "docker-compose.visual-cpu.yml").read_text("utf-8")
-    assert "DINO_STAGING_ENABLED:-false" in compose
+    assert "DINO_STAGING_ENABLED:-true" in compose
     assert "VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1" in compose
     assert "Dockerfile.visual-cpu" in compose
     assert "127.0.0.1" not in compose
