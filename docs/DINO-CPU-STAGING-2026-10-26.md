@@ -126,3 +126,62 @@ stored while the model is OFF, run the existing operator backfill `--apply`
 before declaring its vectors prepared. Upload-time prewarm is best effort;
 search may lazily compute missing vectors and report unavailable if the offline
 model is not installed. This does NOT auto-approve a photo as a product SKU.
+
+## Full-corpus DINOv2 ANN and standard model (2026-10-28)
+
+DINOv2 Small (`dinov2-small-mean-v1`) is the new **application default**
+for offline visual candidates. The dedicated CPU Compose overlay also enables
+the model by default. The ordinary lean Docker image does *not* bundle CPU
+Torch weights; use the reviewed `Dockerfile.visual-cpu` overlay and provision
+public model weights **once** via the existing operator-only
+`prepare_dino_runtime --download-model`. If model weights are missing,
+visual matching abstains and office/stock/document features continue working.
+
+The previous 500-image process scan is **legacy fallback only** while the full
+visual index has not been built. The new operator-only backfill streams
+PostgreSQL's entire set of ACTIVE file images and USER_EXPLICIT confirmed
+product picture relations using 64-record keyset batches; it has **no global
+500- or 10,000-image corpus limit**. It writes a separate
+`office_visual_dino_v1` Qdrant collection with cosine 384-vectors. This is
+not the existing document RAG collection. It sets a persistent
+`office_visual_dino_ann_ready_v1=ready` marker only after fully successful
+indexing with no skipped source. That marker is set to `building` before any
+write, so incomplete indexes do not claim full coverage.
+
+On Kali staging, after verifying the existing backups and preprovisioning
+DINO weights (previous sections), use the optional visual CPU image to
+dry-run the complete corpus count (no data write):
+
+```bash
+docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml --env-file .env run --rm visual-cpu-ops \
+  uv run --no-sync --no-dev python -m office_assistant.scripts.rebuild_visual_ann
+```
+
+After reviewing active source counts, run the controlled ANN backfill:
+
+```bash
+docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml --env-file .env run --rm visual-cpu-ops \
+  uv run --no-sync --no-dev python -m office_assistant.scripts.rebuild_visual_ann --apply --batch-size 64
+```
+
+Require output `VISUAL_ANN=APPLIED ... skipped=0 complete=true` before
+claiming full indexed coverage. A skipped file, missing weights or unavailable
+Qdrant is a FAILED acceptance gate. Query ANN returns at most 40 scored
+candidates for display, but its **search universe** covers every indexed
+ACTIVE source regardless of total archive size. Product candidate IDs are
+validated against current USER_EXPLICIT relations; document candidates
+against current ACTIVE original file plus SHA-256 bytes, on every query.
+
+A new upload's post-commit worker can incrementally upsert source and
+approved-product vectors to this index. It is a derived, asynchronously updated
+projection, **not** the authoritative data store. Re-run the full backfill
+after operator changes/deletes/revocations, a worker indexing failure, or a
+large historical import, before asserting complete coverage again. Old Qdrant
+points are never trusted after their parent record is deleted or loses active
+status: DB and content hash verification happen at query time.
+
+**Operational caveat:** The user explicitly requested DINO by default, but
+this does not magically provision weights, install the Kali image or validate
+real cross-angle recall. Full CPU deployment, index freshness metrics and
+real-phone false-positive / p95 acceptance remain to be verified on the actual
+Kali staging VM. Do not expose the model to production before these tests.
