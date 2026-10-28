@@ -282,6 +282,8 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       references plus up to 500 embedded PDF image occurrences.
 - [x] Add a separate DINOv2 Qdrant ANN image collection, whole-corpus keyset
       backfill and current active-product/document SHA verification (PR #125).
+      Add direct Qdrant smoke using synthetic 384-d vectors and actor-bound
+      original source downloads in Mini App. 
       Live Kali backfill, stale-point cleanup and acceptance remain open.
 - [ ] Calibrate different-angle recall and unrelated-object false suggestions on
       the owner's independent private real-phone holdout before enabling semantic
