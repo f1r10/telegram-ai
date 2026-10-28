@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import cast
 
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.processing.semantic_visual import (
@@ -48,7 +49,7 @@ def test_ann_upserts_normalized_dimensions_only() -> None:
     async def run() -> None:
         index = VisualANNIndex("http://127.0.0.1:6333")
         client = FakeClient()
-        index.client = cast(type(index.client), client)
+        index.client = cast(AsyncQdrantClient, client)
         vector = (1.0,) + (0.0,) * (DINO_DIMENSION - 1)
         assert (
             await index.upsert(
