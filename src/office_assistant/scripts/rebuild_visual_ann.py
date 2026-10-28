@@ -137,6 +137,10 @@ async def rebuild(
             if len(rows) < batch_size:
                 break
     if apply and totals[2] == 0:
+        # A previous ANN snapshot can contain revoked/superseded points.
+        # Never mark full coverage READY until derived stale points are gone.
+        inspected, pruned = await index.prune_stale(factory)
+        print(f"VISUAL_ANN_RECONCILE inspected={inspected} pruned={pruned}")
         async with factory.begin() as session:
             await _ready(session, "ready")
     return totals[0], totals[1], totals[2]
