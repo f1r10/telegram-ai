@@ -30,9 +30,9 @@ class PhotoFlow:
     token: str
     media_group: str | None
     created_at: float
-    photos: list[TelegramPhotoRef] = field(default_factory=list)
+    photos: list[TelegramPhotoRef] = field(default_factory=lambda: list[TelegramPhotoRef]())
     awaiting_description: bool = False
-    web_results: list[ImageWebResult] = field(default_factory=list)
+    web_results: list[ImageWebResult] = field(default_factory=lambda: list[ImageWebResult]())
 
     def valid(self, user: int, token: str | None = None) -> bool:
         return (
