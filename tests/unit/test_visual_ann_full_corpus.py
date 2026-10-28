@@ -6,7 +6,11 @@ from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from office_assistant.processing.semantic_visual import DINO_DIMENSION, DINO_MODEL_VERSION
+from office_assistant.processing.semantic_visual import (
+    DINO_DIMENSION,
+    DINO_MODEL_VERSION,
+    SemanticVisualSearch,
+)
 from office_assistant.processing.visual_ann import IndexedVisualPoint, VisualANNIndex, point_id
 from office_assistant.scripts.rebuild_visual_ann import rebuild
 
@@ -98,8 +102,8 @@ def test_backfill_dry_run_counts_ten_thousand_plus_sources_without_model_or_netw
     async def run() -> None:
         counts = await rebuild(
             cast(async_sessionmaker[AsyncSession], Factory()),
-            cast(object, Encoder()),  # type: ignore[arg-type]
-            cast(object, Index()),  # type: ignore[arg-type]
+            cast(SemanticVisualSearch, Encoder()),
+            cast(VisualANNIndex, Index()),
             apply=False,
             batch_size=64,
         )
