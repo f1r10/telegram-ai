@@ -101,6 +101,21 @@ class MiniAppPhotoLookup:
         if image_signature(photo) is None or await asyncio.to_thread(fingerprint, photo) is None:
             raise InvalidLookupPhoto("A valid non-uniform photograph is required")
 
+        digest = sha256(photo).hexdigest()
+        async with self.session_factory() as session:
+            holder = await ProductImageRelationRepository(
+                session
+            ).active_confirmation_holder_by_content(digest, active_product_only=True)
+            if holder is not None:
+                return PhotoLookupResult(
+                    "exact",
+                    (holder[1],),
+                    "confirmed_sha256",
+                    False,
+                    "Bu şəkil faylı aktiv məhsula təsdiqlənmiş nümunə ilə eynidir. "
+                    "Kataloq uyğunluğu anbar qalığını sübut etmir.",
+                )
+
         if self.indexed is not None:
             indexed = await self.indexed.search(photo)
             if not indexed.unavailable:
@@ -134,20 +149,7 @@ class MiniAppPhotoLookup:
                     "Bütün aktiv vizual indeks üzrə güclü namizəd tapılmadı.",
                 )
 
-        digest = sha256(photo).hexdigest()
         async with self.session_factory() as session:
-            holder = await ProductImageRelationRepository(
-                session
-            ).active_confirmation_holder_by_content(digest, active_product_only=True)
-            if holder is not None:
-                return PhotoLookupResult(
-                    "exact",
-                    (holder[1],),
-                    "confirmed_sha256",
-                    False,
-                    "Bu şəkil faylı aktiv məhsula təsdiqlənmiş nümunə ilə eynidir. "
-                    "Kataloq uyğunluğu anbar qalığını sübut etmir.",
-                )
             existing = await session.scalar(
                 select(ImageAsset.id).where(ImageAsset.content_sha256 == digest)
             )
