@@ -3378,7 +3378,7 @@ async def _save_photo_album_description(
         data.pop(PHOTO_FLOW_KEY, None)
     await message.reply_text(
         f"✅ {len(flow.photos)} şəkil və məlumat bir yadda saxlama paketində "
-        f"qeydə alındı. Paket: {summary.id if summary is not None else 'yoxlanmalıdır'}. "
+        f"qeydə alındı. Paket: {summary.session_id if summary is not None else 'yoxlanmalıdır'}. "
         "Şəkillər axtarış indeksinə worker tərəfindən əlavə edilir; "
         "məhsul kodu ayrıca təsdiqlənməlidir."
     )
