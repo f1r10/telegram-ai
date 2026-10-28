@@ -21,6 +21,7 @@ from office_assistant.infrastructure.database.models import (
     User,
     UserStatus,
 )
+from office_assistant.infrastructure.storage.hashing import sha256_file
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
 from office_assistant.internal_evidence.query_normalization import normalize_user_query
 
@@ -164,6 +165,7 @@ class SourceFileDeliveryService:
         *,
         file_id: int,
         occurrence_id: int,
+        allow_standalone: bool = False,
     ) -> DeliverableFile:
         """Deliver only the ACTIVE parent document of the matched image occurrence.
 
@@ -195,6 +197,7 @@ class SourceFileDeliveryService:
                             ImageAssetOrigin.PDF_EMBEDDED,
                             ImageAssetOrigin.DOCX_EMBEDDED,
                             ImageAssetOrigin.XLSX_EMBEDDED,
+                            *((ImageAssetOrigin.STANDALONE_UPLOAD,) if allow_standalone else ()),
                         )
                     ),
                 )
@@ -204,7 +207,12 @@ class SourceFileDeliveryService:
             filename = _safe_filename(original.original_filename)
             content_type = original.content_type
             storage_key = original.storage_key
-        if Path(filename).suffix.lower() not in {".pdf", ".docx", ".xlsx"}:
+            content_sha = original.sha256
+            byte_size = original.byte_size
+        extensions = {".pdf", ".docx", ".xlsx"}
+        if allow_standalone:
+            extensions.update((".jpg", ".jpeg", ".png"))
+        if Path(filename).suffix.lower() not in extensions:
             raise FileDeliveryError("Catalog image parent type is not allowed")
         try:
             path = self.storage.path_for_key(storage_key)
@@ -215,6 +223,14 @@ class SourceFileDeliveryService:
             raise FileDeliveryError("Original source document is missing")
         if self.storage.size(path) > self.max_bytes:
             raise FileDeliveryError("Original document exceeds delivery limit")
+        # Source tickets must never serve silently altered bytes, even when the
+        # parent FileObject row and occurrence relation are still ACTIVE.
+        try:
+            current_sha, current_size = sha256_file(path)
+        except OSError as error:
+            raise FileDeliveryError("Original source could not be verified") from error
+        if current_sha != content_sha or current_size != byte_size:
+            raise FileDeliveryError("Original source content no longer matches the record")
         return DeliverableFile(path, filename, content_type, file_id)
 
     async def resolve_recent_url(

@@ -1,3 +1,13 @@
+## 2026-10-28 — V1 visual evidence original-source tickets
+
+- Mini App visual result pages offer short-lived actor-bound original-file
+  download controls for both active document-embedded images and saved standalone
+  pictures. The existing signed /api/source endpoint rechecks Telegram actor,
+  original file ACTIVE status and SHA before releasing a blob; no raw storage
+  key or file ID is accepted as download authority.
+- Add actual disposable Qdrant 384-dimensional visual index integration test
+  (synthetic vectors only). These tests do not claim real product-photo quality.
+
 ## 2026-10-28 — V1 image-result parity and CPU staging correctness
 
 - Mini App full-index photo lookup now retains **both** active confirmed

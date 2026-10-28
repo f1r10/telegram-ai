@@ -337,6 +337,14 @@
         source.textContent = number + ". Mənbə: " + item.filename.slice(0, 96) +
           " · " + location + description + score + " · məhsul təsdiqi deyil";
         ui.photoResults.append(source);
+        if (typeof item.source_ticket === "string" && item.source_ticket.length) {
+          const download = document.createElement("button");
+          download.type = "button";
+          download.className = "candidate";
+          download.textContent = "Orijinal faylı endir";
+          download.addEventListener("click", () => downloadSource(item.source_ticket, download));
+          ui.photoResults.append(download);
+        }
       }
     });
     if (pages > 1) {
@@ -428,6 +436,13 @@
           (description ? " · " + description : "") +
           " — sənəd şəkli, məhsul kimliyi təsdiqlənməyib";
         ui.photoResults.append(element);
+        if (typeof item.source_ticket === "string" && item.source_ticket.length) {
+          const download = document.createElement("button");
+          download.type = "button";
+          download.textContent = "Orijinal faylı endir";
+          download.addEventListener("click", () => downloadSource(item.source_ticket, download));
+          ui.photoResults.append(download);
+        }
       }
       for (const code of Array.isArray(result.codes) ? result.codes.slice(0, 3) : []) {
         if (typeof code !== "string" || code.length > 70) continue;
