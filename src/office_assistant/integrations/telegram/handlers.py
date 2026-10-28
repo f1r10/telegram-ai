@@ -3073,9 +3073,7 @@ def _photo_action_keyboard(flow: PhotoFlow) -> InlineKeyboardMarkup:
     )
 
 
-async def _present_photo_choices(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """No upload or remote reverse-search until an explicit selection is made."""
 
     message = update.effective_message
@@ -3108,9 +3106,7 @@ async def _present_photo_choices(
     )
 
 
-async def _photo_download(
-    context: ContextTypes.DEFAULT_TYPE, file_id: str
-) -> bytes:
+async def _photo_download(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
     source = await context.bot.get_file(file_id)
     data = bytes(await source.download_as_bytearray())
     if not 0 < len(data) <= 4 * 1024 * 1024:
@@ -3132,11 +3128,11 @@ def _web_photo_keyboard(flow: PhotoFlow, photo_index: int, page: int) -> InlineK
     navigation: list[InlineKeyboardButton] = []
     if page > 0:
         navigation.append(
-            InlineKeyboardButton("⬅️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page-1}")
+            InlineKeyboardButton("⬅️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page - 1}")
         )
     if start + 5 < len(result.results):
         navigation.append(
-            InlineKeyboardButton("➡️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page+1}")
+            InlineKeyboardButton("➡️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page + 1}")
         )
     if navigation:
         rows.append(navigation)
@@ -3151,9 +3147,7 @@ def _web_photo_keyboard(flow: PhotoFlow, photo_index: int, page: int) -> InlineK
             ]
         )
     if result.provider_url.startswith("https://yandex.com/images/search"):
-        rows.append(
-            [InlineKeyboardButton("🌐 Yandex nəticələrində bax", url=result.provider_url)]
-        )
+        rows.append([InlineKeyboardButton("🌐 Yandex nəticələrində bax", url=result.provider_url)])
     return InlineKeyboardMarkup(rows)
 
 
@@ -3184,9 +3178,7 @@ def _web_photo_text(flow: PhotoFlow, photo_index: int, page: int) -> str:
     return "\n".join(lines)
 
 
-async def handle_photo_choice_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Actor-bound callback: save one album, local lookup or explicit web upload."""
 
     query = update.callback_query
