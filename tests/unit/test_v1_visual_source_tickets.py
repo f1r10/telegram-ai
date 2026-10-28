@@ -57,14 +57,19 @@ def test_visual_source_download_ticket_is_actor_bound_and_contains_no_path(
             },
         ),
     )
+
     class Lookup:
         async def lookup(self, body: bytes) -> PhotoLookupResult:
             assert body == b"synthetic-photo"
             return result
 
-    delivery = SimpleNamespace(resolve_catalog_original=AsyncMock(
-        return_value=DeliverableFile(tmp_path / "source.pdf", "catalog.pdf", "application/pdf", 77)
-    ))
+    delivery = SimpleNamespace(
+        resolve_catalog_original=AsyncMock(
+            return_value=DeliverableFile(
+                tmp_path / "source.pdf", "catalog.pdf", "application/pdf", 77
+            )
+        )
+    )
     actor = User(id=9, telegram_user_id=1209, status=UserStatus.ACTIVE, role=UserRole.USER)
 
     async def authorized(self: MiniAppBackend, _init_data: str) -> User:
