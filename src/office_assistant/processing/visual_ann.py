@@ -205,7 +205,11 @@ class VisualANNIndex:
                 digest = payload.get("digest")
                 version = payload.get("version")
                 point_uuid = str(point.id)
-                if not isinstance(kind, str) or not isinstance(rid, str) or not isinstance(digest, str):
+                if (
+                    not isinstance(kind, str)
+                    or not isinstance(rid, str)
+                    or not isinstance(digest, str)
+                ):
                     parsed.append((point_uuid, "", "", ""))
                     continue
                 if version != DINO_MODEL_VERSION:
