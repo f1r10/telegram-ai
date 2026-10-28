@@ -92,8 +92,11 @@ warm p95. DINOv2 cosine scores are **not probabilities**; the CLIP-derived
 proof of a SKU or stock.
 
 Only after quality review, operators may plan an explicit staging
-`DINO_STAGING_ENABLED=true` test with the compose overlay. The default is
-`false` even if an old `VISUAL_SEMANTIC_ENABLED=true` remains in `.env`.
+`DINO_STAGING_ENABLED=true` test with the compose overlay. The older overlay default was
+`false`; as of 2026-10-28 the dedicated CPU overlay defaults to
+`DINO_STAGING_ENABLED=true`. The base Compose image still sets visual
+inference OFF and lacks Torch packages. An authorized operator must
+explicitly use the CPU overlay and provision weights first.
 **No automated code path here flips the switch or restarts the app.**
 The standard `worker` remains on its unchanged base Dockerfile. No
 YOLO/Ultralytics dependency has been introduced.
@@ -108,10 +111,10 @@ backups. If a real product angle is missed or an unrelated candidate appears,
 record it as a failed recognition case; prefer an honest abstention to an
 invented authoritative match.
 
-A future dedicated Qdrant ANN visual index is still open. Current bounded
-CPU scoring verifies on-disk source digests and compares at most 500 active
-references per source type; this procedure does not satisfy unlimited
-source coverage or a measured 5-second end-to-end p95.
+Historical note (superseded 2026-10-28): the former on-process matcher
+scored at most 500 references. The separate Qdrant DINO ANN now supports
+full-corpus keyset backfill and verified bounded top-K candidates. That
+does **not** establish measured five-second mobile end-to-end p95.
 
 ### All embedded document image types (2026-10-27)
 
@@ -120,8 +123,9 @@ as `documents=` (PDF + DOCX + XLSX), replacing the older PDF-only `pdf=`
 field. The normal ingestion worker registers image assets from all these
 formats. When the optional visual CPU overlay is used, **both app and worker**
 receive `DINO_STAGING_ENABLED:-false` and the same versioned DINO model cache;
-with the flag explicitly turned on, the worker automatically computes at most
-100 new embeddings after committing each uploaded file. If a document is
+with the flag enabled, the worker traverses all new registered image
+occurrences in bounded keyset batches of 64 after each committed file; failures
+remain visible and require reconciliation. If a document is
 stored while the model is OFF, run the existing operator backfill `--apply`
 before declaring its vectors prepared. Upload-time prewarm is best effort;
 search may lazily compute missing vectors and report unavailable if the offline
