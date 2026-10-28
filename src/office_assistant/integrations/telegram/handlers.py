@@ -116,6 +116,12 @@ from office_assistant.integrations.telegram.catalog_source_tickets import (
     resolve_catalog_ticket,
 )
 from office_assistant.integrations.telegram.formatting import split_telegram_text
+from office_assistant.integrations.telegram.photo_flow import (
+    MAX_ALBUM_PHOTOS,
+    PHOTO_FLOW_KEY,
+    PhotoFlow,
+    add_photo,
+)
 from office_assistant.integrations.telegram.reminder_format import when_azerbaijani
 from office_assistant.integrations.telegram.state import (
     DeleteConfirmationState,
@@ -160,6 +166,13 @@ from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
+from office_assistant.web_evidence.image_search import (
+    ImageWebResult,
+    ImageWebSearchBlocked,
+    ImageWebSearchUnavailable,
+    YandexReverseImageSearch,
+    image_web_page,
+)
 from office_assistant.web_evidence.priority_sites import (
     InvalidPrioritySite,
     PrioritySitePermissionDenied,
@@ -200,6 +213,8 @@ class TelegramServices:
     knowledge: KnowledgeRetrievalService | None = None
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
+    photo_web: YandexReverseImageSearch | None = None
+    photo_priority_sites: PrioritySitesService | None = None
     image_reader: ImageVisionExtractor | None = None
     semantic_visual: SemanticVisualSearch | None = None
     reminders: ReminderService | None = None
@@ -2852,12 +2867,22 @@ async def _reply_pdf_catalog_candidates(
     return True
 
 
-async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_exact_photo_lookup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    image_bytes: bytes | None = None,
+) -> None:
     """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
     message = update.effective_message
     identity = _identity(update)
-    if not _is_private(update) or message is None or identity is None or not message.photo:
+    if (
+        not _is_private(update)
+        or message is None
+        or identity is None
+        or (image_bytes is None and not message.photo)
+    ):
         return
     data = getattr(context, "user_data", None)
     if data is not None:
@@ -2873,14 +2898,20 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
     if services.session_factory is None or services.storage is None:
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
-    photo = message.photo[-1]
-    if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
-        await message.reply_text("Şəkil yoxlama üçün çox böyükdür. Daha kiçik şəkil göndərin.")
-        return
+    if image_bytes is None:
+        assert message.photo is not None
+        photo = message.photo[-1]
+        if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
+            await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
+            return
     try:
-        telegram_file = await context.bot.get_file(photo.file_id)
-        picture = bytes(await telegram_file.download_as_bytearray())
-        if len(picture) > 4 * 1024 * 1024:
+        if image_bytes is not None:
+            picture = image_bytes
+        else:
+            assert message.photo is not None
+            telegram_file = await context.bot.get_file(message.photo[-1].file_id)
+            picture = bytes(await telegram_file.download_as_bytearray())
+        if not 0 < len(picture) <= 4 * 1024 * 1024:
             await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
             return
         digest = sha256(picture).hexdigest()
@@ -3035,7 +3066,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if _is_photo_lookup_request(message.caption):
         _discard_menu_selection(context)
-        await _handle_exact_photo_lookup(update, context)
+        await _present_photo_choices(update, context)
         return
     photo = message.photo[-1]
     await _handle_upload(
