@@ -62,6 +62,11 @@ def indexed_page(
                 [
                     f"{position}. 🖼 Mənbə: {filename}",
                     f"   Yeri: {document_image_location(item.source)}",
+                    *(
+                        [f"   Məlumat: {item.source.description[:320]}"]
+                        if item.source.description
+                        else []
+                    ),
                     f"   Oxşarlıq balı: {score:.3f} (əminlik faizi deyil)",
                     "",
                 ]
