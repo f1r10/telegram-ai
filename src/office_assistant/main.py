@@ -43,8 +43,8 @@ from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.web_evidence.cache import WebSearchService
-from office_assistant.web_evidence.image_search import YandexReverseImageSearch
 from office_assistant.web_evidence.fetcher import WebContentFetcher
+from office_assistant.web_evidence.image_search import YandexReverseImageSearch
 from office_assistant.web_evidence.priority_sites import PrioritySitesService
 from office_assistant.web_evidence.providers import (
     SearXNGWebSearchProvider,
