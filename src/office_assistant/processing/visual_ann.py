@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 INDEX_NAME = "office_visual_dino_v1"
 MAX_HITS = 40
 MAX_SCAN_HITS = 120  # overfetch to survive revoked/stale high-score points
+VISUAL_QUERY_TIMEOUT_SECONDS = 4.0
 MIN_CANDIDATE_SCORE = 0.82
 
 
@@ -303,6 +304,15 @@ class IndexedVisualLookup:
         self.encoder = encoder
 
     async def search(self, body: bytes) -> IndexedResults:
+        """Bound ALL local inference, Qdrant and DB source checks per photo turn."""
+        try:
+            async with asyncio.timeout(VISUAL_QUERY_TIMEOUT_SECONDS):
+                return await self._search_guarded(body)
+        except Exception as error:  # noqa: BLE001 - never crash native Telegram
+            logger.warning("Visual ANN lookup abstained | type=%s", type(error).__name__)
+            return IndexedResults((), (), unavailable=True)
+
+    async def _search_guarded(self, body: bytes) -> IndexedResults:
         if self.encoder.version != DINO_MODEL_VERSION:
             return IndexedResults((), (), unavailable=True)
         # Never claim an incomplete first-batch index covers the entire archive.
