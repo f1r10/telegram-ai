@@ -2881,7 +2881,7 @@ async def _send_indexed_visual_page(
     *,
     photo_index: int = 0,
     page: int = 0,
-    edit: bool = False,
+    query: CallbackQuery | None = None,
 ) -> None:
     """Five ranked product/source candidates; expiring file buttons and live paging."""
 
@@ -2926,11 +2926,9 @@ async def _send_indexed_visual_page(
         if navigation:
             rows.append(navigation)
     markup = InlineKeyboardMarkup(rows)
-    if edit and context.bot is not None:
-        query = getattr(context, "_current_photo_query", None)
-        if query is not None:
-            await query.edit_message_text(view.text, reply_markup=markup)
-            return
+    if query is not None:
+        await query.edit_message_text(view.text, reply_markup=markup)
+        return
     await message.reply_text(view.text, reply_markup=markup)
 
 
@@ -3294,6 +3292,34 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             _web_photo_text(flow, photo_index, page),
             reply_markup=_web_photo_keyboard(flow, photo_index, page),
         )
+        return
+    if action == "dbpg" and len(parts) == 5:
+        if services.indexed_visual is None or update.effective_message is None:
+            await query.edit_message_text("Tam vizual indeks hələ hazır deyil.")
+            return
+        try:
+            photo_index, page = int(parts[3]), int(parts[4])
+            if not (0 <= photo_index < len(flow.photos)) or not 0 <= page < 8:
+                raise ValueError
+        except ValueError:
+            await query.edit_message_text("Nəticə səhifəsi etibarsızdır.")
+            return
+        try:
+            body = await _photo_download(context, flow.photos[photo_index].file_id)
+            indexed = await services.indexed_visual.search(body)
+            if indexed.unavailable:
+                raise RuntimeError("DINO index unavailable")
+            await _send_indexed_visual_page(
+                update.effective_message,
+                context,
+                identity.telegram_user_id,
+                indexed,
+                photo_index=photo_index,
+                page=page,
+                query=query,
+            )
+        except (ValueError, RuntimeError, OSError, TelegramError):
+            await query.edit_message_text("Nəticə yenilənmədi. Şəkli yenidən axtarın.")
         return
     if len(parts) != 3 or action not in {"save", "db", "web"}:
         return
