@@ -303,6 +303,60 @@
     ui.photoFeedback.classList.toggle("error", error);
   }
 
+  function showRankedPhotoPage(results, notice, page) {
+    const pageSize = 10;
+    const pages = Math.max(1, Math.ceil(results.length / pageSize));
+    if (page < 0 || page >= pages) return;
+    ui.photoResults.replaceChildren();
+    const heading = document.createElement("p");
+    heading.textContent = notice + " · " + (page + 1) + "/" + pages + " səhifə";
+    ui.photoResults.append(heading);
+    results.slice(page * pageSize, (page + 1) * pageSize).forEach((item, index) => {
+      if (!item || typeof item !== "object") return;
+      const score = typeof item.score === "number" && Number.isFinite(item.score)
+        ? " · oxşarlıq balı " + item.score.toFixed(3) : "";
+      const number = page * pageSize + index + 1;
+      if (item.kind === "product" && typeof item.code === "string") {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "candidate";
+        button.textContent = number + ". Məhsul namizədi: " + item.code.slice(0, 70) +
+          score + " · kodu yoxla";
+        button.addEventListener("click", () => {
+          selectScope("product");
+          ui.question.value = item.code.slice(0, 70);
+          ui.question.focus();
+        });
+        ui.photoResults.append(button);
+      } else if (item.kind === "source" && typeof item.filename === "string") {
+        const source = document.createElement("p");
+        source.className = "candidate";
+        const location = typeof item.location === "string" ? item.location.slice(0, 120) : "";
+        const description = typeof item.description === "string"
+          ? " · " + item.description.slice(0, 320) : "";
+        source.textContent = number + ". Mənbə: " + item.filename.slice(0, 96) +
+          " · " + location + description + score + " · məhsul təsdiqi deyil";
+        ui.photoResults.append(source);
+      }
+    });
+    if (pages > 1) {
+      const controls = document.createElement("div");
+      controls.className = "photo-page-controls";
+      for (const config of [
+        {label: "Əvvəlki", target: page - 1},
+        {label: "Növbəti", target: page + 1}
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = config.label;
+        button.disabled = config.target < 0 || config.target >= pages;
+        button.addEventListener("click", () => showRankedPhotoPage(results, notice, config.target));
+        controls.append(button);
+      }
+      ui.photoResults.append(controls);
+    }
+  }
+
   async function lookupPhoto() {
     if (!active || busy || scope !== "photo") return;
     const file = ui.photoFile.files?.[0];
@@ -351,6 +405,10 @@
       const notice = document.createElement("p");
       notice.textContent = result.notice || "Məhsulu kodla yoxlayın.";
       ui.photoResults.append(notice);
+      if (Array.isArray(result.ranked) && result.ranked.length) {
+        showRankedPhotoPage(result.ranked.slice(0, 40), notice.textContent, 0);
+        return;
+      }
       if (result.incomplete) {
         const limit = document.createElement("p");
         limit.textContent = "Arxivin yalnız bir hissəsi yoxlanılıb.";

@@ -1,3 +1,13 @@
+## 2026-10-28 — V1 image-result parity and CPU staging correctness
+
+- Mini App full-index photo lookup now retains **both** active confirmed
+  product candidates and source-document/standalone candidates in one
+  similarity-ranked, ten-per-page list (up to 40 returned ANN hits).
+- DINO CPU operator service now points to the actual Docker-network Qdrant
+  host with an explicit health dependency. App, worker and Mini App use the
+  same configurable conservative DINO similarity threshold. No database,
+  product or stock mutation; real-phone quality acceptance remains open.
+
 # Changelog
 
 - Mini App photo search now displays PDF/DOCX/XLSX image-source candidates with document type and page/paragraph/worksheet location separately from approved product codes; source metadata is never a confirmed SKU or stock fact.

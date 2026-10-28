@@ -33,7 +33,10 @@ from office_assistant.processing.image_similarity import (
     shortlist,
 )
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
-from office_assistant.processing.visual_ann import IndexedVisualLookup
+from office_assistant.processing.visual_ann import (
+    IndexedResults,
+    IndexedVisualLookup,
+)
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 
 MAX_LOOKUP_BYTES = min(4 * 1024 * 1024, MAX_IMAGE_BYTES)
@@ -41,6 +44,32 @@ MAX_REFERENCES = 500
 _WARNING = (
     "Oxşarlıq məhsulun eyniliyini, qiymətini və anbarda olmasını təsdiqləmir. Kodu ayrıca yoxlayın."
 )
+
+
+def ranked_ann_candidates(indexed: IndexedResults) -> tuple[dict[str, str | float], ...]:
+    """One score-ordered, strictly source-checked candidate list for Mini App.
+
+    The index only supplies candidates after current PostgreSQL/SHA verification.
+    Never convert a cosine score into a confidence percentage or a product fact.
+    """
+    items: list[tuple[float, dict[str, str | float]]] = [
+        (product.score, {"kind": "product", "code": product.code, "score": product.score})
+        for product in indexed.products
+    ]
+    for item in indexed.documents:
+        source = item.source
+        entry: dict[str, str | float] = {
+            "kind": "source",
+            "filename": " ".join(source.filename.split())[:96],
+            "type": source.origin.replace("_EMBEDDED", ""),
+            "location": document_image_location(source),
+            "score": item.score,
+        }
+        if source.description:
+            entry["description"] = source.description[:320]
+        items.append((item.score, entry))
+    items.sort(key=lambda row: -row[0])
+    return tuple(item for _, item in items[:40])
 
 
 class InvalidLookupPhoto(ValueError):
@@ -55,6 +84,7 @@ class PhotoLookupResult:
     incomplete: bool
     notice: str
     documents: tuple[DocumentImageHit, ...] = ()
+    ranked: tuple[dict[str, str | float], ...] = ()
 
     def payload(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -64,6 +94,8 @@ class PhotoLookupResult:
             "incomplete": self.incomplete,
             "notice": self.notice,
         }
+        if self.ranked:
+            result["ranked"] = list(self.ranked)
         if self.documents:
             result["sources"] = [
                 {
@@ -124,27 +156,19 @@ class MiniAppPhotoLookup:
         if self.indexed is not None:
             indexed = await self.indexed.search(photo)
             if not indexed.unavailable:
-                if indexed.products:
-                    return PhotoLookupResult(
-                        "candidates",
-                        tuple(item.code for item in indexed.products[:3]),
-                        "dino_qdrant_all_active",
-                        False,
-                        _WARNING,
-                    )
-                if indexed.documents:
+                if indexed.products or indexed.documents:
                     hits = tuple(
                         DocumentImageHit(item.source, "semantic", item.score)
                         for item in indexed.documents[:3]
                     )
                     return PhotoLookupResult(
-                        "source_candidates",
-                        (),
-                        "dino_qdrant_documents",
+                        "candidates" if indexed.products else "source_candidates",
+                        tuple(item.code for item in indexed.products[:3]),
+                        "dino_qdrant_all_active",
                         False,
-                        "Aktiv sənədlərdə şəklə oxşar mənbə tapıldı. Məhsulun "
-                        "kimliyi, qiyməti və stoku bununla təsdiqlənmir.",
+                        _WARNING,
                         hits,
+                        ranked_ann_candidates(indexed),
                     )
                 return PhotoLookupResult(
                     "not_found",
