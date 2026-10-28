@@ -197,11 +197,7 @@ class SourceFileDeliveryService:
                             ImageAssetOrigin.PDF_EMBEDDED,
                             ImageAssetOrigin.DOCX_EMBEDDED,
                             ImageAssetOrigin.XLSX_EMBEDDED,
-                            *(
-                                (ImageAssetOrigin.STANDALONE_UPLOAD,)
-                                if allow_standalone
-                                else ()
-                            ),
+                            *((ImageAssetOrigin.STANDALONE_UPLOAD,) if allow_standalone else ()),
                         )
                     ),
                 )
