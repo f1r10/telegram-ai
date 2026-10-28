@@ -4,7 +4,10 @@ from pathlib import Path
 
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.miniapp.photo_lookup import PhotoLookupResult, ranked_ann_candidates
-from office_assistant.processing.document_visual_candidates import DocumentImageHit, DocumentImageSource
+from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
+    DocumentImageSource,
+)
 from office_assistant.processing.visual_ann import IndexedDocument, IndexedProduct, IndexedResults
 
 ROOT = Path(__file__).resolve().parents[2]
