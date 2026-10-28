@@ -70,6 +70,7 @@ class PhotoLookupResult:
                     "filename": " ".join(hit.source.filename.split())[:96],
                     "type": hit.source.origin.replace("_EMBEDDED", ""),
                     "location": document_image_location(hit.source),
+                    "description": hit.source.description[:320],
                     "method": hit.match_type,
                 }
                 for hit in self.documents
