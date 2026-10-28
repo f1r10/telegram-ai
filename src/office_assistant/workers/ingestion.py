@@ -36,7 +36,8 @@ async def run() -> None:
     factory = create_session_factory(engine)
     visual_ann = (
         VisualANNIndex(settings.qdrant_url)
-        if settings.qdrant_url and settings.visual_semantic_enabled
+        if settings.qdrant_url
+        and settings.visual_semantic_enabled
         and settings.visual_semantic_model_version == "dinov2-small-mean-v1"
         else None
     )
