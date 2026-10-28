@@ -135,9 +135,7 @@ def _decode_states(markup: str) -> list[dict[str, object]]:
 
 
 def _looks_image_link(url: str) -> bool:
-    return urlsplit(url).path.lower().endswith(
-        (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
-    )
+    return urlsplit(url).path.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))
 
 
 class _CardPairs(HTMLParser):
@@ -182,9 +180,7 @@ class _CardPairs(HTMLParser):
             return
         images = [entry for entry in self.anchors if _looks_image_link(entry[0])]
         pages = {
-            _approved_page(entry[0])
-            for entry in self.anchors
-            if not _looks_image_link(entry[0])
+            _approved_page(entry[0]) for entry in self.anchors if not _looks_image_link(entry[0])
         }
         pages.discard("")
         if len(images) != 1 or len(pages) != 1:
