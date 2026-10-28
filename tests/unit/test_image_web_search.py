@@ -57,6 +57,21 @@ def test_parse_preserves_only_real_same_card_image_page_pairs() -> None:
     assert all(hit.source_url.startswith("https://") for hit in hits)
 
 
+def test_html_card_pair_never_joins_sibling_source_links() -> None:
+    html = (
+        "<ul>"
+        "<li><a href='https://site.az/item-22'>source</a>"
+        "<a href='https://cdn.az/22.jpg'><img alt='watch'></a></li>"
+        "<li><a href='https://site.az/item-23'>other page</a></li>"
+        "<li><a href='https://cdn.az/unpaired.jpg'>lonely photo</a></li>"
+        "</ul>"
+    )
+    found = parse_yandex_results(html)
+    assert len(found) == 1
+    assert found[0].image_url == "https://cdn.az/22.jpg"
+    assert found[0].source_url == "https://site.az/item-22"
+
+
 def test_consent_only_search_cache_and_priority_ranking() -> None:
     requests: list[httpx.Request] = []
 
