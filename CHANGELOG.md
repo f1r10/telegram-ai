@@ -1,3 +1,14 @@
+## 2026-10-28 — Reconcile derived DINO visual index before READY
+
+- After a complete DINOv2 Qdrant backfill, scroll the separate visual
+  collection and delete only points whose product confirmation or image
+  occurrence no longer matches an ACTIVE PostgreSQL source. Keep original
+  file bytes and inventory untouched. The READY marker is written only after
+  cleanup succeeds. Overfetch up to 120 ANN hits to find 40 live candidates
+  despite intervening revocations; no global catalog-size cap.
+- Extend real PostgreSQL/Qdrant smoke to exercise stale-point reconciliation
+  on synthetic vectors. Real camera-photo accuracy remains an owner UAT gate.
+
 ## 2026-10-28 — V1 visual evidence original-source tickets
 
 - Mini App visual result pages offer short-lived actor-bound original-file
