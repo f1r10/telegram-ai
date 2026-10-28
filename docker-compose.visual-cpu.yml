@@ -9,7 +9,7 @@ services:
     command: ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "office_assistant.main"]
     environment:
       # Separate opt-in flag: an old CLIP setting in .env cannot activate DINO.
-      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-false}
+      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
 
   # Upload-time vectors for PDF/DOCX/XLSX images use the same offline
@@ -20,7 +20,7 @@ services:
       dockerfile: Dockerfile.visual-cpu
     command: ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "office_assistant.workers.ingestion"]
     environment:
-      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-false}
+      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
 
   miniapp:
@@ -29,7 +29,7 @@ services:
       dockerfile: Dockerfile.visual-cpu
     command: ["uv", "run", "--no-sync", "--no-dev", "python", "-m", "office_assistant.miniapp.server"]
     environment:
-      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-false}
+      VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
 
   # Explicit command-line target; does not poll Telegram or write catalog rows.
