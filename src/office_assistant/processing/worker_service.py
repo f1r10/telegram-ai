@@ -21,6 +21,9 @@ from office_assistant.infrastructure.database.models import (
     ImageAsset,
     ImageAssetOccurrence,
     ImageAssetOrigin,
+    Product,
+    ProductImageRelation,
+    ProductImageRelationConfirmation,
     IngestionItemType,
     IngestionJob,
     IngestionJobStatus,
@@ -40,6 +43,7 @@ from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrService
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
+from office_assistant.processing.visual_ann import IndexedVisualPoint, VisualANNIndex
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,7 @@ class IngestionJobService:
         index_chunking_version: str = "v1-medium-1800-180",
         structured_extraction_enabled: bool = False,
         visual_semantic: SemanticVisualSearch | None = None,
+        visual_ann: VisualANNIndex | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.storage = storage
@@ -95,6 +100,7 @@ class IngestionJobService:
         self.index_chunking_version = index_chunking_version
         self.structured_extraction_enabled = structured_extraction_enabled
         self.visual_semantic = visual_semantic
+        self.visual_ann = visual_ann
 
     async def claim_next(self, worker_id: str) -> JobClaim | None:
         now = datetime.now(UTC)
@@ -314,44 +320,102 @@ class IngestionJobService:
         return status
 
     async def _warm_file_images(self, file_id: int) -> None:
-        """Prepare new document image vectors after commit, without blocking DB writes.
+        """Index all new image occurrences in keyset pages after source commit.
 
-        This is opt-in and bounded per file. If the local model is absent,
-        ingestion still succeeds and the later search can attempt lazy loading.
+        Slow model work is outside the source-file DB transaction, so an index
+        outage never invalidates a successfully saved original document.
         """
+
         if self.visual_semantic is None:
             return
-        async with self.session_factory() as session:
-            rows = (
-                await session.execute(
-                    select(
-                        ImageAssetOccurrence.id,
-                        ImageAsset.storage_key,
-                        ImageAsset.content_sha256,
+        if self.visual_ann is not None:
+            await self.visual_ann.ensure()
+        batch_size = 64
+        cursor = 0
+        indexed = 0
+        skipped = 0
+        while True:
+            async with self.session_factory() as session:
+                rows = (
+                    await session.execute(
+                        select(
+                            ImageAssetOccurrence.id,
+                            ImageAsset.storage_key,
+                            ImageAsset.content_sha256,
+                        )
+                        .select_from(ImageAssetOccurrence)
+                        .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                        .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+                        .where(
+                            ImageAssetOccurrence.source_file_id == file_id,
+                            ImageAssetOccurrence.id > cursor,
+                            FileObject.state == FileObjectState.ACTIVE,
+                        )
+                        .order_by(ImageAssetOccurrence.id)
+                        .limit(batch_size)
                     )
-                    .select_from(ImageAssetOccurrence)
-                    .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
-                    .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
-                    .where(
-                        ImageAssetOccurrence.source_file_id == file_id,
-                        FileObject.state == FileObjectState.ACTIVE,
+                ).all()
+            if not rows:
+                break
+            cursor = rows[-1][0]
+            points: list[IndexedVisualPoint] = []
+            for occurrence_id, key, digest in rows:
+                reference = SemanticReference(str(occurrence_id), key, digest)
+                vector = await asyncio.to_thread(self.visual_semantic.source_vector, reference)
+                if vector is None:
+                    skipped += 1
+                    continue
+                indexed += 1
+                if self.visual_ann is not None:
+                    points.append(
+                        IndexedVisualPoint("document", str(occurrence_id), digest, vector)
                     )
-                    .order_by(ImageAssetOccurrence.id)
-                    .limit(101)
+            if self.visual_ann is not None and points:
+                await self.visual_ann.upsert(points)
+            if len(rows) < batch_size:
+                break
+
+        # Newly explicitly approved product photos share source content with
+        # the same committed file; index them as a separate authoritative kind.
+        if self.visual_ann is not None:
+            async with self.session_factory() as session:
+                product_rows = (
+                    await session.execute(
+                        select(
+                            ProductImageRelation.id,
+                            ImageAsset.storage_key,
+                            ImageAsset.content_sha256,
+                        )
+                        .select_from(ImageAssetOccurrence)
+                        .join(
+                            ProductImageRelation,
+                            ProductImageRelation.image_asset_id
+                            == ImageAssetOccurrence.image_asset_id,
+                        )
+                        .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                        .join(Product, Product.id == ProductImageRelation.product_id)
+                        .where(
+                            ImageAssetOccurrence.source_file_id == file_id,
+                            ProductImageRelation.confirmation_type
+                            == ProductImageRelationConfirmation.USER_EXPLICIT,
+                            ProductImageRelation.superseded_at.is_(None),
+                            Product.is_active.is_(True),
+                        )
+                        .distinct()
+                    )
+                ).all()
+            for relation_id, key, digest in product_rows:
+                vector = await asyncio.to_thread(
+                    self.visual_semantic.source_vector,
+                    SemanticReference(str(relation_id), key, digest),
                 )
-            ).all()
-        if len(rows) > 100:
-            logger.info("Document visual prewarm bounded | file_id=%s limit=100", file_id)
-        references = [SemanticReference(str(id_), key, digest) for id_, key, digest in rows[:100]]
-        if not references:
-            return
-        result = await asyncio.to_thread(self.visual_semantic.warm_references, references)
+                if vector is not None:
+                    await self.visual_ann.upsert(
+                        [IndexedVisualPoint("product", str(relation_id), digest, vector)]
+                    )
         logger.info(
-            "Document visual prewarm | file_id=%s prepared=%s skipped=%s unavailable=%s",
-            file_id,
-            result.warmed,
-            result.skipped,
-            result.unavailable,
+            "Document visual indexing complete | file_id=%s prepared=%s skipped=%s",
+            file_id, indexed, skipped,
         )
 
     async def _failed_result(
