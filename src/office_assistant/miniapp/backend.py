@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from time import monotonic
+from typing import cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -81,6 +82,7 @@ class SourceTicket:
     file_id: int
     citation_number: int
     expires_at: float
+    occurrence_id: int | None = None
 
 
 class MiniAppBackend:
@@ -252,6 +254,13 @@ class MiniAppBackend:
             raise FileDeliveryError("Source button is expired or belongs to another user")
         if not self.rate_guard.allow(actor.id):
             raise MiniAppRateLimited("Too many requests")
+        if ticket.occurrence_id is not None:
+            return await self.file_delivery.resolve_catalog_original(
+                actor.telegram_user_id,
+                file_id=ticket.file_id,
+                occurrence_id=ticket.occurrence_id,
+                allow_standalone=True,
+            )
         original = await self.file_delivery.resolve_recent(
             actor.telegram_user_id,
             ticket.citation_number,
@@ -583,7 +592,56 @@ class MiniAppBackend:
             raise MiniAppRateLimited("The assistant is busy")
         async with self._inflight:
             result = await self.photo_lookup.lookup(image_bytes)
-        return result.payload()
+        response = result.payload()
+        ranked = response.get("ranked")
+        sources = response.get("sources")
+        # Browser receives only opaque actor-bound source tickets, never
+        # physical blob paths or raw database IDs as download authority.
+        by_occurrence = {str(hit.source.occurrence_id): hit for hit in result.documents}
+        tokens: dict[int, str] = {}
+        now = monotonic()
+        self._source_tickets = {
+            key: ticket
+            for key, ticket in self._source_tickets.items()
+            if ticket.expires_at > now
+        }
+
+        def source_token(file_id: int, occurrence_id: int) -> str:
+            token = tokens.get(occurrence_id)
+            if token is None:
+                token = secrets.token_urlsafe(24)
+                self._source_tickets[token] = SourceTicket(
+                    actor_id=actor.id,
+                    telegram_user_id=actor.telegram_user_id,
+                    file_id=file_id,
+                    citation_number=0,
+                    expires_at=now + 600,
+                    occurrence_id=occurrence_id,
+                )
+                tokens[occurrence_id] = token
+            return token
+
+        if isinstance(ranked, list):
+            for raw in cast(list[object], ranked):
+                if not isinstance(raw, dict):
+                    continue
+                entry = cast(dict[str, object], raw)
+                occurrence = entry.pop("occurrence_id", None)
+                hit = by_occurrence.get(occurrence) if isinstance(occurrence, str) else None
+                if hit is not None and self.file_delivery is not None:
+                    entry["source_ticket"] = source_token(
+                        hit.source.source_file_id, hit.source.occurrence_id
+                    )
+        if isinstance(sources, list) and self.file_delivery is not None:
+            for raw, hit in zip(cast(list[object], sources), result.documents, strict=False):
+                if isinstance(raw, dict):
+                    entry = cast(dict[str, object], raw)
+                    entry["source_ticket"] = source_token(
+                        hit.source.source_file_id, hit.source.occurrence_id
+                    )
+        while len(self._source_tickets) > 256:
+            self._source_tickets.pop(next(iter(self._source_tickets)))
+        return response
 
     async def photo_web_search(self, init_data: str, *, image_bytes: bytes) -> dict[str, object]:
         """Explicit, signed consent to send exactly this photo to Yandex."""
