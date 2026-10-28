@@ -134,6 +134,12 @@ def _decode_states(markup: str) -> list[dict[str, object]]:
     return found
 
 
+def _looks_image_link(url: str) -> bool:
+    return urlsplit(url).path.lower().endswith(
+        (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+    )
+
+
 class _CardPairs(HTMLParser):
     """Fallback for Yandex li HTML: never join two different cards' links."""
 
@@ -165,9 +171,7 @@ class _CardPairs(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag == "a" and self.depth:
             if self.current_url:
-                self.anchors.append(
-                    (self.current_url, self.current_title, self.current_thumb)
-                )
+                self.anchors.append((self.current_url, self.current_title, self.current_thumb))
             self.current_url = ""
             self.current_title = ""
             self.current_thumb = ""
@@ -176,27 +180,18 @@ class _CardPairs(HTMLParser):
         self.depth -= 1
         if self.depth:
             return
-        images = [
-            entry for entry in self.anchors
-            if urlsplit(entry[0]).path.lower().endswith(
-                (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
-            )
-        ]
+        images = [entry for entry in self.anchors if _looks_image_link(entry[0])]
         pages = {
             _approved_page(entry[0])
             for entry in self.anchors
-            if not urlsplit(entry[0]).path.lower().endswith(
-                (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
-            )
+            if not _looks_image_link(entry[0])
         }
         pages.discard("")
         if len(images) != 1 or len(pages) != 1:
             return
         page = next(iter(pages))
         image, title, thumb = images[0]
-        self.hits.append(
-            ImageWebHit(title or "Şəkil mənbəsi", image, page, thumb, _domain(page))
-        )
+        self.hits.append(ImageWebHit(title or "Şəkil mənbəsi", image, page, thumb, _domain(page)))
 
 
 def parse_yandex_results(markup: str, domains: tuple[str, ...] = ()) -> tuple[ImageWebHit, ...]:
@@ -232,13 +227,16 @@ def parse_yandex_results(markup: str, domains: tuple[str, ...] = ()) -> tuple[Im
             continue
         seen.add((hit.image_url, hit.source_url))
         priority = any(
-            hit.domain == domain or hit.domain.endswith("." + domain)
-            for domain in domains
+            hit.domain == domain or hit.domain.endswith("." + domain) for domain in domains
         )
         results.append(
             ImageWebHit(
-                hit.title, hit.image_url, hit.source_url, hit.thumbnail_url,
-                hit.domain, priority,
+                hit.title,
+                hit.image_url,
+                hit.source_url,
+                hit.thumbnail_url,
+                hit.domain,
+                priority,
             )
         )
     # Admin-preferred results are first, preserving provider rank within each group.
@@ -395,7 +393,6 @@ class YandexReverseImageSearch:
                 self._cache.clear()
             self._cache[digest] = (monotonic() + self._cache_ttl, data)
             return _ranked(data, preferred_domains)
-
 
 
 def image_web_page(
