@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from time import monotonic
+from typing import cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -596,13 +597,12 @@ class MiniAppBackend:
         sources = response.get("sources")
         # Browser receives only opaque actor-bound source tickets, never
         # physical blob paths or raw database IDs as download authority.
-        by_occurrence = {
-            str(hit.source.occurrence_id): hit for hit in result.documents
-        }
+        by_occurrence = {str(hit.source.occurrence_id): hit for hit in result.documents}
         tokens: dict[int, str] = {}
         now = monotonic()
         self._source_tickets = {
-            key: ticket for key, ticket in self._source_tickets.items()
+            key: ticket
+            for key, ticket in self._source_tickets.items()
             if ticket.expires_at > now
         }
 
@@ -622,18 +622,20 @@ class MiniAppBackend:
             return token
 
         if isinstance(ranked, list):
-            for entry in ranked:
-                if not isinstance(entry, dict):
+            for raw in cast(list[object], ranked):
+                if not isinstance(raw, dict):
                     continue
+                entry = cast(dict[str, object], raw)
                 occurrence = entry.pop("occurrence_id", None)
-                hit = by_occurrence.get(occurrence)
+                hit = by_occurrence.get(occurrence) if isinstance(occurrence, str) else None
                 if hit is not None and self.file_delivery is not None:
                     entry["source_ticket"] = source_token(
                         hit.source.source_file_id, hit.source.occurrence_id
                     )
         if isinstance(sources, list) and self.file_delivery is not None:
-            for entry, hit in zip(sources, result.documents, strict=False):
-                if isinstance(entry, dict):
+            for raw, hit in zip(cast(list[object], sources), result.documents, strict=False):
+                if isinstance(raw, dict):
+                    entry = cast(dict[str, object], raw)
                     entry["source_ticket"] = source_token(
                         hit.source.source_file_id, hit.source.occurrence_id
                     )
