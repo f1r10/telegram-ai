@@ -89,12 +89,9 @@ def test_visual_source_download_ticket_is_actor_bound_and_contains_no_path(
         assert source.get("storage_key") is None
         token = source["source_ticket"]
         assert isinstance(token, str) and len(token) >= 20
-        assert await backend.source_file("signed-init-data", token=token) == (
-            tmp_path / "source.pdf",
-            "catalog.pdf",
-            "application/pdf",
-            77,
-        ) if False else True
+        delivered = await backend.source_file("signed-init-data", token=token)
+        assert delivered.file_id == 77
+        assert delivered.filename == "catalog.pdf"
         delivery.resolve_catalog_original.assert_awaited_once_with(
             1209, file_id=77, occurrence_id=41, allow_standalone=True
         )
