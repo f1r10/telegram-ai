@@ -102,9 +102,7 @@ def _domain(url: str) -> str:
 
 def _approved_page(url: str) -> str:
     domain = _domain(url)
-    if domain in {"yandex.com", "yandex.ru"} or domain.endswith(
-        (".yandex.com", ".yandex.ru")
-    ):
+    if domain in {"yandex.com", "yandex.ru"} or domain.endswith((".yandex.com", ".yandex.ru")):
         return ""
     return url
 
@@ -195,11 +193,38 @@ def _challenge(body: str, status: int) -> bool:
     return status in {403, 429} or any(marker in head for marker in _CHALLENGE)
 
 
+def _ranked(
+    data: ImageWebResult, preferred_domains: tuple[str, ...], *, cache_hit: bool = False
+) -> ImageWebResult:
+    hits = []
+    for hit in data.results:
+        preferred = any(
+            hit.domain == domain or hit.domain.endswith("." + domain)
+            for domain in preferred_domains
+        )
+        hits.append(
+            ImageWebHit(
+                hit.title,
+                hit.image_url,
+                hit.source_url,
+                hit.thumbnail_url,
+                hit.domain,
+                preferred,
+            )
+        )
+    return ImageWebResult(
+        tuple(sorted(hits, key=lambda hit: not hit.priority)),
+        data.provider_url,
+        cache_hit=cache_hit,
+    )
+
+
 class YandexReverseImageSearch:
     """Single-flight, bounded cache; circuit-breaker avoids hammering a challenged site."""
 
     def __init__(
-        self, *,
+        self,
+        *,
         client: httpx.AsyncClient | None = None,
         cache_ttl: int = CACHE_SECONDS,
     ) -> None:
@@ -226,26 +251,14 @@ class YandexReverseImageSearch:
         now = monotonic()
         cached = self._cache.get(digest)
         if cached is not None and now < cached[0]:
-            data = cached[1]
-            return ImageWebResult(
-                tuple(sorted(
-                    (ImageWebHit(hit.title, hit.image_url, hit.source_url, hit.thumbnail_url,
-                                 hit.domain,
-                                 any(hit.domain == d or hit.domain.endswith("." + d)
-                                     for d in preferred_domains))
-                     for hit in data.results),
-                    key=lambda hit: not hit.priority,
-                )),
-                data.provider_url,
-                cache_hit=True,
-            )
+            return _ranked(cached[1], preferred_domains, cache_hit=True)
         if now < self._blocked_until:
             raise ImageWebSearchBlocked("Provider challenge; open Yandex directly")
         async with self._single:
             now = monotonic()
             cached = self._cache.get(digest)
             if cached is not None and now < cached[0]:
-                return await self._cached(image, preferred_domains)
+                return _ranked(cached[1], preferred_domains, cache_hit=True)
             jpeg = _optimized_jpeg(image)
             try:
                 upload = await self.client.post(
@@ -298,35 +311,8 @@ class YandexReverseImageSearch:
             if len(self._cache) >= 128:
                 self._cache.clear()
             self._cache[digest] = (monotonic() + self._cache_ttl, data)
-            return ImageWebResult(
-                tuple(sorted(
-                    (ImageWebHit(hit.title, hit.image_url, hit.source_url, hit.thumbnail_url,
-                                 hit.domain,
-                                 any(hit.domain == d or hit.domain.endswith("." + d)
-                                     for d in preferred_domains))
-                     for hit in data.results),
-                    key=lambda hit: not hit.priority,
-                )),
-                data.provider_url,
-            )
+            return _ranked(data, preferred_domains)
 
-    async def _cached(
-        self, image: bytes, domains: tuple[str, ...]
-    ) -> ImageWebResult:
-        # Only called after the lock has been acquired and cached entry exists.
-        cached = self._cache[sha256(image).hexdigest()][1]
-        results = tuple(
-            ImageWebHit(
-                hit.title, hit.image_url, hit.source_url, hit.thumbnail_url, hit.domain,
-                any(hit.domain == d or hit.domain.endswith("." + d) for d in domains),
-            )
-            for hit in cached.results
-        )
-        return ImageWebResult(
-            tuple(sorted(results, key=lambda hit: not hit.priority)),
-            cached.provider_url,
-            cache_hit=True,
-        )
 
 
 def image_web_page(
