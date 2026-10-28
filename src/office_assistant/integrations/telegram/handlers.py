@@ -165,7 +165,6 @@ from office_assistant.processing.semantic_visual import SemanticReference, Seman
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
-from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.image_search import (
     ImageWebResult,
     ImageWebSearchBlocked,
@@ -173,6 +172,7 @@ from office_assistant.web_evidence.image_search import (
     YandexReverseImageSearch,
     image_web_page,
 )
+from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.priority_sites import (
     InvalidPrioritySite,
     PrioritySitePermissionDenied,
@@ -3263,7 +3263,8 @@ async def handle_photo_choice_callback(
                 continue
             if len(flow.photos) > 1:
                 await context.bot.send_message(
-                    chat_id=identity.telegram_user_id, text=f"📷 Şəkil {position}/{len(flow.photos)}"
+                    chat_id=identity.telegram_user_id,
+                    text=f"📷 Şəkil {position}/{len(flow.photos)}",
                 )
             await _handle_exact_photo_lookup(update, context, image_bytes=body)
         return
@@ -3344,7 +3345,9 @@ async def _save_photo_album_description(
             try:
                 file = await context.bot.get_file(ref.file_id)
                 await file.download_to_drive(custom_path=storage_path)
-                if not 0 < services.storage.size(storage_path) <= services.ingestion.max_upload_bytes:
+                if not (
+                    0 < services.storage.size(storage_path) <= services.ingestion.max_upload_bytes
+                ):
                     raise ValueError("Image exceeds upload size")
                 await services.ingestion.add_file(
                     user,
