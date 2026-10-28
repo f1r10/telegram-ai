@@ -3398,7 +3398,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if _is_photo_lookup_request(message.caption):
         _discard_menu_selection(context)
-        await _present_photo_choices(update, context)
+        # Explicit PDF source commands retain their existing direct route.
+        # A missing per-user state store cannot safely bind callbacks to actor.
+        if (
+            _explicit_pdf_photo_lookup(message.caption)
+            or getattr(context, "user_data", None) is None
+            or getattr(message, "message_id", None) is None
+        ):
+            await _handle_exact_photo_lookup(update, context)
+        else:
+            await _present_photo_choices(update, context)
         return
     photo = message.photo[-1]
     await _handle_upload(
