@@ -134,6 +134,71 @@ def _decode_states(markup: str) -> list[dict[str, object]]:
     return found
 
 
+class _CardPairs(HTMLParser):
+    """Fallback for Yandex li HTML: never join two different cards' links."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.anchors: list[tuple[str, str, str]] = []
+        self.current_url = ""
+        self.current_title = ""
+        self.current_thumb = ""
+        self.hits: list[ImageWebHit] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_map = dict(attrs)
+        if tag == "li":
+            if self.depth == 0:
+                self.anchors = []
+            self.depth += 1
+        if not self.depth:
+            return
+        if tag == "a":
+            self.current_url = _http_url(attrs_map.get("href"))
+            self.current_title = str(attrs_map.get("title") or "")[:180]
+            self.current_thumb = ""
+        if tag == "img":
+            self.current_thumb = _http_url(attrs_map.get("data-src") or attrs_map.get("src"))
+            self.current_title = str(attrs_map.get("alt") or self.current_title)[:180]
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self.depth:
+            if self.current_url:
+                self.anchors.append(
+                    (self.current_url, self.current_title, self.current_thumb)
+                )
+            self.current_url = ""
+            self.current_title = ""
+            self.current_thumb = ""
+        if tag != "li" or not self.depth:
+            return
+        self.depth -= 1
+        if self.depth:
+            return
+        images = [
+            entry for entry in self.anchors
+            if urlsplit(entry[0]).path.lower().endswith(
+                (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+            )
+        ]
+        pages = {
+            _approved_page(entry[0])
+            for entry in self.anchors
+            if not urlsplit(entry[0]).path.lower().endswith(
+                (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+            )
+        }
+        pages.discard("")
+        if len(images) != 1 or len(pages) != 1:
+            return
+        page = next(iter(pages))
+        image, title, thumb = images[0]
+        self.hits.append(
+            ImageWebHit(title or "Şəkil mənbəsi", image, page, thumb, _domain(page))
+        )
+
+
 def parse_yandex_results(markup: str, domains: tuple[str, ...] = ()) -> tuple[ImageWebHit, ...]:
     """Only cbirSites pairs from one JSON item; never invent a product source URL."""
 
@@ -158,6 +223,24 @@ def parse_yandex_results(markup: str, domains: tuple[str, ...] = ()) -> tuple[Im
                 results.append(ImageWebHit(label, image, page, thumb, domain, priority))
                 if len(results) >= MAX_CARDS:
                     break
+    # HTML-only sites can carry a trustworthy pair within exactly one li.
+    # Ambiguous cards are intentionally rejected, never joined by position.
+    cards = _CardPairs()
+    cards.feed(markup)
+    for hit in cards.hits[:200]:
+        if (hit.image_url, hit.source_url) in seen or len(results) >= MAX_CARDS:
+            continue
+        seen.add((hit.image_url, hit.source_url))
+        priority = any(
+            hit.domain == domain or hit.domain.endswith("." + domain)
+            for domain in domains
+        )
+        results.append(
+            ImageWebHit(
+                hit.title, hit.image_url, hit.source_url, hit.thumbnail_url,
+                hit.domain, priority,
+            )
+        )
     # Admin-preferred results are first, preserving provider rank within each group.
     return tuple(sorted(results, key=lambda candidate: not candidate.priority))
 
