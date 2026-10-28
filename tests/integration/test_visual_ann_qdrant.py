@@ -23,12 +23,15 @@ def test_visual_ann_creates_isolated_cosine_index_and_queries_synthetic_vectors(
             await index.ensure()
             first = (1.0, 0.0) + (0.0,) * (DINO_DIMENSION - 2)
             second = (0.0, 1.0) + (0.0,) * (DINO_DIMENSION - 2)
-            assert await index.upsert(
-                [
-                    IndexedVisualPoint("product", "one", "a" * 64, first),
-                    IndexedVisualPoint("document", "two", "b" * 64, second),
-                ]
-            ) == 2
+            assert (
+                await index.upsert(
+                    [
+                        IndexedVisualPoint("product", "one", "a" * 64, first),
+                        IndexedVisualPoint("document", "two", "b" * 64, second),
+                    ]
+                )
+                == 2
+            )
             results = await index.query(first, limit=2)
             assert len(results) == 2
             assert results[0][0:3] == ("product", "one", "a" * 64)
