@@ -46,6 +46,7 @@ from office_assistant.processing.semantic_visual import (
 logger = logging.getLogger(__name__)
 INDEX_NAME = "office_visual_dino_v1"
 MAX_HITS = 40
+MAX_SCAN_HITS = 120  # overfetch to survive revoked/stale high-score points
 MIN_CANDIDATE_SCORE = 0.82
 
 
@@ -145,7 +146,7 @@ class VisualANNIndex:
     async def query(
         self, vector: tuple[float, ...], *, limit: int = MAX_HITS
     ) -> list[tuple[str, str, str, float]]:
-        if len(vector) != DINO_DIMENSION or not 1 <= limit <= MAX_HITS:
+        if len(vector) != DINO_DIMENSION or not 1 <= limit <= MAX_SCAN_HITS:
             raise ValueError("Invalid visual index query")
         response = await self.client.query_points(
             collection_name=self.collection,
@@ -168,6 +169,118 @@ class VisualANNIndex:
             ):
                 output.append((kind, rid, digest, float(scored.score)))
         return output
+
+
+    async def prune_stale(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        *,
+        batch_size: int = 128,
+    ) -> tuple[int, int]:
+        """Reconcile ONLY derived Qdrant points with authoritative active DB rows.
+
+        Called after a successful full backfill, not in user photo requests.
+        New committed worker points are retained; revoked or retired points are
+        deleted. Raw originals and business records are never changed.
+        """
+        if not 1 <= batch_size <= 256:
+            raise ValueError("Invalid reconciliation batch size")
+        offset: int | str | None = None
+        scanned = removed = 0
+        while True:
+            records, next_offset = await self.client.scroll(
+                collection_name=self.collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            product_ids: list[UUID] = []
+            document_ids: list[int] = []
+            parsed: list[tuple[str, str, str, str]] = []
+            for point in records:
+                payload = point.payload or {}
+                kind = payload.get("kind")
+                rid = payload.get("record_id")
+                digest = payload.get("digest")
+                version = payload.get("version")
+                point_uuid = str(point.id)
+                if not isinstance(kind, str) or not isinstance(rid, str) or not isinstance(digest, str):
+                    parsed.append((point_uuid, "", "", ""))
+                    continue
+                if version != DINO_MODEL_VERSION:
+                    parsed.append((point_uuid, "", "", ""))
+                    continue
+                if kind == "product":
+                    try:
+                        product_ids.append(UUID(rid))
+                    except ValueError:
+                        parsed.append((point_uuid, "", "", ""))
+                        continue
+                elif kind == "document":
+                    try:
+                        occurrence = int(rid)
+                        if occurrence <= 0:
+                            raise ValueError
+                        document_ids.append(occurrence)
+                    except ValueError:
+                        parsed.append((point_uuid, "", "", ""))
+                        continue
+                else:
+                    parsed.append((point_uuid, "", "", ""))
+                    continue
+                parsed.append((point_uuid, kind, rid, digest))
+            active: set[tuple[str, str, str]] = set()
+            async with factory() as session:
+                if product_ids:
+                    rows = (
+                        await session.execute(
+                            select(ProductImageRelation.id, ImageAsset.content_sha256)
+                            .select_from(ProductImageRelation)
+                            .join(Product, Product.id == ProductImageRelation.product_id)
+                            .join(ImageAsset, ImageAsset.id == ProductImageRelation.image_asset_id)
+                            .where(
+                                ProductImageRelation.id.in_(product_ids),
+                                ProductImageRelation.confirmation_type
+                                == ProductImageRelationConfirmation.USER_EXPLICIT,
+                                ProductImageRelation.superseded_at.is_(None),
+                                Product.is_active.is_(True),
+                            )
+                        )
+                    ).all()
+                    active.update(("product", str(rid), digest) for rid, digest in rows)
+                if document_ids:
+                    rows = (
+                        await session.execute(
+                            select(ImageAssetOccurrence.id, ImageAsset.content_sha256)
+                            .select_from(ImageAssetOccurrence)
+                            .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                            .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+                            .where(
+                                ImageAssetOccurrence.id.in_(document_ids),
+                                ImageAssetOccurrence.origin_type.in_(DOCUMENT_IMAGE_ORIGINS),
+                                FileObject.state == FileObjectState.ACTIVE,
+                            )
+                        )
+                    ).all()
+                    active.update(("document", str(rid), digest) for rid, digest in rows)
+            stale = [
+                point_id_value
+                for point_id_value, kind, rid, digest in parsed
+                if (kind, rid, digest) not in active
+            ]
+            scanned += len(records)
+            if stale:
+                await self.client.delete(
+                    collection_name=self.collection,
+                    points_selector=models.PointIdsList(points=stale),
+                    wait=True,
+                )
+                removed += len(stale)
+            if next_offset is None:
+                break
+            offset = next_offset
+        return scanned, removed
 
 
 class IndexedVisualLookup:
@@ -199,7 +312,7 @@ class IndexedVisualLookup:
             vector = await asyncio.to_thread(self.encoder.query_vector, body)
             if vector is None:
                 return IndexedResults((), ())
-            points = await self.index.query(vector)
+            points = await self.index.query(vector, limit=MAX_SCAN_HITS)
         except Exception as error:  # noqa: BLE001 - remote ANN must fail closed
             logger.warning("Visual ANN unavailable | type=%s", type(error).__name__)
             return IndexedResults((), (), unavailable=True)
@@ -207,6 +320,8 @@ class IndexedVisualLookup:
         documents: list[IndexedDocument] = []
         async with self.factory() as session:
             for kind, rid, digest, score in points:
+                if len(products) + len(documents) >= MAX_HITS:
+                    break
                 if score < MIN_CANDIDATE_SCORE:
                     continue
                 if kind == "product":
