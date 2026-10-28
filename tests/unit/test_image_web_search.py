@@ -45,7 +45,7 @@ def html() -> str:
             }
         }
     }
-    return '<div data-state=\'' + json.dumps(payload) + "\'></div>"
+    return "<div data-state='" + json.dumps(payload) + "'></div>"
 
 
 def test_parse_preserves_only_real_same_card_image_page_pairs() -> None:
