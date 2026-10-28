@@ -88,11 +88,12 @@ def test_visual_source_download_ticket_is_actor_bound_and_contains_no_path(
         response = await backend.photo("signed-init-data", image_bytes=b"synthetic-photo")
         entries = response["ranked"]
         assert isinstance(entries, list)
-        source = entries[0]
-        assert isinstance(source, dict)
+        source_raw = cast(list[object], entries)[0]
+        assert isinstance(source_raw, dict)
+        source = cast(dict[str, object], source_raw)
         assert source.get("occurrence_id") is None
         assert source.get("storage_key") is None
-        token = source["source_ticket"]
+        token = source.get("source_ticket")
         assert isinstance(token, str) and len(token) >= 20
         delivered = await backend.source_file("signed-init-data", token=token)
         assert delivered.file_id == 77
