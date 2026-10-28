@@ -9,11 +9,10 @@ from __future__ import annotations
 
 # Qdrant's generated client types are dynamic; narrow results at this boundary.
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
-
 import asyncio
 import logging
 from dataclasses import dataclass
-from uuid import UUID, NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy import select
@@ -36,7 +35,6 @@ from office_assistant.processing.document_visual_candidates import (
 from office_assistant.processing.semantic_visual import (
     DINO_DIMENSION,
     DINO_MODEL_VERSION,
-    SemanticReference,
     SemanticVisualSearch,
 )
 
