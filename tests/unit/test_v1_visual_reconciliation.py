@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import cast
 
-from qdrant_client import AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.processing.semantic_visual import DINO_MODEL_VERSION
@@ -42,15 +42,19 @@ def test_reconciliation_removes_only_stale_points() -> None:
                     SimpleNamespace(
                         id=point_id("document", "24"),
                         payload={
-                            "kind": "document", "record_id": "24",
-                            "digest": "a" * 64, "version": DINO_MODEL_VERSION,
+                            "kind": "document",
+                            "record_id": "24",
+                            "digest": "a" * 64,
+                            "version": DINO_MODEL_VERSION,
                         },
                     ),
                     SimpleNamespace(
                         id=point_id("document", "25"),
                         payload={
-                            "kind": "document", "record_id": "25",
-                            "digest": "b" * 64, "version": DINO_MODEL_VERSION,
+                            "kind": "document",
+                            "record_id": "25",
+                            "digest": "b" * 64,
+                            "version": DINO_MODEL_VERSION,
                         },
                     ),
                 ],
@@ -58,9 +62,8 @@ def test_reconciliation_removes_only_stale_points() -> None:
             )
 
         async def delete(self, **kwargs: object) -> None:
-            selected = kwargs["points_selector"]
-            points = getattr(selected, "points", [])
-            self.removed.extend(str(value) for value in points)
+            selected = cast(models.PointIdsList, kwargs["points_selector"])
+            self.removed.extend(str(value) for value in selected.points)
 
     async def run() -> None:
         index = VisualANNIndex("http://127.0.0.1:6333")
