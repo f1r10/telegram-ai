@@ -170,7 +170,6 @@ class VisualANNIndex:
                 output.append((kind, rid, digest, float(scored.score)))
         return output
 
-
     async def prune_stale(
         self,
         factory: async_sessionmaker[AsyncSession],
