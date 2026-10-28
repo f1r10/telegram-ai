@@ -11,6 +11,7 @@ services:
       # Separate opt-in flag: an old CLIP setting in .env cannot activate DINO.
       VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+      VISUAL_SEMANTIC_MIN_SCORE: ${DINO_STAGING_MIN_SCORE:-0.82}
 
   # Upload-time vectors for PDF/DOCX/XLSX images use the same offline
   # model as the app only after an explicit staging opt-in.
@@ -22,6 +23,7 @@ services:
     environment:
       VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+      VISUAL_SEMANTIC_MIN_SCORE: ${DINO_STAGING_MIN_SCORE:-0.82}
 
   miniapp:
     build:
@@ -31,6 +33,7 @@ services:
     environment:
       VISUAL_SEMANTIC_ENABLED: ${DINO_STAGING_ENABLED:-true}
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+      VISUAL_SEMANTIC_MIN_SCORE: ${DINO_STAGING_MIN_SCORE:-0.82}
 
   # Explicit command-line target; does not poll Telegram or write catalog rows.
   # Runs only when the operator explicitly names this profile service.
@@ -57,10 +60,14 @@ services:
       POSTGRES_PORT: 5432
       FILE_STORAGE_PATH: /data/storage
       EMBEDDING_CACHE_PATH: /models/cache
+      QDRANT_URL: http://qdrant:6333
       VISUAL_SEMANTIC_ENABLED: "false"
       VISUAL_SEMANTIC_MODEL_VERSION: dinov2-small-mean-v1
+      VISUAL_SEMANTIC_MIN_SCORE: ${DINO_STAGING_MIN_SCORE:-0.82}
     depends_on:
       postgres:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
       model-cache-init:
         condition: service_completed_successfully
