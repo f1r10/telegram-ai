@@ -41,8 +41,8 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
-from office_assistant.processing.visual_ann import IndexedVisualLookup, VisualANNIndex
 from office_assistant.processing.vision import ImageVisionExtractor
+from office_assistant.processing.visual_ann import IndexedVisualLookup, VisualANNIndex
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
 from office_assistant.web_evidence.image_search import YandexReverseImageSearch
