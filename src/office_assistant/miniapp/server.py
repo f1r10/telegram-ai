@@ -38,6 +38,8 @@ from office_assistant.miniapp.photo_lookup import MiniAppPhotoLookup
 from office_assistant.miniapp.progress import MiniAppDocumentProgress
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
+from office_assistant.web_evidence.image_search import YandexReverseImageSearch
+from office_assistant.web_evidence.priority_sites import PrioritySitesService
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,7 @@ def main() -> None:
     ai: OpenAILanguageModel | None = None
     qdrant: QdrantKnowledgeStore | None = None
     evidence: InternalEvidenceService | None = None
+    photo_web = YandexReverseImageSearch()
 
     try:
         if settings.openai_api_key is not None:
@@ -153,6 +156,8 @@ def main() -> None:
                 storage_root=storage.root,
                 semantic=visual,
             ),
+            photo_web=photo_web,
+            photo_priority_sites=PrioritySitesService(session_factory),
             uploads=MiniAppUploadWorkflow(
                 storage,
                 IngestionSessionService(
@@ -188,6 +193,7 @@ def main() -> None:
                 await ai.close()
             if qdrant is not None:
                 await qdrant.close()
+            await photo_web.close()
             await engine.dispose()
 
         task = asyncio.run_coroutine_threadsafe(close_resources(), loop)

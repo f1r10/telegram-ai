@@ -42,6 +42,12 @@ from office_assistant.miniapp.stock_actions import MiniAppStockActionReview
 from office_assistant.miniapp.stock_transfer import MiniAppStockTransferReview
 from office_assistant.miniapp.stock_xlsx import MiniAppStockXlsxReview
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
+from office_assistant.web_evidence.image_search import (
+    ImageWebSearchBlocked,
+    ImageWebSearchUnavailable,
+    YandexReverseImageSearch,
+)
+from office_assistant.web_evidence.priority_sites import PrioritySitesService
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +99,8 @@ class MiniAppBackend:
         uploads: MiniAppUploadWorkflow | None = None,
         progress: MiniAppDocumentProgress | None = None,
         photo_lookup: MiniAppPhotoLookup | None = None,
+        photo_web: YandexReverseImageSearch | None = None,
+        photo_priority_sites: PrioritySitesService | None = None,
         stock_transfer_enabled: bool = False,
         stock_actions_enabled: bool = False,
         stock_xlsx_enabled: bool = False,
@@ -126,6 +134,8 @@ class MiniAppBackend:
         self.uploads = uploads
         self.progress = progress
         self.photo_lookup = photo_lookup
+        self.photo_web = photo_web
+        self.photo_priority_sites = photo_priority_sites
         self._source_tickets: dict[str, SourceTicket] = {}
         self.rate_guard = InProcessRateGuard(rate_limit_per_minute)
         self.request_timeout_seconds = request_timeout_seconds
@@ -574,6 +584,54 @@ class MiniAppBackend:
         async with self._inflight:
             result = await self.photo_lookup.lookup(image_bytes)
         return result.payload()
+
+    async def photo_web_search(self, init_data: str, *, image_bytes: bytes) -> dict[str, object]:
+        """Explicit, signed consent to send exactly this photo to Yandex."""
+
+        actor = await self.actor(init_data)
+        if self.photo_web is None:
+            raise MiniAppServiceUnavailable("Internet photo search is not configured")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many requests")
+        if self._inflight.locked():
+            raise MiniAppRateLimited("The assistant is busy")
+        if not 0 < len(image_bytes) <= 4 * 1024 * 1024:
+            raise ValueError("Photo too large")
+        domains = (
+            await self.photo_priority_sites.list_domains()
+            if self.photo_priority_sites is not None
+            else ()
+        )
+        try:
+            async with self._inflight:
+                result = await asyncio.wait_for(
+                    self.photo_web.search(image_bytes, preferred_domains=domains),
+                    timeout=22.0,
+                )
+        except (ImageWebSearchBlocked, ImageWebSearchUnavailable, TimeoutError):
+            return {
+                "status": "unavailable",
+                "results": [],
+                "provider_url": "https://yandex.com/images/",
+                "notice": "Provayder müvəqqəti cavab vermir və ya CAPTCHA tələb edir. "
+                "Avtomatik blok keçidi edilmir.",
+            }
+        return {
+            "status": "results",
+            "results": [
+                {
+                    "title": hit.title,
+                    "image_url": hit.image_url,
+                    "source_url": hit.source_url,
+                    "thumbnail_url": hit.thumbnail_url,
+                    "domain": hit.domain,
+                    "priority": hit.priority,
+                }
+                for hit in result.results
+            ],
+            "provider_url": result.provider_url,
+            "notice": "Mənbə namizədləridir; məhsul kodu və stok təsdiqi deyil.",
+        }
 
     async def recent_uploads(self, init_data: str) -> dict[str, object]:
         """Read only the authenticated actor's most recent durable jobs."""

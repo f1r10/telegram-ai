@@ -44,6 +44,7 @@ from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.web_evidence.cache import WebSearchService
 from office_assistant.web_evidence.fetcher import WebContentFetcher
+from office_assistant.web_evidence.image_search import YandexReverseImageSearch
 from office_assistant.web_evidence.priority_sites import PrioritySitesService
 from office_assistant.web_evidence.providers import (
     SearXNGWebSearchProvider,
@@ -209,6 +210,8 @@ def main() -> None:
             if settings.visual_semantic_enabled
             else None
         )
+        photo_web = YandexReverseImageSearch()
+        web_clients.append(photo_web)
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
@@ -229,6 +232,8 @@ def main() -> None:
                 max_bytes=min(settings.file_delivery_max_bytes, settings.max_upload_bytes),
             ),
             web_evidence=web_service,
+            photo_web=photo_web,
+            photo_priority_sites=PrioritySitesService(session_factory),
             image_reader=image_reader,
             semantic_visual=semantic_visual,
             reminders=ReminderService(session_factory, clock=SystemClock()),

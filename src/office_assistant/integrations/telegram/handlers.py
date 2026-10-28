@@ -116,6 +116,12 @@ from office_assistant.integrations.telegram.catalog_source_tickets import (
     resolve_catalog_ticket,
 )
 from office_assistant.integrations.telegram.formatting import split_telegram_text
+from office_assistant.integrations.telegram.photo_flow import (
+    MAX_ALBUM_PHOTOS,
+    PHOTO_FLOW_KEY,
+    PhotoFlow,
+    add_photo,
+)
 from office_assistant.integrations.telegram.reminder_format import when_azerbaijani
 from office_assistant.integrations.telegram.state import (
     DeleteConfirmationState,
@@ -159,6 +165,13 @@ from office_assistant.processing.semantic_visual import SemanticReference, Seman
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
+from office_assistant.web_evidence.image_search import (
+    ImageWebResult,
+    ImageWebSearchBlocked,
+    ImageWebSearchUnavailable,
+    YandexReverseImageSearch,
+    image_web_page,
+)
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.priority_sites import (
     InvalidPrioritySite,
@@ -200,6 +213,8 @@ class TelegramServices:
     knowledge: KnowledgeRetrievalService | None = None
     file_delivery: SourceFileDeliveryService | None = None
     web_evidence: WebEvidenceService | None = None
+    photo_web: YandexReverseImageSearch | None = None
+    photo_priority_sites: PrioritySitesService | None = None
     image_reader: ImageVisionExtractor | None = None
     semantic_visual: SemanticVisualSearch | None = None
     reminders: ReminderService | None = None
@@ -1577,6 +1592,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.UNKNOWN_USER)
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
+            elif await _save_photo_album_description(update, context, user):
+                return
             elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
                 return
             elif (
@@ -2852,12 +2869,22 @@ async def _reply_pdf_catalog_candidates(
     return True
 
 
-async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_exact_photo_lookup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    image_bytes: bytes | None = None,
+) -> None:
     """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
     message = update.effective_message
     identity = _identity(update)
-    if not _is_private(update) or message is None or identity is None or not message.photo:
+    if (
+        not _is_private(update)
+        or message is None
+        or identity is None
+        or (image_bytes is None and not message.photo)
+    ):
         return
     data = getattr(context, "user_data", None)
     if data is not None:
@@ -2873,14 +2900,20 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
     if services.session_factory is None or services.storage is None:
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
-    photo = message.photo[-1]
-    if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
-        await message.reply_text("Şəkil yoxlama üçün çox böyükdür. Daha kiçik şəkil göndərin.")
-        return
+    if image_bytes is None:
+        assert message.photo is not None
+        photo = message.photo[-1]
+        if photo.file_size is not None and photo.file_size > 4 * 1024 * 1024:
+            await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
+            return
     try:
-        telegram_file = await context.bot.get_file(photo.file_id)
-        picture = bytes(await telegram_file.download_as_bytearray())
-        if len(picture) > 4 * 1024 * 1024:
+        if image_bytes is not None:
+            picture = image_bytes
+        else:
+            assert message.photo is not None
+            telegram_file = await context.bot.get_file(message.photo[-1].file_id)
+            picture = bytes(await telegram_file.download_as_bytearray())
+        if not 0 < len(picture) <= 4 * 1024 * 1024:
             await message.reply_text("Şəkil yoxlama üçün çox böyükdür.")
             return
         digest = sha256(picture).hexdigest()
@@ -3027,6 +3060,331 @@ async def _handle_exact_photo_lookup(update: Update, context: ContextTypes.DEFAU
         await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")
 
 
+def _photo_action_keyboard(flow: PhotoFlow) -> InlineKeyboardMarkup:
+    token = flow.token
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("💾 Yadda saxla", callback_data=f"pi:{token}:save"),
+                InlineKeyboardButton("📁 Bazada axtar", callback_data=f"pi:{token}:db"),
+            ],
+            [InlineKeyboardButton("🌐 İnternetdə axtar", callback_data=f"pi:{token}:web")],
+        ]
+    )
+
+
+async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """No upload or remote reverse-search until an explicit selection is made."""
+
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None or not message.photo or not _is_private(update):
+        return
+    user = await _services(context).users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await message.reply_text(messages.UNKNOWN_USER if user is None else _status_message(user))
+        return
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    flow = add_photo(
+        data.get(PHOTO_FLOW_KEY),
+        identity.telegram_user_id,
+        message.photo[-1].file_id,
+        message.message_id,
+        update.update_id,
+        message.media_group_id,
+    )
+    data[PHOTO_FLOW_KEY] = flow
+    await message.reply_text(
+        f"📷 {len(flow.photos)} şəkil seçilib"
+        + (f" (bir albomda maksimum {MAX_ALBUM_PHOTOS})" if message.media_group_id else "")
+        + "\n\nNə etmək istəyirsiniz?\n"
+        "İnternet axtarışı seçilməyənədək foto xarici xidmətə göndərilmir.",
+        reply_markup=_photo_action_keyboard(flow),
+    )
+
+
+async def _photo_download(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
+    source = await context.bot.get_file(file_id)
+    data = bytes(await source.download_as_bytearray())
+    if not 0 < len(data) <= 4 * 1024 * 1024:
+        raise ValueError("Şəkil maksimum 4 MB olmalıdır.")
+    return data
+
+
+def _web_photo_keyboard(flow: PhotoFlow, photo_index: int, page: int) -> InlineKeyboardMarkup:
+    result = flow.web_results[photo_index]
+    start = page * 5
+    rows: list[list[InlineKeyboardButton]] = []
+    for number, hit in enumerate(image_web_page(result, page), start=start + 1):
+        rows.append(
+            [
+                InlineKeyboardButton(f"🔗 Mənbə {number}", url=hit.source_url),
+                InlineKeyboardButton("🖼 Orijinal şəkil", url=hit.image_url),
+            ]
+        )
+    navigation: list[InlineKeyboardButton] = []
+    if page > 0:
+        navigation.append(
+            InlineKeyboardButton("⬅️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page - 1}")
+        )
+    if start + 5 < len(result.results):
+        navigation.append(
+            InlineKeyboardButton("➡️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page + 1}")
+        )
+    if navigation:
+        rows.append(navigation)
+    if len(flow.web_results) > 1:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"📷 Şəkil {index + 1}",
+                    callback_data=f"pi:{flow.token}:pg:{index}:0",
+                )
+                for index in range(len(flow.web_results))
+            ]
+        )
+    if result.provider_url.startswith("https://yandex.com/images/search"):
+        rows.append([InlineKeyboardButton("🌐 Yandex nəticələrində bax", url=result.provider_url)])
+    return InlineKeyboardMarkup(rows)
+
+
+def _web_photo_text(flow: PhotoFlow, photo_index: int, page: int) -> str:
+    result = flow.web_results[photo_index]
+    total = len(result.results)
+    pages = max(1, (total + 4) // 5)
+    lines = [
+        f"🌐 İNTERNET ŞƏKİL NƏTİCƏLƏRİ — {photo_index + 1}/{len(flow.web_results)}",
+        f"Nəticələr: {total} | Səhifə: {page + 1}/{pages}",
+        "",
+    ]
+    for offset, hit in enumerate(image_web_page(result, page), start=page * 5 + 1):
+        lines.extend(
+            [
+                f"{offset}. {hit.title[:120]}",
+                f"   Sayt: {hit.domain}" + (" · prioritet" if hit.priority else ""),
+                "   Mənbə səhifəsini və orijinal şəkli düymələrlə aça bilərsiniz.",
+                "",
+            ]
+        )
+    if not total:
+        lines.append("Bu provayderdə təsdiqlənən şəkil-mənbə cütü tapılmadı.")
+    lines.append(
+        "İnternet uyğunluğu məhsul kimliyini, qiyməti və ya stoku təsdiqləmir. "
+        "Şəkil yalnız bu seçimdən sonra Yandex-ə göndərilib."
+    )
+    return "\n".join(lines)
+
+
+async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Actor-bound callback: save one album, local lookup or explicit web upload."""
+
+    query = update.callback_query
+    identity = _identity(update)
+    if query is None or identity is None or not _is_private(update):
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    if len(parts) < 3 or parts[0] != "pi":
+        return
+    data = getattr(context, "user_data", None)
+    state = data.get(PHOTO_FLOW_KEY) if data is not None else None
+    flow = state if isinstance(state, PhotoFlow) else None
+    if flow is None or not flow.valid(identity.telegram_user_id, parts[1]):
+        await query.edit_message_text("Bu şəkil seçiminin vaxtı bitib. Fotoları yenidən göndərin.")
+        return
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+    if user is None or user.status != UserStatus.ACTIVE:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    action = parts[2]
+    if action == "pg" and len(parts) == 5:
+        try:
+            photo_index, page = int(parts[3]), int(parts[4])
+            if not (0 <= photo_index < len(flow.web_results)) or not (
+                0 <= page * 5 < max(1, len(flow.web_results[photo_index].results))
+            ):
+                raise ValueError
+        except ValueError:
+            await query.edit_message_text("Bu nəticə səhifəsi artıq əlçatan deyil.")
+            return
+        await query.edit_message_text(
+            _web_photo_text(flow, photo_index, page),
+            reply_markup=_web_photo_keyboard(flow, photo_index, page),
+        )
+        return
+    if len(parts) != 3 or action not in {"save", "db", "web"}:
+        return
+    if action == "save":
+        if services.ingestion is None:
+            await query.edit_message_text(messages.TEMPORARY_ERROR)
+            return
+        if await services.ingestion.has_open_session(user):
+            await query.edit_message_text(
+                "Başqa yadda saxlama paketi açıqdır. Əvvəl onu təsdiqləyin və ya ləğv edin."
+            )
+            return
+        flow.awaiting_description = True
+        await query.edit_message_text(
+            "💾 Şəkillər bir qeyd altında saxlanacaq. Məlumatı bir mesajla yazın.\n\n"
+            "NÜMUNƏ:\n"
+            "Ad: Qara qol saatı\n"
+            "Kateqoriya: Saat\n"
+            "Təsvir: Metal korpus, qara siferblat\n"
+            "Açar sözlər: saat, qara, metal\n"
+            "Məhsul kodu: KA45 (əgər dəqiq bilirsinizsə)\n"
+            "Qeyd: Ön və yan görünüş\n\n"
+            "Yalnız «Ad:» sətri məcburidir. Bu məlumat növbəti mesajda gələndə "
+            "şəkillər bir paket kimi saxlanacaq; heç bir kod avtomatik təsdiqlənməyəcək."
+        )
+        return
+    if action == "db":
+        await query.edit_message_text(
+            f"📁 {len(flow.photos)} şəkil üzrə təsdiqli məhsullar və sənəd şəkilləri axtarılır."
+        )
+        for position, ref in enumerate(flow.photos, start=1):
+            try:
+                body = await _photo_download(context, ref.file_id)
+            except (OSError, ValueError, TelegramError):
+                await context.bot.send_message(
+                    chat_id=identity.telegram_user_id, text=f"Şəkil {position} oxunmadı."
+                )
+                continue
+            if len(flow.photos) > 1:
+                await context.bot.send_message(
+                    chat_id=identity.telegram_user_id,
+                    text=f"📷 Şəkil {position}/{len(flow.photos)}",
+                )
+            await _handle_exact_photo_lookup(update, context, image_bytes=body)
+        return
+    if services.photo_web is None:
+        await query.edit_message_text("İnternet üzrə şəkil axtarışı hazırda quraşdırılmayıb.")
+        return
+    domains = (
+        await services.photo_priority_sites.list_domains()
+        if services.photo_priority_sites is not None
+        else ()
+    )
+    await query.edit_message_text(
+        "🌐 Seçilmiş şəkillər üzrə internet mənbələri yoxlanılır. "
+        "Fotolar yalnız indi Yandex-ə ötürülür."
+    )
+    flow.web_results.clear()
+    for ref in flow.photos:
+        try:
+            body = await _photo_download(context, ref.file_id)
+            result = await asyncio.wait_for(
+                services.photo_web.search(body, preferred_domains=domains), timeout=22.0
+            )
+        except (ValueError, OSError, TelegramError, TimeoutError):
+            result = ImageWebResult((), "https://yandex.com/images/search")
+        except (ImageWebSearchBlocked, ImageWebSearchUnavailable):
+            result = ImageWebResult((), "https://yandex.com/images/search")
+        flow.web_results.append(result)
+    if flow.web_results:
+        await context.bot.send_message(
+            chat_id=identity.telegram_user_id,
+            text=_web_photo_text(flow, 0, 0),
+            reply_markup=_web_photo_keyboard(flow, 0, 0),
+        )
+
+
+async def _save_photo_album_description(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+) -> bool:
+    """Write the whole group in one existing ingestion session, not as loose SKUs."""
+
+    data = getattr(context, "user_data", None)
+    identity = _identity(update)
+    message = update.effective_message
+    state = data.get(PHOTO_FLOW_KEY) if data is not None else None
+    flow = state if isinstance(state, PhotoFlow) else None
+    if (
+        flow is None
+        or identity is None
+        or message is None
+        or not message.text
+        or not flow.valid(identity.telegram_user_id)
+        or not flow.awaiting_description
+    ):
+        return False
+    description = message.text.strip()
+    if (
+        not 5 <= len(description) <= 3000
+        or re.search(r"(?im)^ad\s*:\s*\S.{0,180}$", description) is None
+    ):
+        await message.reply_text(
+            "Ad məcburidir. Nümunə: «Ad: Qara qol saatı»."
+            " Təsvir, kateqoriya, kod və açar sözləri əlavə edə bilərsiniz."
+        )
+        return True
+    services = _services(context)
+    if services.ingestion is None or services.storage is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return True
+    if await services.ingestion.has_open_session(user):
+        await message.reply_text("Başqa yadda saxlama paketi açıqdır. Əvvəl onu yekunlaşdırın.")
+        return True
+    try:
+        for position, ref in enumerate(flow.photos, start=1):
+            filename = f"image_album_{ref.message_id}_{position}.jpg"
+            storage_path, storage_key = services.storage.create_staging_path(".jpg")
+            try:
+                file = await context.bot.get_file(ref.file_id)
+                await file.download_to_drive(custom_path=storage_path)
+                if not (
+                    0 < services.storage.size(storage_path) <= services.ingestion.max_upload_bytes
+                ):
+                    raise ValueError("Image exceeds upload size")
+                await services.ingestion.add_file(
+                    user,
+                    UploadMetadata(
+                        original_filename=filename,
+                        content_type="image/jpeg",
+                        staging_path=storage_path,
+                        staging_key=storage_key,
+                        telegram_chat_id=message.chat_id,
+                        telegram_message_id=ref.message_id,
+                        telegram_update_id=ref.update_id,
+                        caption=None,
+                    ),
+                )
+            except Exception:
+                services.storage.delete(storage_key)
+                raise
+        await services.ingestion.add_instruction(
+            user,
+            text_content="BİR ŞƏKİL QRUPU (" + str(len(flow.photos)) + " şəkil):\n" + description,
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            update_id=update.update_id,
+        )
+        summary = await services.ingestion.commit(user, expected_file_count=len(flow.photos))
+    except (ValueError, OSError, TelegramError, ApplicationError, StorageError, SQLAlchemyError):
+        try:
+            await services.ingestion.cancel(user)
+        except (ApplicationError, SQLAlchemyError):
+            logger.warning("Photo group session rollback unavailable")
+        await message.reply_text(
+            "Şəkil qrupu bütöv saxlanmadı. Məlumatlar qismən məhsul kimi təsdiqlənməyib."
+        )
+        return True
+    if data is not None:
+        data.pop(PHOTO_FLOW_KEY, None)
+    await message.reply_text(
+        f"✅ {len(flow.photos)} şəkil və məlumat bir yadda saxlama paketində "
+        f"qeydə alındı. Paket: {summary.session_id if summary is not None else 'yoxlanmalıdır'}. "
+        "Şəkillər axtarış indeksinə worker tərəfindən əlavə edilir; "
+        "məhsul kodu ayrıca təsdiqlənməlidir."
+    )
+    return True
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None or not message.photo:
@@ -3035,7 +3393,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if _is_photo_lookup_request(message.caption):
         _discard_menu_selection(context)
-        await _handle_exact_photo_lookup(update, context)
+        # Explicit PDF source commands retain their existing direct route.
+        # A missing per-user state store cannot safely bind callbacks to actor.
+        if (
+            _explicit_pdf_photo_lookup(message.caption)
+            or getattr(context, "user_data", None) is None
+            or getattr(message, "message_id", None) is None
+        ):
+            await _handle_exact_photo_lookup(update, context)
+        else:
+            await _present_photo_choices(update, context)
         return
     photo = message.photo[-1]
     await _handle_upload(

@@ -16,7 +16,8 @@
     uploadFeedback: $("upload-feedback"),
     jobsRefresh: $("jobs-refresh"), jobList: $("job-list"),
     photoPanel: $("photo-panel"), photoFile: $("photo-file"),
-    photoSearch: $("photo-search"), photoFeedback: $("photo-feedback"),
+    photoSearch: $("photo-search"), photoWebSearch: $("photo-web-search"),
+    photoFeedback: $("photo-feedback"),
     photoResults: $("photo-results"),
     transferMode: $("transfer-mode"), transferPanel: $("transfer-panel"),
     transferPreview: $("transfer-preview"), transferDetails: $("transfer-details"),
@@ -388,6 +389,128 @@
       ui.photoSearch.disabled = !active;
     }
   }
+
+  let webPhotoMatches = [];
+  let webPhotoPage = 0;
+
+  function renderWebPhotoPage() {
+    ui.photoResults.replaceChildren();
+    const total = webPhotoMatches.length;
+    const pageSize = 10;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    photoMessage("İnternet şəkil namizədləri: " + total + " · " +
+      (webPhotoPage + 1) + "/" + pages + " səhifə");
+    for (const hit of webPhotoMatches.slice(webPhotoPage * pageSize, (webPhotoPage + 1) * pageSize)) {
+      if (typeof hit !== "object" || hit === null) continue;
+      const card = document.createElement("article");
+      card.className = "candidate";
+      if (typeof hit.thumbnail_url === "string" &&
+          /^https:\/\//i.test(hit.thumbnail_url) && hit.thumbnail_url.length <= 2048) {
+        const photo = document.createElement("img");
+        photo.src = hit.thumbnail_url;
+        photo.alt = "Mənbə şəklinin önizləməsi";
+        photo.referrerPolicy = "no-referrer";
+        photo.loading = "lazy";
+        photo.style.maxWidth = "140px";
+        photo.style.maxHeight = "140px";
+        card.append(photo);
+      }
+      const title = document.createElement("p");
+      title.textContent = (typeof hit.title === "string" ? hit.title.slice(0, 180) : "Şəkil") +
+        (hit.priority ? " · PRIORİTET SAYT" : "") +
+        " · " + (typeof hit.domain === "string" ? hit.domain.slice(0, 100) : "");
+      card.append(title);
+      for (const field of [["source_url", "Mənbə səhifəsini aç"], ["image_url", "Şəkli aç"]]) {
+        const link = hit[field[0]];
+        if (typeof link !== "string" || !/^https?:\/\//i.test(link) || link.length > 2048) continue;
+        const anchor = document.createElement("a");
+        anchor.href = link;
+        anchor.textContent = field[1] + " ↗";
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.referrerPolicy = "no-referrer";
+        card.append(anchor);
+        card.append(document.createTextNode("  "));
+      }
+      ui.photoResults.append(card);
+    }
+    if (pages > 1) {
+      const actions = document.createElement("div");
+      actions.className = "upload-actions";
+      for (const config of [
+        {label: "⬅️ Əvvəlki", page: webPhotoPage - 1},
+        {label: "Növbəti ➡️", page: webPhotoPage + 1}
+      ]) {
+        if (config.page < 0 || config.page >= pages) continue;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "upload-secondary";
+        button.textContent = config.label;
+        button.addEventListener("click", () => {
+          webPhotoPage = config.page;
+          renderWebPhotoPage();
+        });
+        actions.append(button);
+      }
+      ui.photoResults.append(actions);
+    }
+    if (!total) {
+      const message = document.createElement("p");
+      message.textContent = "Təsdiqlənən şəkil-mənbə cütü aşkar edilmədi.";
+      ui.photoResults.append(message);
+    }
+  }
+
+  async function lookupWebPhoto() {
+    if (!active || busy || scope !== "photo") return;
+    const file = ui.photoFile.files?.[0];
+    if (!file || !["image/jpeg", "image/png"].includes(file.type) ||
+        file.size < 1 || file.size > 4 * 1024 * 1024) {
+      photoMessage("4 MB-dan kiçik JPG/PNG şəkil seçin.", true);
+      return;
+    }
+    busy = true;
+    ui.photoSearch.disabled = true;
+    ui.photoWebSearch.disabled = true;
+    ui.photoResults.replaceChildren();
+    photoMessage("Şəkil açıq razılığınızla internet axtarış provayderinə göndərilir…");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch("/api/photo/web", {
+        method: "POST", cache: "no-store", credentials: "omit",
+        headers: {"X-Telegram-Init-Data": signed, "Content-Type": file.type},
+        body: file, signal: controller.signal
+      });
+      if (!response.ok) throw new Error("İnternet şəkil axtarışı hazırda mümkün deyil.");
+      const result = await response.json();
+      webPhotoMatches = Array.isArray(result.results) ? result.results.slice(0, 60) : [];
+      webPhotoPage = 0;
+      renderWebPhotoPage();
+      if (typeof result.provider_url === "string" &&
+          /^https:\/\/yandex\.com\//i.test(result.provider_url)) {
+        const anchor = document.createElement("a");
+        anchor.href = result.provider_url;
+        anchor.textContent = "🌐 Nəticələrə Yandex-də də bax ↗";
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.referrerPolicy = "no-referrer";
+        ui.photoResults.append(anchor);
+      }
+      if (result.status === "unavailable") {
+        photoMessage("Provayder müvəqqəti bloklanıb və ya cavab vermir. CAPTCHA keçilmir.", true);
+      }
+    } catch (error) {
+      photoMessage(error?.message || "İnternet axtarışı mümkün olmadı.", true);
+    } finally {
+      clearTimeout(timeout);
+      busy = false;
+      ui.photoSearch.disabled = !active;
+      ui.photoWebSearch.disabled = !active;
+    }
+  }
+
+  ui.photoWebSearch.addEventListener("click", () => { void lookupWebPhoto(); });
 
   ui.photoSearch.addEventListener("click", () => { void lookupPhoto(); });
 
