@@ -188,3 +188,12 @@ App. The operator image must talk to Qdrant via its Docker-service address
 same score threshold default 0.82 until measured calibration changes it.
 The base Compose remains intentionally model-disabled until operators use
 this overlay; code defaults alone are not a successful deployment.
+
+## Complete ANN turn budget (2026-10-28)
+
+The full-index DINOv2 read path now applies a four-second asynchronous
+operation deadline around the current DB status check, offline query vector,
+Qdrant search and source validation. A timeout or DB/Qdrant exception returns
+`unavailable`, not a fabricated product match. This is a stage budget, not a
+promise that Telegram upload/download or a subsequent legacy fallback will
+complete within five seconds. Verify actual end-to-end p95 on Kali staging.
