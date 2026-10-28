@@ -601,9 +601,7 @@ class MiniAppBackend:
         tokens: dict[int, str] = {}
         now = monotonic()
         self._source_tickets = {
-            key: ticket
-            for key, ticket in self._source_tickets.items()
-            if ticket.expires_at > now
+            key: ticket for key, ticket in self._source_tickets.items() if ticket.expires_at > now
         }
 
         def source_token(file_id: int, occurrence_id: int) -> str:
