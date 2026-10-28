@@ -33,6 +33,7 @@ from office_assistant.processing.image_similarity import (
     shortlist,
 )
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
+from office_assistant.processing.visual_ann import IndexedVisualLookup
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 
 MAX_LOOKUP_BYTES = min(4 * 1024 * 1024, MAX_IMAGE_BYTES)
@@ -85,10 +86,12 @@ class MiniAppPhotoLookup:
         *,
         storage_root: Path,
         semantic: SemanticVisualSearch | None = None,
+        indexed: IndexedVisualLookup | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.storage_root = storage_root
         self.semantic = semantic
+        self.indexed = indexed
 
     async def lookup(self, photo: bytes) -> PhotoLookupResult:
         if not 0 < len(photo) <= MAX_LOOKUP_BYTES:
@@ -97,6 +100,39 @@ class MiniAppPhotoLookup:
         # arbitrary uploaded binary data must never match a historical digest.
         if image_signature(photo) is None or await asyncio.to_thread(fingerprint, photo) is None:
             raise InvalidLookupPhoto("A valid non-uniform photograph is required")
+
+        if self.indexed is not None:
+            indexed = await self.indexed.search(photo)
+            if not indexed.unavailable:
+                if indexed.products:
+                    return PhotoLookupResult(
+                        "candidates",
+                        tuple(item.code for item in indexed.products[:3]),
+                        "dino_qdrant_all_active",
+                        False,
+                        _WARNING,
+                    )
+                if indexed.documents:
+                    hits = tuple(
+                        DocumentImageHit(item.source, "semantic", item.score)
+                        for item in indexed.documents[:3]
+                    )
+                    return PhotoLookupResult(
+                        "source_candidates",
+                        (),
+                        "dino_qdrant_documents",
+                        False,
+                        "Aktiv sənədlərdə şəklə oxşar mənbə tapıldı. Məhsulun "
+                        "kimliyi, qiyməti və stoku bununla təsdiqlənmir.",
+                        hits,
+                    )
+                return PhotoLookupResult(
+                    "not_found",
+                    (),
+                    "dino_qdrant_no_candidate",
+                    False,
+                    "Bütün aktiv vizual indeks üzrə güclü namizəd tapılmadı.",
+                )
 
         digest = sha256(photo).hexdigest()
         async with self.session_factory() as session:
