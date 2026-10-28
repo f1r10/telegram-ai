@@ -8,6 +8,7 @@ Only explicit user-initiated images are uploaded to the fixed Yandex origin.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
@@ -83,17 +84,27 @@ def _http_url(raw: object) -> str:
         value = "https:" + value
     try:
         parts = urlsplit(value)
+        hostname = (parts.hostname or "").casefold().rstrip(".")
+        port = parts.port  # Invalid or overflowing ports raise ValueError.
     except ValueError:
         return ""
     if (
         parts.scheme not in {"https", "http"}
-        or not parts.hostname
+        or not hostname
         or parts.username is not None
         or parts.password is not None
-        or parts.port not in {None, 80, 443}
+        or port not in {None, 80, 443}
+        or hostname == "localhost"
+        or hostname.endswith((".localhost", ".local", ".internal", ".test", ".invalid"))
     ):
         return ""
-    return value.split("#", 1)[0]
+    # Untrusted provider links are displayed or previewed in client browsers.
+    # Never induce requests to loopback, intranet or metadata IP endpoints.
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return value.split("#", 1)[0]
+    return ""
 
 
 def _domain(url: str) -> str:
