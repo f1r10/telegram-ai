@@ -170,3 +170,21 @@ backfill for historic documents. Coverage is bounded to 500 recent active
 embedded image occurrences and truncated results must say so. Unsupported
 image streams and formats not handled by the parser (e.g. PowerPoint) are not
 silently counted as searchable. Independent real-angle recall/p95 remain OPEN.
+
+## V1 Mini App DINO document + product parity (2026-10-28)
+
+When the full DINO Qdrant index is ready, a single read-only lookup includes
+both active confirmed SKU photo candidates **and** active PDF/DOCX/XLSX and
+standalone image-source candidates. The Mini App receives a unified 40-item
+maximum score-ordered list and shows ten per page; a source result never
+becomes an authoritative SKU, price, or stock. The old 500-item fallback
+remains explicitly incomplete when the full index is unavailable. Neither
+UI paging nor synthetic tests prove real-world photo recall; measure this
+against the private owner holdout and Android/iOS UAT before release.
+
+The separate CPU Compose overlay provisions DINOv2 on app, worker and Mini
+App. The operator image must talk to Qdrant via its Docker-service address
+(`http://qdrant:6333`), not localhost. All three runtime services use the
+same score threshold default 0.82 until measured calibration changes it.
+The base Compose remains intentionally model-disabled until operators use
+this overlay; code defaults alone are not a successful deployment.
