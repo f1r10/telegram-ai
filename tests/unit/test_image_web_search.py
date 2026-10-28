@@ -57,6 +57,45 @@ def test_parse_preserves_only_real_same_card_image_page_pairs() -> None:
     assert all(hit.source_url.startswith("https://") for hit in hits)
 
 
+def test_image_search_never_presents_internal_or_malformed_provider_links() -> None:
+    private_pages = [
+        "http://127.0.0.1/admin",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]/home",
+        "https://router.local/secret",
+        "https://intranet.internal/stock",
+        "https://shop.example.az:99999/item",
+    ]
+    cases = [
+        {
+            "title": f"Untrusted {index}",
+            "url": page,
+            "originalImage": {"url": "https://cdn.example.az/photo.jpg"},
+        }
+        for index, page in enumerate(private_pages)
+    ]
+    cases.append(
+        {
+            "title": "Public source, bad thumbnail",
+            "url": "https://shop.example.az/item",
+            "originalImage": {"url": "https://127.0.0.1/private.jpg"},
+        }
+    )
+    cases.append(
+        {
+            "title": "Safe",
+            "url": "https://shop.example.az/safe",
+            "originalImage": {"url": "https://cdn.example.az/safe.jpg"},
+        }
+    )
+    state = {"initialState": {"cbirSites": {"sites": cases}}}
+    markup = "<div data-state='" + json.dumps(state) + "'></div>"
+    matches = parse_yandex_results(markup)
+    assert len(matches) == 1
+    assert matches[0].source_url == "https://shop.example.az/safe"
+    assert matches[0].image_url == "https://cdn.example.az/safe.jpg"
+
+
 def test_html_card_pair_never_joins_sibling_source_links() -> None:
     html = (
         "<ul>"
