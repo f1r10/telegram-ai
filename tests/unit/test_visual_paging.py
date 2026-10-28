@@ -14,9 +14,14 @@ from office_assistant.processing.visual_paging import indexed_page
 
 def test_visual_paging_uses_one_score_order_for_products_and_documents() -> None:
     source = DocumentImageSource(
-        90, 12, "watch-catalog.xlsx", ImageAssetOrigin.XLSX_EMBEDDED,
+        90,
+        12,
+        "watch-catalog.xlsx",
+        ImageAssetOrigin.XLSX_EMBEDDED,
         {"sheet": "Saatlar", "anchor_cell": "C9"},
-        "img.png", "a" * 64, "Ad: Qara qol saatı",
+        "img.png",
+        "a" * 64,
+        "Ad: Qara qol saatı",
     )
     results = IndexedResults(
         tuple(IndexedProduct(f"KA{i:02}", 0.99 - i * 0.01) for i in range(11)),
