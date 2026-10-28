@@ -1,3 +1,10 @@
+## 2026-10-28 — Bounded full visual lookup deadline
+
+- Apply one four-second async deadline across DINO query inference, ANN
+  retrieval and current PostgreSQL/source verification. Slow or unavailable
+  dependencies abstain without disclosing data or crashing Telegram/Mini App.
+  CI uses synthetic slow/error sessions to exercise the fail-closed boundary.
+
 ## 2026-10-28 — Reconcile derived DINO visual index before READY
 
 - After a complete DINOv2 Qdrant backfill, scroll the separate visual
