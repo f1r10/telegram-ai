@@ -2912,14 +2912,14 @@ async def _send_indexed_visual_page(
             navigation.append(
                 InlineKeyboardButton(
                     "⬅️ Geri",
-                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page-1}",
+                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page - 1}",
                 )
             )
         if view.has_next:
             navigation.append(
                 InlineKeyboardButton(
                     "İrəli ➡️",
-                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page+1}",
+                    callback_data=f"pi:{state.token}:dbpg:{photo_index}:{page + 1}",
                 )
             )
         if navigation:
