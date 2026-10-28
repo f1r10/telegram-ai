@@ -415,7 +415,9 @@ class IngestionJobService:
                     )
         logger.info(
             "Document visual indexing complete | file_id=%s prepared=%s skipped=%s",
-            file_id, indexed, skipped,
+            file_id,
+            indexed,
+            skipped,
         )
 
     async def _failed_result(
