@@ -16,14 +16,15 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy import select
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from office_assistant.infrastructure.database.models import (
     FileObject,
     FileObjectState,
     ImageAsset,
     ImageAssetOccurrence,
+    ImageAssetOrigin,
     IngestionItemType,
     IngestionSession,
     IngestionSessionItem,
