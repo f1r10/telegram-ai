@@ -15,9 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_miniapp_ranks_products_and_document_sources_together() -> None:
     source = DocumentImageSource(
-        7, 10, "warehouse.xlsx", ImageAssetOrigin.XLSX_EMBEDDED,
+        7,
+        10,
+        "warehouse.xlsx",
+        ImageAssetOrigin.XLSX_EMBEDDED,
         {"sheet": "Qiymet", "anchor_cell": "A12"},
-        "image/7.png", "a" * 64, "Ad: Metal qələm",
+        "image/7.png",
+        "a" * 64,
+        "Ad: Metal qələm",
     )
     results = IndexedResults(
         (IndexedProduct("KA10", 0.98), IndexedProduct("KA11", 0.86)),
