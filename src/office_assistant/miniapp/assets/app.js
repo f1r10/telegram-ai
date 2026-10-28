@@ -364,7 +364,10 @@
         if (!name) continue;
         const element = document.createElement("p");
         element.className = "candidate";
+        const description = typeof item.description === "string" ?
+          item.description.slice(0, 320) : "";
         element.textContent = name + " (" + kind + ") · " + where +
+          (description ? " · " + description : "") +
           " — sənəd şəkli, məhsul kimliyi təsdiqlənməyib";
         ui.photoResults.append(element);
       }
