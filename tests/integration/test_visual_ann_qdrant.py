@@ -42,8 +42,12 @@ def test_visual_ann_creates_isolated_cosine_index_and_queries_synthetic_vectors(
             assert {row[0] for row in results} == {"product", "document"}
             settings = load_settings()
             if all(
-                (settings.postgres_host, settings.postgres_db, settings.postgres_user,
-                 settings.postgres_password)
+                (
+                    settings.postgres_host,
+                    settings.postgres_db,
+                    settings.postgres_user,
+                    settings.postgres_password,
+                )
             ):
                 engine = create_database_engine(settings)
                 try:
