@@ -60,6 +60,7 @@ def ranked_ann_candidates(indexed: IndexedResults) -> tuple[dict[str, str | floa
         source = item.source
         entry: dict[str, str | float] = {
             "kind": "source",
+            "occurrence_id": str(source.occurrence_id),
             "filename": " ".join(source.filename.split())[:96],
             "type": source.origin.replace("_EMBEDDED", ""),
             "location": document_image_location(source),
@@ -159,7 +160,7 @@ class MiniAppPhotoLookup:
                 if indexed.products or indexed.documents:
                     hits = tuple(
                         DocumentImageHit(item.source, "semantic", item.score)
-                        for item in indexed.documents[:3]
+                        for item in indexed.documents[:40]
                     )
                     return PhotoLookupResult(
                         "candidates" if indexed.products else "source_candidates",
