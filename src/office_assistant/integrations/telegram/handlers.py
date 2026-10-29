@@ -3497,7 +3497,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if await _route_caption_command(update, context):
         return
-    if _is_photo_lookup_request(message.caption):
+    # A photo without an explicit caption must always offer the owner's
+    # three-way choice, never silently open an ingestion session.
+    if not message.caption or _is_photo_lookup_request(message.caption):
         _discard_menu_selection(context)
         # Explicit PDF source commands retain their existing direct route.
         # A missing per-user state store cannot safely bind callbacks to actor.
