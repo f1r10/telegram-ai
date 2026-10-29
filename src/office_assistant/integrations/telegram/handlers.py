@@ -3507,6 +3507,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         or _is_save_intent(message.caption)
         or _note_payload(message.caption) is not None
+        or _caption_command(message) is not None
     )
     if not has_save_instruction:
         _discard_menu_selection(context)
