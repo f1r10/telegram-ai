@@ -3500,13 +3500,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Ordinary captions (including descriptive labels) are not permission
     # to save an image. Preserve deliberate /saxla, reference binding,
     # and "file note" commands as the older explicit ingestion path.
+    caption_text = message.caption or ""
     explicitly_saving = (
         isinstance(
-            parse_reference_confirmation(message.caption),
+            parse_reference_confirmation(caption_text),
             (ProductPictureConfirmation, AmbiguousPictureConfirmation),
         )
-        or _is_save_intent(message.caption)
-        or _note_payload(message.caption) is not None
+        or _is_save_intent(caption_text)
+        or _note_payload(caption_text) is not None
         or _caption_command(message) is not None
     )
     if _is_photo_lookup_request(message.caption) or not explicitly_saving:
