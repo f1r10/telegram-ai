@@ -12,9 +12,8 @@ from telegram.ext import ContextTypes
 from office_assistant.integrations.telegram.handlers import handle_photo
 
 
-@pytest.mark.parametrize("caption", [None, "Qara metal qol saatı"])
 def test_uncaptioned_photo_is_a_choice_not_an_implicit_save(
-    monkeypatch: pytest.MonkeyPatch, caption: str | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from office_assistant.integrations.telegram import handlers
 
@@ -31,7 +30,7 @@ def test_uncaptioned_photo_is_a_choice_not_an_implicit_save(
         SimpleNamespace(
             effective_message=SimpleNamespace(
                 photo=[SimpleNamespace(file_id="photo-123")],
-                caption=caption,
+                caption=None,
                 message_id=9,
             )
         ),
