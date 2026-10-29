@@ -344,7 +344,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             raise ValueError("Invalid image preview ticket")
         picture = self._run(self._app().backend.photo_source_preview(signed, token=token))
         assert isinstance(picture, bytes)
-        mime = "image/png" if picture.startswith(b"\\x89PNG\\r\\n\\x1a\\n") else "image/jpeg"
+        mime = "image/png" if picture.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
         self._send(200, picture, mime)
 
     def _api_upload_confirm(self, signed: str, args: dict[str, object]) -> None:
