@@ -338,6 +338,15 @@ class MiniAppHandler(BaseHTTPRequestHandler):
         assert isinstance(value, DeliverableFile)
         self._original_file(value)
 
+    def _api_photo_preview(self, signed: str, args: dict[str, object]) -> None:
+        token = args.get("token")
+        if not isinstance(token, str):
+            raise ValueError("Invalid image preview ticket")
+        picture = self._run(self._app().backend.photo_source_preview(signed, token=token))
+        assert isinstance(picture, bytes)
+        mime = "image/png" if picture.startswith(b"\\x89PNG\\r\\n\\x1a\\n") else "image/jpeg"
+        self._send(200, picture, mime)
+
     def _api_upload_confirm(self, signed: str, args: dict[str, object]) -> None:
         token = args.get("token")
         if not isinstance(token, str):
@@ -392,6 +401,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
             "/api/product": self._api_product,
             "/api/sales": self._api_sales,
             "/api/source": self._api_source,
+            "/api/photo/preview": self._api_photo_preview,
             "/api/uploads/recent": self._api_upload_recent,
             "/api/uploads/status": self._api_upload_status,
             "/api/upload/confirm": self._api_upload_confirm,
@@ -696,6 +706,7 @@ class MiniAppHandler(BaseHTTPRequestHandler):
                 "/api/product",
                 "/api/sales",
                 "/api/source",
+                "/api/photo/preview",
                 "/api/upload/confirm",
                 "/api/upload/cancel",
                 "/api/uploads/recent",
