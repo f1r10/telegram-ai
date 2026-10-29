@@ -82,7 +82,10 @@ def test_preview_verifies_ticket_actor_active_source_and_digest(
     service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 50.0, 21)
 
     assert asyncio.run(service.photo_source_preview("signed", token=token)) == data
-    service.file_delivery.resolve_catalog_original.assert_awaited_once_with(
+    assert service.file_delivery is not None
+    mocked = service.file_delivery.resolve_catalog_original
+    assert isinstance(mocked, AsyncMock)
+    mocked.assert_awaited_once_with(
         123, file_id=11, occurrence_id=21, allow_standalone=True
     )
     service._source_tickets[token] = SourceTicket(99, 123, 11, 0, 50.0, 21)
