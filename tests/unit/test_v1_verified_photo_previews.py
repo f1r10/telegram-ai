@@ -58,9 +58,7 @@ def test_preview_rejects_nontelegram_formats_and_missing_file(tmp_path: Path) ->
         image.save(gif, "GIF")
     data = gif.getvalue()
     (tmp_path / "photo.gif").write_bytes(data)
-    assert verified_photo_preview(
-        tmp_path, _source("photo.gif", sha256(data).hexdigest())
-    ) is None
+    assert verified_photo_preview(tmp_path, _source("photo.gif", sha256(data).hexdigest())) is None
     assert verified_photo_preview(tmp_path, _source("gone.jpg", "0" * 64)) is None
 
 
