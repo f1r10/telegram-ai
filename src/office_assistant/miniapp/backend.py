@@ -29,7 +29,15 @@ from office_assistant.business_tools.models import (
     ToolStatus,
 )
 from office_assistant.business_tools.service import BusinessQueryService
-from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
+from office_assistant.infrastructure.database.models import (
+    FileObject,
+    FileObjectState,
+    ImageAsset,
+    ImageAssetOccurrence,
+    User,
+    UserRole,
+    UserStatus,
+)
 from office_assistant.internal_evidence.delivery import (
     DeliverableFile,
     FileDeliveryError,
@@ -43,6 +51,11 @@ from office_assistant.miniapp.stock_actions import MiniAppStockActionReview
 from office_assistant.miniapp.stock_transfer import MiniAppStockTransferReview
 from office_assistant.miniapp.stock_xlsx import MiniAppStockXlsxReview
 from office_assistant.miniapp.uploads import MiniAppUploadWorkflow
+from office_assistant.processing.document_visual_candidates import (
+    DOCUMENT_IMAGE_ORIGINS,
+    DocumentImageSource,
+)
+from office_assistant.processing.verified_photo_preview import verified_photo_preview
 from office_assistant.web_evidence.image_search import (
     ImageWebSearchBlocked,
     ImageWebSearchUnavailable,
@@ -269,6 +282,69 @@ class MiniAppBackend:
         if original.file_id != ticket.file_id:
             raise FileDeliveryError("Original citation has been superseded")
         return original
+
+    async def photo_source_preview(self, init_data: str, *, token: str) -> bytes:
+        """Read a bounded image through the same signed, actor-bound source ticket.
+
+        Never trust a client-supplied occurrence ID/path. Every request rechecks
+        the active original document, occurrence and its content SHA-256.
+        """
+
+        actor = await self.actor(init_data)
+        if self.photo_lookup is None or self.file_delivery is None:
+            raise MiniAppServiceUnavailable("Source image preview is not configured")
+        if not 20 <= len(token) <= 64:
+            raise FileDeliveryError("Invalid image source ticket")
+        ticket = self._source_tickets.get(token)
+        if (
+            ticket is None
+            or ticket.actor_id != actor.id
+            or ticket.telegram_user_id != actor.telegram_user_id
+            or ticket.occurrence_id is None
+            or monotonic() >= ticket.expires_at
+        ):
+            raise FileDeliveryError("Image source ticket expired or belongs to another user")
+        if not self.rate_guard.allow(actor.id):
+            raise MiniAppRateLimited("Too many image preview requests")
+        await self.file_delivery.resolve_catalog_original(
+            actor.telegram_user_id,
+            file_id=ticket.file_id,
+            occurrence_id=ticket.occurrence_id,
+            allow_standalone=True,
+        )
+        async with self.session_factory() as session:
+            row = (
+                await session.execute(
+                    select(
+                        FileObject.original_filename,
+                        ImageAssetOccurrence.origin_type,
+                        ImageAssetOccurrence.locator,
+                        ImageAsset.storage_key,
+                        ImageAsset.content_sha256,
+                    )
+                    .select_from(ImageAssetOccurrence)
+                    .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
+                    .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+                    .where(
+                        ImageAssetOccurrence.id == ticket.occurrence_id,
+                        ImageAssetOccurrence.source_file_id == ticket.file_id,
+                        ImageAssetOccurrence.origin_type.in_(DOCUMENT_IMAGE_ORIGINS),
+                        FileObject.state == FileObjectState.ACTIVE,
+                    )
+                )
+            ).first()
+        if row is None:
+            raise FileDeliveryError("Image occurrence has been revoked")
+        filename, origin, locator, key, digest = row
+        source = DocumentImageSource(
+            ticket.occurrence_id, ticket.file_id, filename, origin, locator, key, digest
+        )
+        image = await asyncio.to_thread(
+            verified_photo_preview, self.photo_lookup.storage_root, source
+        )
+        if image is None:
+            raise FileDeliveryError("Image bytes changed or are not supported")
+        return image
 
     async def stock_xlsx_permission(self, init_data: str) -> None:
         actor = await self.actor(init_data)
