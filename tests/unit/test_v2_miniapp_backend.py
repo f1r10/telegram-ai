@@ -662,6 +662,7 @@ def test_photo_lookup_requires_signed_active_actor_and_does_not_write() -> None:
     result = asyncio.run(backend.photo(signature(123), image_bytes=picture))
     assert result == {
         "status": "candidates",
+        "match_tier": "SIMILAR",
         "codes": ["KA45", "KA46"],
         "method": "cross_angle",
         "incomplete": True,
