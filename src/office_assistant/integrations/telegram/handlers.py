@@ -8,6 +8,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from time import monotonic
 from typing import Any, cast
@@ -156,12 +157,14 @@ from office_assistant.processing.catalog_visual_candidates import (
 )
 from office_assistant.processing.document_visual_candidates import (
     active_document_images,
+    document_image_location,
     find_document_images,
     render_document_image_hits,
 )
 from office_assistant.processing.image_similarity import VisualCandidate, shortlist
 from office_assistant.processing.pdf_visual_row import read_pdf_visual_details
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
+from office_assistant.processing.verified_photo_preview import verified_photo_preview
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.processing.visual_ann import IndexedResults, IndexedVisualLookup
 from office_assistant.processing.visual_paging import indexed_page
@@ -2907,6 +2910,18 @@ async def _send_indexed_visual_page(
     rows = [list(row) for row in keyboard.inline_keyboard]
     state = data.get(PHOTO_FLOW_KEY) if data is not None else None
     if isinstance(state, PhotoFlow) and state.valid(actor_id):
+        for number, item in enumerate(view.docs[:3], start=1):
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"🖼 Şəkil {number}-ə bax",
+                        callback_data=(
+                            f"pi:{state.token}:dbimg:{photo_index}:{page}:"
+                            f"{item.source.occurrence_id}"
+                        ),
+                    )
+                ]
+            )
         navigation: list[InlineKeyboardButton] = []
         if view.has_previous:
             navigation.append(
@@ -3291,6 +3306,53 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             _web_photo_text(flow, photo_index, page),
             reply_markup=_web_photo_keyboard(flow, photo_index, page),
         )
+        return
+    if action == "dbimg" and len(parts) == 6:
+        if services.indexed_visual is None:
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text="Şəkil önizləməsi hazırda əlçatan deyil.",
+            )
+            return
+        try:
+            photo_index, page, occurrence_id = map(int, parts[3:])
+            if not (0 <= photo_index < len(flow.photos) and 0 <= page < 8 and occurrence_id > 0):
+                raise ValueError("Invalid photo preview reference")
+            body = await _photo_download(context, flow.photos[photo_index].file_id)
+            indexed = await services.indexed_visual.search(body)
+            if indexed.unavailable:
+                raise RuntimeError("Visual index unavailable")
+            view = indexed_page(indexed, page)
+            selected = next(
+                (item for item in view.docs if item.source.occurrence_id == occurrence_id),
+                None,
+            )
+            if selected is None:
+                raise ValueError("Source no longer in current ranked page")
+            preview = await asyncio.to_thread(
+                verified_photo_preview,
+                services.indexed_visual.encoder.storage_root,
+                selected.source,
+            )
+            if preview is None:
+                raise ValueError("Image source changed or cannot be previewed")
+            filename = " ".join(selected.source.filename.split())[:90]
+            location = document_image_location(selected.source)[:160]
+            await context.bot.send_photo(
+                chat_id=identity.telegram_user_id,
+                photo=BytesIO(preview),
+                caption=(
+                    f"🖼 Mənbə şəkli: {filename}\\n"
+                    f"Yer: {location}\\n"
+                    "Bu sadəcə sənəddə tapılmış oxşar şəkildir. "
+                    "Məhsulun kodu, qiyməti və stoku təsdiqlənmir."
+                ),
+            )
+        except (ValueError, RuntimeError, OSError, TelegramError):
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text="Şəkil önizləməsi yoxlanmadı. Mənbə dəyişibsə, axtarışı yeniləyin.",
+            )
         return
     if action == "dbpg" and len(parts) == 5:
         if services.indexed_visual is None or update.effective_message is None:
