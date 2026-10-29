@@ -14,7 +14,8 @@ from office_assistant.integrations.telegram.handlers import handle_photo
 
 @pytest.mark.parametrize("caption", [None, "Qara metal qol saatı", "Bu KA45-dir"])
 def test_uncaptioned_photo_is_a_choice_not_an_implicit_save(
-    monkeypatch: pytest.MonkeyPatch, caption: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    caption: str | None,
 ) -> None:
     from office_assistant.integrations.telegram import handlers
 
