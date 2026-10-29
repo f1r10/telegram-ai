@@ -3497,9 +3497,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if await _route_caption_command(update, context):
         return
-    # A photo without an explicit caption must always offer the owner's
-    # three-way choice, never silently open an ingestion session.
-    if not message.caption or _is_photo_lookup_request(message.caption):
+    # A photo with no instruction, even if it has an ordinary descriptive
+    # caption, must offer all three actions rather than implicitly save data.
+    # Keep explicit product confirmations and deliberate save/note requests.
+    has_save_instruction = (
+        isinstance(
+            parse_reference_confirmation(message.caption),
+            (ProductPictureConfirmation, AmbiguousPictureConfirmation),
+        )
+        or _is_save_intent(message.caption)
+        or _note_payload(message.caption) is not None
+    )
+    if not has_save_instruction:
         _discard_menu_selection(context)
         # Explicit PDF source commands retain their existing direct route.
         # A missing per-user state store cannot safely bind callbacks to actor.
