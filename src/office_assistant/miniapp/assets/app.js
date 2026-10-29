@@ -303,6 +303,55 @@
     ui.photoFeedback.classList.toggle("error", error);
   }
 
+  async function showProtectedPhoto(token, button) {
+    if (!active || busy || typeof token !== "string" || !token) return;
+    button.disabled = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch("/api/photo/preview", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "X-Telegram-Init-Data": signed,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({token}),
+        signal: controller.signal
+      });
+      if (response.status === 401) {
+        lock("Giriş müddəti bitib. Telegram botundan yenidən daxil olun.");
+        return;
+      }
+      if (!response.ok) throw new Error("Şəkil artıq əlçatan deyil və ya icazə bitib.");
+      const type = response.headers.get("Content-Type")?.split(";")[0].trim();
+      if (!["image/png", "image/jpeg"].includes(type)) throw new Error("Şəkil formatı uyğun deyil.");
+      const bytes = await response.blob();
+      if (!bytes.size || bytes.size > 4 * 1024 * 1024) {
+        throw new Error("Şəkil ölçüsü etibarsızdır.");
+      }
+      // Blob URLs are ephemeral. Revoke after the image loads or fails; never
+      // put private source bytes into a network-visible image URL.
+      const url = URL.createObjectURL(bytes);
+      const preview = document.createElement("img");
+      preview.alt = "Sənəddə tapılmış şəkil — məhsulun təsdiqi deyil";
+      preview.loading = "lazy";
+      preview.style.maxWidth = "240px";
+      preview.style.maxHeight = "240px";
+      preview.style.objectFit = "contain";
+      preview.onload = () => URL.revokeObjectURL(url);
+      preview.onerror = () => URL.revokeObjectURL(url);
+      preview.src = url;
+      button.insertAdjacentElement("afterend", preview);
+    } catch (error) {
+      photoMessage(error?.message || "Mənbə şəkli oxunmadı.", true);
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = !active;
+    }
+  }
+
   function showRankedPhotoPage(results, notice, page) {
     const pageSize = 10;
     const pages = Math.max(1, Math.ceil(results.length / pageSize));
@@ -344,6 +393,12 @@
           download.textContent = "Orijinal faylı endir";
           download.addEventListener("click", () => downloadSource(item.source_ticket, download));
           ui.photoResults.append(download);
+          const preview = document.createElement("button");
+          preview.type = "button";
+          preview.className = "candidate";
+          preview.textContent = "Mənbə şəklinə bax";
+          preview.addEventListener("click", () => { void showProtectedPhoto(item.source_ticket, preview); });
+          ui.photoResults.append(preview);
         }
       }
     });
@@ -446,6 +501,12 @@
           download.textContent = "Orijinal faylı endir";
           download.addEventListener("click", () => downloadSource(item.source_ticket, download));
           ui.photoResults.append(download);
+          const preview = document.createElement("button");
+          preview.type = "button";
+          preview.className = "candidate";
+          preview.textContent = "Mənbə şəklinə bax";
+          preview.addEventListener("click", () => { void showProtectedPhoto(item.source_ticket, preview); });
+          ui.photoResults.append(preview);
         }
       }
       for (const code of Array.isArray(result.codes) ? result.codes.slice(0, 3) : []) {
