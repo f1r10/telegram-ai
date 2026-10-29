@@ -9,6 +9,7 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 from PIL import Image
+from telegram import Message
 from telegram.ext import ContextTypes
 
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
@@ -77,7 +78,7 @@ def test_telegram_ranked_page_has_actor_bound_preview_actions() -> None:
     )
     asyncio.run(
         _send_indexed_visual_page(
-            cast(object, message),  # type: ignore[arg-type]
+            cast(Message, message),
             context,
             actor,
             result,
