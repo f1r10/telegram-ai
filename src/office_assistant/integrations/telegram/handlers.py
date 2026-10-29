@@ -3497,9 +3497,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if await _route_caption_command(update, context):
         return
-    # Plain photo uploads require an explicit action; keep existing caption
-    # commands and user-confirmed product-reference save semantics unchanged.
-    if not message.caption or _is_photo_lookup_request(message.caption):
+    # Ordinary captions (including descriptive labels) are not permission
+    # to save an image. Preserve deliberate /saxla, reference binding,
+    # and "file note" commands as the older explicit ingestion path.
+    caption_text = message.caption or ""
+    explicitly_saving = (
+        isinstance(
+            parse_reference_confirmation(caption_text),
+            (ProductPictureConfirmation, AmbiguousPictureConfirmation),
+        )
+        or _is_save_intent(caption_text)
+        or _note_payload(caption_text) is not None
+        or _caption_command(message) is not None
+    )
+    if _is_photo_lookup_request(message.caption) or not explicitly_saving:
         _discard_menu_selection(context)
         # Explicit PDF source commands retain their existing direct route.
         # A missing per-user state store cannot safely bind callbacks to actor.
