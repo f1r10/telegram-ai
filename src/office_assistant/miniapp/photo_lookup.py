@@ -87,9 +87,23 @@ class PhotoLookupResult:
     documents: tuple[DocumentImageHit, ...] = ()
     ranked: tuple[dict[str, str | float], ...] = ()
 
+    @property
+    def match_tier(self) -> str | None:
+        """Evidence tier, not an AI confidence percentage or product identity."""
+        if self.status == "exact" and self.method == "confirmed_sha256":
+            return "EXACT_MATCH"
+        if self.status == "candidates" and self.method == "near_duplicate":
+            return "PROBABLE_MATCH"
+        if self.status in {"candidates", "source_candidates"}:
+            return "SIMILAR"
+        if self.status in {"not_found", "unconfirmed"}:
+            return "NO_MATCH"
+        return None  # Provider failure is not evidence of absence.
+
     def payload(self) -> dict[str, object]:
         result: dict[str, object] = {
             "status": self.status,
+            "match_tier": self.match_tier,
             "codes": list(self.codes),
             "method": self.method,
             "incomplete": self.incomplete,

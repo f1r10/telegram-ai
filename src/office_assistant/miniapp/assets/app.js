@@ -401,14 +401,18 @@
       if (!["exact", "candidates", "source_candidates", "not_found", "unavailable", "unconfirmed"].includes(result.status)) {
         throw new Error("Məhsul yoxlaması etibarlı nəticə qaytarmadı.");
       }
-      if (result.status === "exact") {
-        photoMessage("Təsdiqlənmiş eyni şəkil tapıldı.");
-      } else if (result.status === "candidates") {
-        photoMessage("Oxşar fotolar tapıldı. Məhsul kodunu mütləq yoxlayın.");
-      } else if (result.status === "source_candidates") {
-        photoMessage("Faylların daxilində oxşar şəkil mənbələri tapıldı.");
+      if (result.match_tier === "EXACT_MATCH") {
+        photoMessage("DƏQİQ UYĞUNLUQ — eyni təsdiqlənmiş şəkil faylıdır.");
+      } else if (result.match_tier === "PROBABLE_MATCH") {
+        photoMessage("GÜCLÜ NAMİZƏD — yaxın dublikatdır, məhsul kimliyi təsdiqlənməyib.");
+      } else if (result.match_tier === "SIMILAR") {
+        photoMessage("BƏNZƏR NƏTİCƏ — oxşar şəkil və ya sənəd mənbələri tapıldı.");
+      } else if (result.match_tier === "NO_MATCH") {
+        photoMessage("ETİBARLI UYĞUNLUQ TAPILMADI — bu, məhsulun bazada olmaması demək deyil.");
+      } else if (result.status === "unavailable") {
+        photoMessage("Axtarış xidməti hazırda əlçatan deyil. Yenidən yoxlayın.", true);
       } else {
-        photoMessage("Təsdiqlənmiş məhsul müəyyən edilmədi.");
+        photoMessage("Məhsul yoxlaması tamamlanmadı.", true);
       }
       const notice = document.createElement("p");
       notice.textContent = result.notice || "Məhsulu kodla yoxlayın.";
