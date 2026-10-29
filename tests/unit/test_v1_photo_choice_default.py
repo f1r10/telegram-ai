@@ -35,7 +35,7 @@ def test_uncaptioned_photo_is_a_choice_not_an_implicit_save(
             )
         ),
     )
-    context = cast(ContextTypes.DEFAULT_TYPE, SimpleNamespace())
+    context = cast(ContextTypes.DEFAULT_TYPE, SimpleNamespace(user_data={}))
     asyncio.run(handle_photo(update, context))
     choices.assert_awaited_once_with(update, context)
     upload.assert_not_awaited()
