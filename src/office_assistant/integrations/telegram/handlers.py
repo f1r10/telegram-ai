@@ -3316,11 +3316,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             return
         try:
             photo_index, page, occurrence_id = map(int, parts[3:])
-            if not (
-                0 <= photo_index < len(flow.photos)
-                and 0 <= page < 8
-                and occurrence_id > 0
-            ):
+            if not (0 <= photo_index < len(flow.photos) and 0 <= page < 8 and occurrence_id > 0):
                 raise ValueError("Invalid photo preview reference")
             body = await _photo_download(context, flow.photos[photo_index].file_id)
             indexed = await services.indexed_visual.search(body)
