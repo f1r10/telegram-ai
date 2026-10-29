@@ -277,17 +277,12 @@ def test_an_ordinary_caption_never_reaches_the_reference_service(
     message = _run(services, _photo_update(caption))
 
     assert queue.await_count == 0
-    if caption in {"Bu şəkli yadda saxla", "Bu məhsul KA45, yadda saxla"}:
-        # Deliberate save requests retain the existing ingestion path.
-        ingestion.add_file.assert_awaited_once()
-        lookup.assert_not_awaited()
-        assert message.replies == [messages.FILE_ADDED.format(files=1, instructions=0)]
-    else:
-        # The fake legacy test context has no actor-bound user_data, therefore
-        # this read-only fallback is used instead of a callback button.
-        ingestion.add_file.assert_not_awaited()
-        lookup.assert_awaited_once()
-        assert message.replies == []
+    # Merely adding descriptive text or naming an unbound product code is
+    # not authorization to store the picture; explicit /saxla and confirmed
+    # product-reference instructions have their own separate regressions.
+    ingestion.add_file.assert_not_awaited()
+    lookup.assert_awaited_once()
+    assert message.replies == []
 
 
 @pytest.mark.parametrize("caption", [None, "KA45 nədir, yadda saxla?"])
