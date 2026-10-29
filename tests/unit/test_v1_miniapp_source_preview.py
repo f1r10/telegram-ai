@@ -50,9 +50,7 @@ class Factory:
 def _backend(tmp_path: Path, record: tuple[object, ...] | None) -> MiniAppBackend:
     factory = cast(async_sessionmaker[AsyncSession], Factory(record))
     backend = MiniAppBackend(factory, bot_token="test-secret")
-    backend.photo_lookup = cast(
-        MiniAppPhotoLookup, SimpleNamespace(storage_root=tmp_path)
-    )
+    backend.photo_lookup = cast(MiniAppPhotoLookup, SimpleNamespace(storage_root=tmp_path))
     backend.file_delivery = cast(
         SourceFileDeliveryService,
         SimpleNamespace(resolve_catalog_original=AsyncMock(return_value=object())),
@@ -85,9 +83,7 @@ def test_preview_verifies_ticket_actor_active_source_and_digest(
     assert service.file_delivery is not None
     mocked = service.file_delivery.resolve_catalog_original
     assert isinstance(mocked, AsyncMock)
-    mocked.assert_awaited_once_with(
-        123, file_id=11, occurrence_id=21, allow_standalone=True
-    )
+    mocked.assert_awaited_once_with(123, file_id=11, occurrence_id=21, allow_standalone=True)
     service._source_tickets[token] = SourceTicket(99, 123, 11, 0, 50.0, 21)
     with pytest.raises(FileDeliveryError):
         asyncio.run(service.photo_source_preview("signed", token=token))
