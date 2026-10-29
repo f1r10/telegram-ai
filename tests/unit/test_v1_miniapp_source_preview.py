@@ -77,17 +77,17 @@ def test_preview_verifies_ticket_actor_active_source_and_digest(
     monkeypatch.setattr(service, "actor", AsyncMock(return_value=actor))
     monkeypatch.setattr(module, "monotonic", lambda: 10.0)
     token = "actor-bound-ticket-token-with-entropy"
-    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 50.0, 21)
+    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 50.0, 21)  # pyright: ignore[reportPrivateUsage]
 
     assert asyncio.run(service.photo_source_preview("signed", token=token)) == data
     assert service.file_delivery is not None
     mocked = service.file_delivery.resolve_catalog_original
     assert isinstance(mocked, AsyncMock)
     mocked.assert_awaited_once_with(123, file_id=11, occurrence_id=21, allow_standalone=True)
-    service._source_tickets[token] = SourceTicket(99, 123, 11, 0, 50.0, 21)
+    service._source_tickets[token] = SourceTicket(99, 123, 11, 0, 50.0, 21)  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(FileDeliveryError):
         asyncio.run(service.photo_source_preview("signed", token=token))
-    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 9.0, 21)
+    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 9.0, 21)  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(FileDeliveryError):
         asyncio.run(service.photo_source_preview("signed", token=token))
 
@@ -102,7 +102,7 @@ def test_source_preview_rejects_revocation_and_tampered_image(
 
     monkeypatch.setattr(module, "monotonic", lambda: 10.0)
     token = "long-opaque-source-ticket-value"
-    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 50.0, 21)
+    service._source_tickets[token] = SourceTicket(4, 123, 11, 0, 50.0, 21)  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(FileDeliveryError):
         asyncio.run(service.photo_source_preview("signed", token=token))
     service.session_factory = cast(
