@@ -1,5 +1,7 @@
 ## 2026-10-28 — Reject private URLs in Yandex photo evidence
 
+- V1 release gate: every pull request now validates resolved optional DINO CPU Compose settings for app/worker/Mini App, identical model version, staging namespace/volumes, local-only host ports and isolated default image.
+
 - Yandex image result hardening: reject numeric/octal/hex loopback host shortcuts and common public wildcard DNS names that point at private/local resources; fake-provider tests prove only ordinary public domains survive.
 
 - V1 multi-photo Telegram hardening: bounded whole-album and per-photo reverse/local search budgets prevent serial source requests from monopolizing a user queue; preserve ordered per-photo results and clearly report incomplete/timeout results.

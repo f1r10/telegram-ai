@@ -36,6 +36,7 @@ jobs:
           docker compose --profile miniapp config --format json > /tmp/office-compose-opt-in.json
           docker compose -f docker-compose.staging.yml config --format json > /tmp/office-compose-staging.json
           docker compose -f docker-compose.staging.yml --profile miniapp config --format json > /tmp/office-compose-staging-miniapp.json
+          docker compose -f docker-compose.staging.yml -f docker-compose.visual-cpu.yml --profile miniapp config --format json > /tmp/office-compose-visual-cpu.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -86,6 +87,31 @@ jobs:
               published_ports(isolated_with_miniapp)
           ), "Staging host ports must not collide with legacy Docker project"
           assert all(host == "127.0.0.1" for host, _ in published_ports(isolated_with_miniapp))
+          visual = json.loads(Path("/tmp/office-compose-visual-cpu.json").read_text())
+          assert visual["name"] == isolated["name"], "CPU overlay must reuse ONLY staging namespace"
+          assert "visual-cpu-ops" not in visual["services"], "Operator service must stay profile-gated"
+          assert published_ports(visual) == published_ports(isolated_with_miniapp), (
+              "DINO runtime must not expose extra ports"
+          )
+          for name in ("app", "worker", "miniapp"):
+              service = visual["services"][name]
+              assert service["build"]["dockerfile"] == "Dockerfile.visual-cpu", name
+              assert service["environment"]["VISUAL_SEMANTIC_ENABLED"] == "true", name
+              assert service["environment"]["VISUAL_SEMANTIC_MODEL_VERSION"] == (
+                  "dinov2-small-mean-v1"
+              ), name
+              assert service["environment"]["VISUAL_SEMANTIC_MIN_SCORE"] == "0.82", name
+              assert service["environment"]["QDRANT_URL"] == "http://qdrant:6333", name
+              assert "--no-sync" in service["command"], name
+              for target in ("/data/storage", "/models"):
+                  assert any(
+                      mount["target"] == target and mount["type"] == "volume"
+                      for mount in service["volumes"]
+                  ), (name, target)
+          assert visual["services"]["miniapp"]["profiles"] == ["miniapp"]
+          assert visual["services"]["miniapp"]["ports"][0]["host_ip"] == "127.0.0.1"
+          assert isolated["services"]["app"]["build"]["dockerfile"] == "Dockerfile"
+          assert isolated["services"]["app"]["environment"]["VISUAL_SEMANTIC_ENABLED"] == "false"
           PY
       - name: Run offline unit tests
         run: uv run --no-sync pytest -m "not integration"
