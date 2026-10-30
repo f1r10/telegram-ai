@@ -117,6 +117,7 @@ from office_assistant.integrations.telegram.catalog_source_tickets import (
     resolve_catalog_ticket,
 )
 from office_assistant.integrations.telegram.formatting import split_telegram_text
+from office_assistant.integrations.telegram.photo_batch import bounded_web_photo_album
 from office_assistant.integrations.telegram.photo_flow import (
     MAX_ALBUM_PHOTOS,
     PHOTO_FLOW_KEY,
@@ -3261,7 +3262,11 @@ def _web_photo_text(flow: PhotoFlow, photo_index: int, page: int) -> str:
             ]
         )
     if not total:
-        lines.append("Bu provayderdə təsdiqlənən şəkil-mənbə cütü tapılmadı.")
+        lines.append(
+            "Bu foto üçün sorğu yekunlaşmadı və ya vaxt limitinə düşdü."
+            if result.blocked
+            else "Bu provayderdə təsdiqlənən şəkil-mənbə cütü tapılmadı."
+        )
     lines.append(
         "İnternet uyğunluğu məhsul kimliyini, qiyməti və ya stoku təsdiqləmir. "
         "Şəkil yalnız bu seçimdən sonra Yandex-ə göndərilib."
@@ -3411,21 +3416,36 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(
             f"📁 {len(flow.photos)} şəkil üzrə təsdiqli məhsullar və sənəd şəkilləri axtarılır."
         )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 40.0
+        unfinished = 0
         for position, ref in enumerate(flow.photos, start=1):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                unfinished = len(flow.photos) - position + 1
+                break
             try:
-                body = await _photo_download(context, ref.file_id)
-            except (OSError, ValueError, TelegramError):
-                await context.bot.send_message(
-                    chat_id=identity.telegram_user_id, text=f"Şəkil {position} oxunmadı."
-                )
-                continue
-            if len(flow.photos) > 1:
+                async with asyncio.timeout(min(12.0, remaining)):
+                    body = await _photo_download(context, ref.file_id)
+                    if len(flow.photos) > 1:
+                        await context.bot.send_message(
+                            chat_id=identity.telegram_user_id,
+                            text=f"📷 Şəkil {position}/{len(flow.photos)}",
+                        )
+                    await _handle_exact_photo_lookup(
+                        update, context, image_bytes=body, photo_index=position - 1
+                    )
+            except (OSError, ValueError, TelegramError, TimeoutError):
                 await context.bot.send_message(
                     chat_id=identity.telegram_user_id,
-                    text=f"📷 Şəkil {position}/{len(flow.photos)}",
+                    text=f"Şəkil {position} oxunmadı və ya vaxt limitinə düşdü. "
+                    "Bu, bazada uyğunluğun olmaması demək deyil.",
                 )
-            await _handle_exact_photo_lookup(
-                update, context, image_bytes=body, photo_index=position - 1
+        if unfinished:
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text=f"Vaxt limiti səbəbi ilə son {unfinished} şəkil yoxlanmadı. "
+                "Həmin şəkilləri ayrıca axtarın; baza nəticəsini tam saymayın.",
             )
         return
     if services.photo_web is None:
@@ -3440,24 +3460,31 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         "🌐 Seçilmiş şəkillər üzrə internet mənbələri yoxlanılır. "
         "Fotolar yalnız indi Yandex-ə ötürülür."
     )
-    flow.web_results.clear()
-    for ref in flow.photos:
-        try:
-            body = await _photo_download(context, ref.file_id)
-            result = await asyncio.wait_for(
-                services.photo_web.search(body, preferred_domains=domains), timeout=22.0
-            )
-        except (ValueError, OSError, TelegramError, TimeoutError):
-            result = ImageWebResult((), "https://yandex.com/images/search")
-        except (ImageWebSearchBlocked, ImageWebSearchUnavailable):
-            result = ImageWebResult((), "https://yandex.com/images/search")
-        flow.web_results.append(result)
-    if flow.web_results:
-        await context.bot.send_message(
-            chat_id=identity.telegram_user_id,
-            text=_web_photo_text(flow, 0, 0),
-            reply_markup=_web_photo_keyboard(flow, 0, 0),
+    async def download_one(file_id: str) -> bytes:
+        return await _photo_download(context, file_id)
+
+    async def search_one(body: bytes) -> ImageWebResult:
+        assert services.photo_web is not None
+        return await services.photo_web.search(body, preferred_domains=domains)
+
+    batch = await bounded_web_photo_album(
+        [reference.file_id for reference in flow.photos],
+        download=download_one,
+        search=search_one,
+    )
+    flow.web_results[:] = batch.results
+    text = _web_photo_text(flow, 0, 0)
+    if batch.incomplete:
+        text += (
+            f"\n\nDiqqət: {batch.failed} sorğu uğursuz oldu, "
+            f"{batch.deadline_skipped} foto ümumi vaxt limitinə görə yoxlanmadı. "
+            "Bu, internetdə həmin şəkillərin olmadığı demək deyil."
         )
+    await context.bot.send_message(
+        chat_id=identity.telegram_user_id,
+        text=text,
+        reply_markup=_web_photo_keyboard(flow, 0, 0),
+    )
 
 
 async def _save_photo_album_description(
