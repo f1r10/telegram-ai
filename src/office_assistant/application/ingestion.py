@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.application.errors import AuthorizationDenied, InvalidStateTransition
+from office_assistant.application.photo_groups import apply_photo_group_commit
 from office_assistant.application.reference_images import promote_queued_confirmations
 from office_assistant.auth.policy import is_active
 from office_assistant.infrastructure.database.models import (
@@ -52,6 +53,7 @@ class SessionSummary:
     duplicate_count: int
     job_id: int | None = None
     reference_images_linked: int = 0
+    photo_group_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +235,8 @@ class IngestionSessionService:
         expected_session_id: int | None = None,
         expected_file_count: int | None = None,
         expected_instruction_count: int | None = None,
+        photo_group_description: str | None = None,
+        append_photo_group_id: int | None = None,
     ) -> SessionSummary | None:
         """Optional safety fence for web approval of exactly the reviewed items."""
 
@@ -307,6 +311,14 @@ class IngestionSessionService:
                     await session.flush()
                 ingestion_session.status = IngestionSessionStatus.COMMITTED
                 ingestion_session.committed_at = datetime.now(UTC)
+                photo_group_id = await apply_photo_group_commit(
+                    session,
+                    actor_id=db_user.id,
+                    session_id=ingestion_session.id,
+                    file_items=file_items,
+                    new_description=photo_group_description,
+                    append_group_id=append_photo_group_id,
+                )
                 self._audit(
                     session,
                     actor_user_id=db_user.id,
@@ -324,6 +336,7 @@ class IngestionSessionService:
                     - len({item.file_object_id for item in file_items}),
                     job_id=job.id,
                     reference_images_linked=reference_images_linked,
+                    photo_group_id=photo_group_id,
                 )
         except Exception:
             for old_key, new_key in reversed(moved):
