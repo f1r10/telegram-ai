@@ -1859,10 +1859,10 @@ def _photo_group_append_id(data: object, telegram_user_id: int) -> int | None:
     if not isinstance(data, dict):
         return None
     store = cast(dict[str, object], data)
-    pending: object = store.get(PHOTO_GROUP_APPEND_KEY)
+    pending_raw: object = store.get(PHOTO_GROUP_APPEND_KEY)
+    pending = cast(tuple[object, ...], pending_raw) if isinstance(pending_raw, tuple) else ()
     if (
-        not isinstance(pending, tuple)
-        or len(pending) != 3
+        len(pending) != 3
         or pending[0] != telegram_user_id
         or not isinstance(pending[1], int)
         or not isinstance(pending[2], (int, float))
