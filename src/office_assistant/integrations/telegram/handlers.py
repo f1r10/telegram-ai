@@ -2997,7 +2997,7 @@ async def _confirmed_photo_question_answer(
     try:
         result = await asyncio.wait_for(
             services.internal_evidence.answer(user, scoped, force_internal=True),
-            timeout=12.0,
+            timeout=7.0,
         )
     except Exception as error:  # noqa: BLE001 - optional evidence must not hide confirmed SHA
         logger.warning(
