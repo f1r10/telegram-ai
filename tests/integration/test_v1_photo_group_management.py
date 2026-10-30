@@ -80,9 +80,7 @@ async def _clean(settings: Settings) -> None:
                 delete(IngestionSession).where(IngestionSession.user_id.in_(ids))
             )
             if files:
-                await session.execute(
-                    delete(FileObject).where(FileObject.id.in_(files))
-                )
+                await session.execute(delete(FileObject).where(FileObject.id.in_(files)))
             await session.execute(delete(AuditEvent).where(AuditEvent.actor_user_id.in_(ids)))
             await session.execute(delete(User).where(User.telegram_user_id.in_([ACTOR, OTHER])))
     finally:
