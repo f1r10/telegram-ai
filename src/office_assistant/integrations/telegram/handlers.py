@@ -2985,15 +2985,15 @@ async def _confirmed_photo_question_answer(
     """Return corroborated evidence, or a truthful limitation, without mutating data."""
 
     base = (
-        f"📦 MƏHSUL TAPILDI\\n\\nKod: {code}\\n"
-        "Uyğunluq: eyni şəkil faylı təsdiqlənib.\\n\\n"
+        f"📦 MƏHSUL TAPILDI\n\nKod: {code}\n"
+        "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
         "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
     )
     scoped = _confirmed_photo_question(question, code)
     if scoped is None:
         return base
     if services.internal_evidence is None:
-        return base + "\\n\\nƏlavə sual üçün daxili məlumat axtarışı əlçatan deyil."
+        return base + "\n\nƏlavə sual üçün daxili məlumat axtarışı əlçatan deyil."
     try:
         result = await asyncio.wait_for(
             services.internal_evidence.answer(user, scoped, force_internal=True),
@@ -3004,10 +3004,10 @@ async def _confirmed_photo_question_answer(
             "Confirmed photo supplemental evidence unavailable | error_type=%s",
             type(error).__name__,
         )
-        return base + "\\n\\nƏlavə sualın mənbəli cavabı hazırda əldə edilmədi."
+        return base + "\n\nƏlavə sualın mənbəli cavabı hazırda əldə edilmədi."
     if not result.citations:
-        return base + "\\n\\nƏlavə sual üçün yoxlanıla bilən mənbəli fakt tapılmadı."
-    return base + "\\n\\n" + _format_internal(result)
+        return base + "\n\nƏlavə sual üçün yoxlanıla bilən mənbəli fakt tapılmadı."
+    return base + "\n\n" + _format_internal(result)
 
 
 async def _handle_exact_photo_lookup(
