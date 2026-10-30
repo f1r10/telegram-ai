@@ -24,6 +24,9 @@ def test_photo_staging_script_is_syntax_valid_and_non_destructive() -> None:
     assert "git merge --ff-only" in body
     assert "git status --porcelain --untracked-files=no" in body
     assert "PHOTO_STAGING=MANUAL_PHOTO_UAT_REQUIRED" in body
+    assert "schema_migration_required" in body
+    assert "SELECT version_num FROM alembic_version" in body
+    assert "compose exec -T postgres" in body
     for unsafe in (
         "docker compose down",
         "docker volume rm",

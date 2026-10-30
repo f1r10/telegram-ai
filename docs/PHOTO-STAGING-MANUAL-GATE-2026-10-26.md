@@ -139,3 +139,56 @@ They do not authorize activating DINOv2 on uncalibrated private photos.
 These code paths have synthetic CI coverage. Real operator-confirmed
 accuracy, p95 latency, genuine private catalog facts and Kali staging
 deployment remain **unverified until executed on that host**.
+
+
+## Persistent V1 photo groups: staging schema prerequisite (2026-10-30)
+
+PR #147 adds `0023_photo_groups` as an **additive** migration. It does not
+delete or rewrite any existing file, stock row, sale, product photo approval,
+or Qdrant point. The album save and group management commands require the
+new tables to exist. `scripts/deploy_photo_staging.sh --deploy` therefore
+reads `alembic_version` in the **staging** PostgreSQL service before it
+recreates either app or worker. Missing revision reports
+`PHOTO_STAGING=BLOCKED reason=schema_migration_required`. No code-only
+rollout should proceed against the old schema.
+
+Only after a current verified **staging** database backup and a reviewed
+rollback plan, the operator can apply the additive schema migration on the
+staging Docker project with the newly built code, without enabling DINO,
+starting another Telegram poller, or touching legacy Docker volumes:
+
+```bash
+cd ~/telegram-ai-staging
+git status --short --untracked-files=no
+git branch --show-current
+git pull --ff-only origin main
+docker compose -f docker-compose.staging.yml --env-file .env build app worker
+docker compose -f docker-compose.staging.yml --env-file .env run --rm --no-deps app \
+  uv run --no-dev alembic current
+# Review the existing staging backup and rollback checkpoint BEFORE this step.
+docker compose -f docker-compose.staging.yml --env-file .env run --rm --no-deps app \
+  uv run --no-dev alembic upgrade head
+bash scripts/deploy_photo_staging.sh --deploy
+```
+
+No command above has been executed on Kali by GitHub CI. A successful
+disposable database migration is not proof of a staging backup, real model
+accuracy, or a stable Telegram session. A failed preflight must remain blocked
+rather than silently deploy incompatible code.
+
+### Group lifecycle acceptance
+
+In an existing authorized test account only:
+
+1. Save an album with `Ad:` metadata and verify that one group ID is returned.
+   `/qruplar` shows its count; a second account cannot see it.
+2. `/qrup_redakte <ID> | Ad: Yeni ad` changes metadata revision without
+   changing the original image files, product confirmation, stock or price.
+3. `/qrupa_elave <ID>` followed by a new photo creates only a *pending*
+   ingestion file. `/saxla` makes its group membership durable and increments
+   the count. `/cancel` discards pending membership. Duplicate content,
+   expired pending selections and cross-user group IDs must fail closed.
+4. The existing text index may retain an older descriptive upload note after
+   metadata edit; treat new group metadata as authoritative **for group
+   management only** until a versioned textual reindex mechanism is verified.
+   Never report a changed group description as an approved product fact.
