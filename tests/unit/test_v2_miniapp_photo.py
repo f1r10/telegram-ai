@@ -351,9 +351,7 @@ def test_document_scan_timeout_reports_incomplete_instead_of_false_no_match(
         "asyncio",
         SimpleNamespace(to_thread=asyncio.to_thread, wait_for=immediate_timeout),
     )
-    result = asyncio.run(
-        make_service(tmp_path, FakeSession([])).lookup(picture((180, 60, 20)))
-    )
+    result = asyncio.run(make_service(tmp_path, FakeSession([])).lookup(picture((180, 60, 20))))
     assert result.status == "not_found"
     assert result.incomplete is True
     assert result.payload()["incomplete"] is True
