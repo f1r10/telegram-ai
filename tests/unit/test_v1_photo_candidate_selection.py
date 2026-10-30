@@ -8,17 +8,24 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
-from telegram import Update
+from telegram import InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
 from office_assistant.infrastructure.database.models import User, UserStatus
 from office_assistant.integrations.telegram import handlers
-from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, add_photo
+from office_assistant.integrations.telegram.photo_flow import (
+    PHOTO_FLOW_KEY,
+    PhotoFlow,
+    TelegramPhotoRef,
+    add_photo,
+)
 from office_assistant.processing.visual_ann import IndexedProduct, IndexedResults
 
 
-def setup_case(monkeypatch: pytest.MonkeyPatch) -> tuple[object, object, object, object]:
+def setup_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[PhotoFlow, SimpleNamespace, SimpleNamespace, SimpleNamespace]:
     actor = 123
     flow = add_photo(None, actor, "f-1", 10, 20, None, question="Bunun qiyməti nə qədərdir?")
     verified = IndexedResults((IndexedProduct("KA45", 0.93),), ())
@@ -61,10 +68,12 @@ def test_ranked_page_offers_question_action_only_for_user_photo_question(
     ranked = IndexedResults((IndexedProduct("KA45", 0.93),), ())
     asyncio.run(
         handlers._send_indexed_visual_page(
-            cast(object, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
+            cast(Message, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
         )
     )
-    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    call = message.reply_text.await_args
+    assert call is not None
+    markup = cast(InlineKeyboardMarkup, call.kwargs["reply_markup"])
     callbacks = [
         button.callback_data
         for row in markup.inline_keyboard
@@ -72,7 +81,7 @@ def test_ranked_page_offers_question_action_only_for_user_photo_question(
         if button.callback_data
     ]
     assert any(callback.startswith(f"pi:{flow.token}:ask:0:0:0:") for callback in callbacks)
-    flow.photos[0] = handlers.TelegramPhotoRef("f-1", 10, 20, None)
+    flow.photos[0] = TelegramPhotoRef("f-1", 10, 20, None)
     asyncio.run(
         handlers._send_indexed_visual_page(
             cast(object, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
@@ -105,7 +114,9 @@ def test_candidate_answer_requires_current_rank_and_hash(
         )
     )
     answer.assert_awaited_once()
-    assert answer.await_args.kwargs == {"exact_photo": False}
+    call = answer.await_args
+    assert call is not None
+    assert call.kwargs == {"exact_photo": False}
     context.bot.send_message.assert_awaited_with(
         chat_id=123, text="Namizəd KA45 barədə mənbəli məlumat"
     )
@@ -120,13 +131,12 @@ def test_candidate_answer_requires_current_rank_and_hash(
         )
     )
     answer.assert_not_awaited()
-    assert "təsdiqlənmədi" in context.bot.send_message.await_args.kwargs["text"]
+    call = context.bot.send_message.await_args
+    assert call is not None
+    assert "təsdiqlənmədi" in call.kwargs["text"]
 
 
-def test_selected_candidate_answer_never_claims_exact_photo(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    del monkeypatch
+def test_selected_candidate_answer_never_claims_exact_photo() -> None:
     actor = cast(User, SimpleNamespace(id=5))
     cited = SimpleNamespace(
         answer="Bu kod üçün yalnız mənbəli məlumatdır [1].",
