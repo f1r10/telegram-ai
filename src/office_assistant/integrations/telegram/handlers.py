@@ -1769,9 +1769,7 @@ async def handle_photo_groups(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _reply_long(message, "\n".join(lines), services.telegram_message_limit)
 
 
-async def handle_photo_group_edit(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_photo_group_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Replace group annotation without modifying the originals or catalog."""
 
     resolved = await _active_user(update, context)
