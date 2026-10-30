@@ -14,7 +14,11 @@ from office_assistant.application.authentication import TelegramIdentity
 from office_assistant.infrastructure.database.models import User, UserStatus
 from office_assistant.integrations.telegram import handlers
 from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, add_photo
-from office_assistant.internal_evidence.models import InternalAnswer, RoutingCategory, UnifiedCitation
+from office_assistant.internal_evidence.models import (
+    InternalAnswer,
+    RoutingCategory,
+    UnifiedCitation,
+)
 from office_assistant.processing.vision import ImageTranscription
 
 
