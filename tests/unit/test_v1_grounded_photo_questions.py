@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """A user photo question survives the choice menu and uses only confirmed facts."""
 
 import asyncio
@@ -9,6 +10,7 @@ import pytest
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from office_assistant.application.authentication import TelegramIdentity
 from office_assistant.infrastructure.database.models import User, UserStatus
 from office_assistant.integrations.telegram import handlers
 from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, add_photo
@@ -57,8 +59,10 @@ def test_confirmed_photo_answer_requires_cited_evidence() -> None:
     assert "Kod: KA45" in response
     assert "50 AZN" in response
     assert "Mənbələr:" in response
-    assert answered.await_args.kwargs == {"force_internal": True}
-    assert "KA45" in answered.await_args.args[1]
+    call = answered.await_args
+    assert call is not None
+    assert call.kwargs == {"force_internal": True}
+    assert "KA45" in call.args[1]
 
 
 def test_uncited_or_failing_evidence_cannot_invent_price() -> None:
@@ -99,11 +103,19 @@ def test_db_choice_passes_original_photo_question_not_bot_menu_text(
         users=SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
     )
     search = AsyncMock()
-    monkeypatch.setattr(handlers, "_services", lambda _context: services)
-    monkeypatch.setattr(
-        handlers, "_identity", lambda _update: SimpleNamespace(telegram_user_id=actor)
-    )
-    monkeypatch.setattr(handlers, "_is_private", lambda _update: True)
+
+    def service_for(_context: ContextTypes.DEFAULT_TYPE) -> handlers.TelegramServices:
+        return cast(handlers.TelegramServices, services)
+
+    def identity_for(_update: Update) -> TelegramIdentity:
+        return cast(TelegramIdentity, SimpleNamespace(telegram_user_id=actor))
+
+    def is_private(_update: Update) -> bool:
+        return True
+
+    monkeypatch.setattr(handlers, "_services", service_for)
+    monkeypatch.setattr(handlers, "_identity", identity_for)
+    monkeypatch.setattr(handlers, "_is_private", is_private)
     monkeypatch.setattr(handlers, "_photo_download", AsyncMock(return_value=b"image"))
     monkeypatch.setattr(handlers, "_handle_exact_photo_lookup", search)
     update = cast(
