@@ -108,7 +108,9 @@ def test_db_choice_passes_original_photo_question_not_bot_menu_text(
     )
     search = AsyncMock()
     monkeypatch.setattr(handlers, "_services", lambda _context: services)
-    monkeypatch.setattr(handlers, "_identity", lambda _update: SimpleNamespace(telegram_user_id=actor))
+    monkeypatch.setattr(
+        handlers, "_identity", lambda _update: SimpleNamespace(telegram_user_id=actor)
+    )
     monkeypatch.setattr(handlers, "_is_private", lambda _update: True)
     monkeypatch.setattr(handlers, "_photo_download", AsyncMock(return_value=b"image"))
     monkeypatch.setattr(handlers, "_handle_exact_photo_lookup", search)
@@ -118,7 +120,9 @@ def test_db_choice_passes_original_photo_question_not_bot_menu_text(
     )
     context = cast(
         ContextTypes.DEFAULT_TYPE,
-        SimpleNamespace(user_data={PHOTO_FLOW_KEY: flow}, bot=SimpleNamespace(send_message=AsyncMock())),
+        SimpleNamespace(
+            user_data={PHOTO_FLOW_KEY: flow}, bot=SimpleNamespace(send_message=AsyncMock())
+        ),
     )
     asyncio.run(handlers.handle_photo_choice_callback(update, context))
     search.assert_awaited_once_with(
