@@ -107,3 +107,35 @@ enable unrestricted internet reverse-image search.
 Photo acceptance issue #35 remains OPEN until independent real phone
 holdout data establish reliable cross-angle recall, bounded false suggestions,
 and measured latency, reviewed by the owner.
+
+
+## V1 photo-caption question acceptance (added 2026-10-30)
+
+These checks are separate from the five photo-recognition acceptance cases.
+They do not authorize activating DINOv2 on uncalibrated private photos.
+
+1. Attach an *exact active confirmed reference* with the caption
+   `Bu məhsulun qiyməti nə qədərdir?`; select `Bazada axtar`.
+   The source match is exact only for the identical SHA-256 file, and any
+   price must come from a cited internal fact for that SKU. An absent or
+   unavailable source yields no invented price, sale or warehouse quantity.
+   The caption must survive the Telegram photo-choice callback.
+2. If calibrated and explicitly enabled ANN returns only a **similar**
+   candidate, a product-code question button may be shown. Tapping it is
+   a human-selected *query for that code*, not confirmation that the
+   photo depicts that SKU. The bot re-downloads the photo, verifies the
+   currently active candidate ranking and its code checksum, then may
+   answer with internal citations. Any stale/revoked/reordered candidate
+   is refused, and photo ownership remains unconfirmed.
+3. Multiple images in one Telegram album keep their own captions.
+   A question for the second image must not be answered with the first
+   image's source or selected code. No query photo is permanently
+   stored by this read-only path; saving a reference still requires the
+   separate `/saxla` boundary.
+4. Recheck original source-file delivery, no unapproved external image
+   egress, and no business write or product-image relation created by
+   selecting a visual candidate.
+
+These code paths have synthetic CI coverage. Real operator-confirmed
+accuracy, p95 latency, genuine private catalog facts and Kali staging
+deployment remain **unverified until executed on that host**.

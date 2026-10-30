@@ -19,6 +19,7 @@ PAGE_SIZE = 5
 class RankedPage:
     text: str
     docs: tuple[IndexedDocument, ...]
+    product_choices: tuple[tuple[int, IndexedProduct], ...]
     page: int
     pages: int
     has_previous: bool
@@ -44,8 +45,10 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
         "",
     ]
     docs: list[IndexedDocument] = []
+    product_choices: list[tuple[int, IndexedProduct]] = []
     for position, (kind, score, item) in enumerate(selected, start=page * size + 1):
         if kind == "product" and isinstance(item, IndexedProduct):
+            product_choices.append((position - page * size - 1, item))
             lines.extend(
                 [
                     f"{position}. 📦 Təsdiqli kataloq nümunəsi: {item.code}",
@@ -80,6 +83,7 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
     return RankedPage(
         "\n".join(lines),
         tuple(docs),
+        tuple(product_choices),
         page,
         pages,
         page > 0,

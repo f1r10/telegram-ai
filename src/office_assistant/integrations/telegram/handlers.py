@@ -2909,6 +2909,22 @@ async def _send_indexed_visual_page(
     rows = [list(row) for row in keyboard.inline_keyboard]
     state = data.get(PHOTO_FLOW_KEY) if data is not None else None
     if isinstance(state, PhotoFlow) and state.valid(actor_id):
+        if 0 <= photo_index < len(state.photos):
+            question = state.photos[photo_index].question
+            for slot, product in view.product_choices[:3]:
+                if _confirmed_photo_question(question, product.code) is None:
+                    continue
+                code_hash = sha256(product.code.encode("utf-8")).hexdigest()[:12]
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            f"Namizəd {product.code[:28]} kodunu seç",
+                            callback_data=(
+                                f"pi:{state.token}:ask:{photo_index}:{page}:{slot}:{code_hash}"
+                            ),
+                        )
+                    ]
+                )
         for number, item in enumerate(view.docs[:3], start=1):
             rows.append(
                 [
@@ -2946,10 +2962,10 @@ async def _send_indexed_visual_page(
 
 
 def _confirmed_photo_question(question: str | None, code: str) -> str | None:
-    """Scope a genuine photo question to the product confirmed by exact bytes.
+    """Scope a photo question to an explicitly confirmed or user-selected code.
 
-    Never treat a description or a visually similar candidate as authority.
-    The evidence service must still independently resolve prices and stock.
+    A visually suggested code is never treated as an automatically verified identity.
+    The evidence service must independently resolve price and inventory facts.
     """
 
     if not question:
@@ -2980,15 +2996,27 @@ def _confirmed_photo_question(question: str | None, code: str) -> str | None:
 
 
 async def _confirmed_photo_question_answer(
-    services: TelegramServices, user: User, question: str | None, code: str
+    services: TelegramServices,
+    user: User,
+    question: str | None,
+    code: str,
+    *,
+    exact_photo: bool = True,
 ) -> str:
     """Return corroborated evidence, or a truthful limitation, without mutating data."""
 
-    base = (
-        f"📦 MƏHSUL TAPILDI\n\nKod: {code}\n"
-        "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
-        "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
-    )
+    if exact_photo:
+        base = (
+            f"📦 MƏHSUL TAPILDI\n\nKod: {code}\n"
+            "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
+            "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
+        )
+    else:
+        base = (
+            f"📷 SİZİN SEÇDİYİNİZ VİZUAL NAMİZƏD\n\nKod: {code}\n"
+            "Bu kod təsdiqli şəkil uyğunluğu deyil: yalnız sizin seçdiyiniz "
+            "namizəd üzrə məlumat sorğulanır. Foto eyniliyi və stok təsdiqlənmir."
+        )
     scoped = _confirmed_photo_question(question, code)
     if scoped is None:
         return base
@@ -3428,6 +3456,51 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             await context.bot.send_message(
                 chat_id=identity.telegram_user_id,
                 text="Şəkil önizləməsi yoxlanmadı. Mənbə dəyişibsə, axtarışı yeniləyin.",
+            )
+        return
+    if action == "ask" and len(parts) == 7:
+        # Only an actor-bound choice, checked against the *current* verified
+        # ANN shortlist, may trigger a read-only structured/document question.
+        if services.indexed_visual is None:
+            await query.edit_message_text("Vizual namizədlər hazırda əlçatan deyil.")
+            return
+        try:
+            photo_index, page, slot = map(int, parts[3:6])
+            code_hash = parts[6]
+            if not (
+                0 <= photo_index < len(flow.photos)
+                and 0 <= page < 8
+                and 0 <= slot < 5
+                and re.fullmatch(r"[0-9a-f]{12}", code_hash)
+            ):
+                raise ValueError("Invalid visual candidate selection")
+            ref = flow.photos[photo_index]
+            if not ref.question:
+                raise ValueError("Question is missing from photo")
+            body = await _photo_download(context, ref.file_id)
+            indexed = await services.indexed_visual.search(body)
+            if indexed.unavailable:
+                raise ValueError("Visual index unavailable")
+            view = indexed_page(indexed, page)
+            selected = next(
+                (product for item_slot, product in view.product_choices if item_slot == slot),
+                None,
+            )
+            if (
+                selected is None
+                or sha256(selected.code.encode("utf-8")).hexdigest()[:12] != code_hash
+                or _confirmed_photo_question(ref.question, selected.code) is None
+            ):
+                raise ValueError("Candidate no longer verified in current page")
+            answer = await _confirmed_photo_question_answer(
+                services, user, ref.question, selected.code, exact_photo=False
+            )
+            await context.bot.send_message(chat_id=identity.telegram_user_id, text=answer)
+        except (ValueError, OSError, TelegramError, RuntimeError, TimeoutError):
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text="Namizəd seçimi təsdiqlənmədi. Axtarışı yeniləyin; "
+                "vizual oxşarlıq məhsulun eyniliyini sübut etmir.",
             )
         return
     if action == "dbpg" and len(parts) == 5:

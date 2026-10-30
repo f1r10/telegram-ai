@@ -34,6 +34,7 @@ def test_visual_paging_uses_one_score_order_for_products_and_documents() -> None
     assert first.has_next and not first.has_previous
     assert first.text.index("KA02") < first.text.index("watch-catalog.xlsx")
     assert first.text.index("watch-catalog.xlsx") < first.text.index("KA03")
+    assert [slot for slot, _product in first.product_choices] == [0, 1, 2, 4]
     assert first.docs[0].source.description.startswith("Ad:")
     assert "Saatlar" in first.text and "Qara qol saatı" in first.text
     assert second.has_previous and second.has_next
@@ -48,4 +49,5 @@ def test_empty_results_remain_safe_without_invented_sku() -> None:
     assert page.pages == 1
     assert "namizəd tapılmadı" in page.text
     assert not page.docs
+    assert not page.product_choices
     assert "stok" not in page.text.lower()
