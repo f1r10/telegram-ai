@@ -28,6 +28,22 @@ MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
+MENU_PHOTO_BUTTON = "📷 Şəkil axtar"
+MENU_GROUPS_BUTTON = "🗂 Şəkil qrupları"
+MENU_PHOTO_GUIDE = (
+    "📷 ŞƏKİL AXTARIŞI\n\n"
+    "Şəklinizi göndərin və açılan menyudan «Bazada axtar», "
+    "«Mətni oxu» və ya «İnternetdə axtar» seçin. "
+    "Şəkil haqqında sualı fotonun qeydinə əlavə edə bilərsiniz.\n\n"
+    "Vizual oxşarlıq məhsulun eyniliyini, qiymətini və stokunu təsdiqləmir. "
+    "OCR və internet ötürülməsi ayrıca seçim tələb edir; "
+    "saxlanma üçün də açıq təsdiq lazımdır."
+)
+MENU_GROUPS_EMPTY = "Hələ saxlanılmış şəkil qrupunuz yoxdur."
+MENU_GROUPS_FOOTER = (
+    "\nMəlumatı dəyişmək: /qrup_redakte <ID> | Ad: Yeni ad\n"
+    "Yeni fotolar əlavə etmək: /qrupa_elave <ID> və sonra /saxla"
+)
 STOCK_UNIT_UNKNOWN = "Ölçü vahidi: təsdiqlənməyib."
 STOCK_SUM_INCOMPARABLE = (
     "Anbarlar üzrə fərdi qalıqlar məlumdur, lakin vahid təsdiqlənmədiyindən "
