@@ -22,6 +22,7 @@ class TelegramPhotoRef:
     file_id: str
     message_id: int
     update_id: int
+    question: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +50,7 @@ def add_photo(
     message_id: int,
     update_id: int,
     media_group: str | None,
+    question: str | None = None,
 ) -> PhotoFlow:
     """Collect genuine Telegram media albums, never merge unrelated messages."""
 
@@ -65,5 +67,8 @@ def add_photo(
     if len(current.photos) < MAX_ALBUM_PHOTOS and not any(
         p.message_id == message_id for p in current.photos
     ):
-        current.photos.append(TelegramPhotoRef(file_id, message_id, update_id))
+        # Captions belong to their own photo, not a later callback message.
+        # Short-lived state never persists query image bytes or customer facts.
+        caption = question.strip()[:500] if question and question.strip() else None
+        current.photos.append(TelegramPhotoRef(file_id, message_id, update_id, caption))
     return current
