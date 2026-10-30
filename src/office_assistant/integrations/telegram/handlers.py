@@ -3569,7 +3569,12 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             )
             text = (
                 "Şəkildən oxunan mətn təsdiqlənmiş məhsul kimliyi, qiymət "
-                "və ya stok deyil.\n\n" + _format_internal(result)
+                "və ya stok deyil.\n\n"
+                + (
+                    _format_internal(result)
+                    if result.citations
+                    else "Bu foto sualı üçün mənbə ilə yoxlanmış cavab əldə edilmədi."
+                )
             )
             for part in split_telegram_text(text, limit=services.telegram_message_limit):
                 await context.bot.send_message(chat_id=identity.telegram_user_id, text=part)
