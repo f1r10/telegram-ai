@@ -2945,12 +2945,78 @@ async def _send_indexed_visual_page(
     await message.reply_text(view.text, reply_markup=markup)
 
 
+def _confirmed_photo_question(question: str | None, code: str) -> str | None:
+    """Scope a genuine photo question to the product confirmed by exact bytes.
+
+    Never treat a description or a visually similar candidate as authority.
+    The evidence service must still independently resolve prices and stock.
+    """
+
+    if not question:
+        return None
+    cleaned = " ".join(question.split())[:500]
+    lowered = cleaned.casefold()
+    if not cleaned or not (
+        "?" in cleaned
+        or any(
+            word in lowered
+            for word in (
+                "qiymət",
+                "qiymet",
+                "stok",
+                "anbar",
+                "neçə",
+                "nece",
+                "miqdar",
+                "satış",
+                "satis",
+                "haqqında məlumat",
+                "haqqinda melumat",
+            )
+        )
+    ):
+        return None
+    return f"Məhsulun təsdiqlənmiş kataloq kodu {code}. Sual: {cleaned}"
+
+
+async def _confirmed_photo_question_answer(
+    services: TelegramServices, user: User, question: str | None, code: str
+) -> str:
+    """Return corroborated evidence, or a truthful limitation, without mutating data."""
+
+    base = (
+        f"📦 MƏHSUL TAPILDI\\n\\nKod: {code}\\n"
+        "Uyğunluq: eyni şəkil faylı təsdiqlənib.\\n\\n"
+        "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
+    )
+    scoped = _confirmed_photo_question(question, code)
+    if scoped is None:
+        return base
+    if services.internal_evidence is None:
+        return base + "\\n\\nƏlavə sual üçün daxili məlumat axtarışı əlçatan deyil."
+    try:
+        result = await asyncio.wait_for(
+            services.internal_evidence.answer(user, scoped, force_internal=True),
+            timeout=12.0,
+        )
+    except Exception as error:  # noqa: BLE001 - optional evidence must not hide confirmed SHA
+        logger.warning(
+            "Confirmed photo supplemental evidence unavailable | error_type=%s",
+            type(error).__name__,
+        )
+        return base + "\\n\\nƏlavə sualın mənbəli cavabı hazırda əldə edilmədi."
+    if not result.citations:
+        return base + "\\n\\nƏlavə sual üçün yoxlanıla bilən mənbəli fakt tapılmadı."
+    return base + "\\n\\n" + _format_internal(result)
+
+
 async def _handle_exact_photo_lookup(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
     image_bytes: bytes | None = None,
     photo_index: int = 0,
+    question: str | None = None,
 ) -> None:
     """Exact content, conservative duplicate and opt-in unverified semantic candidates."""
 
@@ -3000,9 +3066,9 @@ async def _handle_exact_photo_lookup(
             ).active_confirmation_holder_by_content(digest, active_product_only=True)
             if holder is not None:
                 await message.reply_text(
-                    f"📦 MƏHSUL TAPILDI\n\nKod: {holder[1]}\n"
-                    "Uyğunluq: eyni şəkil faylı təsdiqlənib.\n\n"
-                    "Qeyd: kataloqda olması anbarda hazırda stok olduğunu sübut etmir."
+                    await _confirmed_photo_question_answer(
+                        services, user, question if question is not None else message.caption, holder[1]
+                    )
                 )
                 return
             # Full-corpus ANN is authoritative for candidate *discovery* only.
@@ -3185,6 +3251,7 @@ async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_T
         message.message_id,
         update.update_id,
         message.media_group_id,
+        question=message.caption,
     )
     data[PHOTO_FLOW_KEY] = flow
     await message.reply_text(
@@ -3431,7 +3498,11 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                             text=f"📷 Şəkil {position}/{len(flow.photos)}",
                         )
                     await _handle_exact_photo_lookup(
-                        update, context, image_bytes=body, photo_index=position - 1
+                        update,
+                        context,
+                        image_bytes=body,
+                        photo_index=position - 1,
+                        question=ref.question,
                     )
             except (OSError, ValueError, TelegramError, TimeoutError):
                 await context.bot.send_message(
