@@ -120,8 +120,7 @@ async def apply_photo_group_commit(
                 select(FileObject.sha256)
                 .select_from(PhotoGroupImage)
                 .join(
-                    IngestionSessionItem,
-                    IngestionSessionItem.id == PhotoGroupImage.session_item_id,
+                    IngestionSessionItem, IngestionSessionItem.id == PhotoGroupImage.session_item_id
                 )
                 .join(FileObject, FileObject.id == IngestionSessionItem.file_object_id)
                 .where(PhotoGroupImage.group_id == group.id)
