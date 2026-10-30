@@ -356,3 +356,10 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 - [ ] Validate failed-index recovery and full-corpus re-backfill on the Kali
       staging host with private data; GitHub disposable-DB tests do not
       represent a real model / loaded vector corpus.
+
+- [x] Bound ordinary Telegram multi-photo local and Yandex searches with a
+      whole-album deadline as well as per-photo budgets; each source keeps its
+      original order and timed-out/skipped photos are explicitly identified as
+      unverified, not mistaken for `NO_MATCH`.
+- [ ] Measure real multi-photo latency on owner staging with network and
+      Yandex quotas; static deadlines do not guarantee any successful live hit.
