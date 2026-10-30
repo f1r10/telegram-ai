@@ -1,5 +1,7 @@
 ## 2026-10-28 — Reject private URLs in Yandex photo evidence
 
+- Yandex image result hardening: reject numeric/octal/hex loopback host shortcuts and common public wildcard DNS names that point at private/local resources; fake-provider tests prove only ordinary public domains survive.
+
 - V1 multi-photo Telegram hardening: bounded whole-album and per-photo reverse/local search budgets prevent serial source requests from monopolizing a user queue; preserve ordered per-photo results and clearly report incomplete/timeout results.
 
 - V1 visual index integrity: when document/image ingestion succeeds but DINOv2 worker indexing is disabled or fails, revoke the full-corpus READY flag without modifying the saved source; protect against stale searchable coverage and test with disposable PostgreSQL.
