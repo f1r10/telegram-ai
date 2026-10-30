@@ -27,6 +27,11 @@ def test_photo_staging_script_is_syntax_valid_and_non_destructive() -> None:
     assert "schema_migration_required" in body
     assert "SELECT version_num FROM alembic_version" in body
     assert "compose exec -T postgres" in body
+    assert '[[ "$status" == "running" ]]' in body
+    assert '[[ "$health" == "none" || "$health" == "healthy" ]]' in body
+    assert "_not_running" in body
+    assert "_unhealthy" in body
+    assert "for service in app worker; do" in body
     for unsafe in (
         "docker compose down",
         "docker volume rm",
