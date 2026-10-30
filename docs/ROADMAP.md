@@ -363,3 +363,7 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       unverified, not mistaken for `NO_MATCH`.
 - [ ] Measure real multi-photo latency on owner staging with network and
       Yandex quotas; static deadlines do not guarantee any successful live hit.
+
+- [x] Deny browser-normalized noncanonical IPv4 hosts, integer/octal/hex
+      loopback shortcuts and public wildcard-to-loopback DNS suffixes in
+      untrusted Yandex photo evidence/thumbnail URLs. No new outbound fetches.
