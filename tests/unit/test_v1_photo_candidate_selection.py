@@ -87,7 +87,9 @@ def test_ranked_page_offers_question_action_only_for_user_photo_question(
             cast(object, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
         )
     )
-    markup = message.reply_text.await_args.kwargs["reply_markup"]
+    call = message.reply_text.await_args
+    assert call is not None
+    markup = cast(InlineKeyboardMarkup, call.kwargs["reply_markup"])
     assert not any(
         button.callback_data and ":ask:" in button.callback_data
         for row in markup.inline_keyboard
@@ -109,9 +111,7 @@ def test_candidate_answer_requires_current_rank_and_hash(
     )
     update = cast(Update, SimpleNamespace(callback_query=query, effective_message=message))
     asyncio.run(
-        handlers.handle_photo_choice_callback(
-            update, cast(ContextTypes.DEFAULT_TYPE, context)
-        )
+        handlers.handle_photo_choice_callback(update, cast(ContextTypes.DEFAULT_TYPE, context))
     )
     answer.assert_awaited_once()
     call = answer.await_args
@@ -126,9 +126,7 @@ def test_candidate_answer_requires_current_rank_and_hash(
     context.bot.send_message.reset_mock()
     query.data = f"pi:{flow.token}:ask:0:0:0:{'a' * 12}"
     asyncio.run(
-        handlers.handle_photo_choice_callback(
-            update, cast(ContextTypes.DEFAULT_TYPE, context)
-        )
+        handlers.handle_photo_choice_callback(update, cast(ContextTypes.DEFAULT_TYPE, context))
     )
     answer.assert_not_awaited()
     call = context.bot.send_message.await_args
