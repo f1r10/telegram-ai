@@ -1,5 +1,7 @@
 ## 2026-10-28 — Reject private URLs in Yandex photo evidence
 
+- V1 multi-photo Telegram hardening: bounded whole-album and per-photo reverse/local search budgets prevent serial source requests from monopolizing a user queue; preserve ordered per-photo results and clearly report incomplete/timeout results.
+
 - V1 visual index integrity: when document/image ingestion succeeds but DINOv2 worker indexing is disabled or fails, revoke the full-corpus READY flag without modifying the saved source; protect against stale searchable coverage and test with disposable PostgreSQL.
 
 - Untrusted provider source and thumbnail URLs cannot point at loopback,
