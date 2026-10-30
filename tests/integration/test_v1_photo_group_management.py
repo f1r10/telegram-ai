@@ -55,8 +55,9 @@ async def _clean(settings: Settings) -> None:
             files = list(
                 (
                     await session.scalars(
-                        select(IngestionSessionItem.file_object_id)
-                        .where(IngestionSessionItem.sender_user_id.in_(ids))
+                        select(IngestionSessionItem.file_object_id).where(
+                            IngestionSessionItem.sender_user_id.in_(ids)
+                        )
                     )
                 ).all()
             )
