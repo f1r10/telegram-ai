@@ -41,6 +41,7 @@ from office_assistant.infrastructure.database.models import (
     OutboxEvent,
     PendingProductImageConfirmation,
     ProductImageRelation,
+    SystemMetadata,
     User,
     UserRole,
     UserStatus,
@@ -51,6 +52,7 @@ from office_assistant.internal_evidence.delivery import FileDeliveryError, Sourc
 from office_assistant.processing.document_visual_candidates import active_document_images
 from office_assistant.processing.image_assets import ImageAssetRegistry
 from office_assistant.processing.semantic_visual import CLIP_DIMENSION, SemanticVisualSearch
+from office_assistant.processing.visual_ann import VisualANNIndex
 from office_assistant.processing.worker_service import IngestionJobService
 
 pytestmark = pytest.mark.integration
@@ -643,5 +645,84 @@ def test_worker_prewarms_docx_embedded_images_after_committing_source() -> None:
             await delivery.resolve_catalog_original(
                 TELEGRAM_USER_ID, file_id=file_id, occurrence_id=occurrences[0].id
             )
+
+    _scenario(behavior)
+
+
+@pytest.mark.parametrize("failure_mode", ["disabled", "index_unavailable"])
+def test_committed_photo_invalidates_ready_visual_index_on_failed_ingestion(
+    failure_mode: str,
+) -> None:
+    """A durable new photo must never leave a stale full-corpus READY marker."""
+
+    class FailingIndex:
+        async def ensure(self) -> None:
+            raise RuntimeError("synthetic Qdrant outage")
+
+    async def behavior(
+        factory: async_sessionmaker[AsyncSession], storage: LocalFileStorage
+    ) -> None:
+        marker_key = "office_visual_dino_ann_ready_v1"
+        async with factory.begin() as session:
+            previous = await session.get(SystemMetadata, marker_key)
+            old_value = previous.value if previous is not None else None
+            if previous is None:
+                session.add(SystemMetadata(key=marker_key, value="ready"))
+            else:
+                previous.value = "ready"
+        try:
+            file_id, job_id, _, _ = await _seed_file(
+                factory,
+                storage,
+                filename="test-ready-invalidated.jpg",
+                data=JPEG_BYTES,
+                with_run=False,
+            )
+            semantic = (
+                SemanticVisualSearch(
+                    storage_root=storage.root,
+                    model_cache_root=storage.root / "test-model-cache",
+                )
+                if failure_mode == "index_unavailable"
+                else None
+            )
+            service = IngestionJobService(
+                factory,
+                storage,
+                visual_semantic=semantic,
+                visual_ann=(
+                    cast(VisualANNIndex, FailingIndex())
+                    if failure_mode == "index_unavailable"
+                    else None
+                ),
+            )
+            claim = await service.claim_next("visual-ready-failure")
+            assert claim is not None
+            await service.process(claim)
+            async with factory() as session:
+                original = await session.get(FileObject, file_id)
+                assert original is not None
+                assert original.state == FileObjectState.ACTIVE
+                recorded = await session.get(SystemMetadata, marker_key)
+                assert recorded is not None and recorded.value == "stale"
+                job = await session.get(IngestionJob, job_id)
+                assert job is not None
+                assert job.status in {IngestionJobStatus.SUCCEEDED, IngestionJobStatus.PARTIAL}
+                assert (
+                    await session.scalar(
+                        select(ImageAssetOccurrence.id)
+                        .where(ImageAssetOccurrence.source_file_id == file_id)
+                        .limit(1)
+                    )
+                    is not None
+                )
+        finally:
+            async with factory.begin() as session:
+                prior = await session.get(SystemMetadata, marker_key)
+                if prior is not None:
+                    if old_value is None:
+                        await session.delete(prior)
+                    else:
+                        prior.value = old_value
 
     _scenario(behavior)
