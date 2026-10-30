@@ -50,6 +50,15 @@ git merge --ff-only refs/remotes/origin/main || fail "git_update_failed"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "post_pull_not_clean"
 compose config --quiet || fail "updated_compose_invalid"
 
+# A new photo-group commit needs additive migration 0023. Check the actual
+# *staging* PostgreSQL version before replacing running bot/worker containers.
+# The check does not print credentials, run migrations, or touch business rows.
+required_revision="0023_photo_groups"
+current_revision="$(compose exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "SELECT version_num FROM alembic_version"' \
+  | tr -d '\\r\\n')" || fail "schema_revision_probe_failed"
+[[ "$current_revision" == "$required_revision" ]] || fail "schema_migration_required"
+
 # Stage only the two existing application processes. Build before restart.
 compose build app worker || fail "image_build_failed"
 compose up -d --no-deps --force-recreate app worker || fail "app_worker_start_failed"
