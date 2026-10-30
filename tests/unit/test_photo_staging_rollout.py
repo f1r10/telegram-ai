@@ -31,7 +31,7 @@ def test_photo_staging_script_is_syntax_valid_and_non_destructive() -> None:
     assert '[[ "$health" == "none" || "$health" == "healthy" ]]' in body
     assert "_not_running" in body
     assert "_unhealthy" in body
-    assert 'for service in app worker; do' in body
+    assert "for service in app worker; do" in body
     for unsafe in (
         "docker compose down",
         "docker volume rm",
