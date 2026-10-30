@@ -146,7 +146,8 @@ def test_photo_group_create_edit_append_and_other_actor_denial() -> None:
             with pytest.raises(InvalidStateTransition):
                 await intake.commit(actor, append_photo_group_id=gid)
             assert await intake.cancel(actor)
-            assert (await groups.get(ACTOR, gid)).image_count == 2
+            after_cancel = await groups.get(ACTOR, gid)
+            assert after_cancel is not None and after_cancel.image_count == 2
         finally:
             await engine.dispose()
             rmtree(storage.root, ignore_errors=True)
