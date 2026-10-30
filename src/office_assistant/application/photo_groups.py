@@ -40,8 +40,11 @@ class PhotoGroupView:
     @property
     def title(self) -> str:
         first = next(
-            (line.partition(":")[2].strip() for line in self.description.splitlines()
-             if line.casefold().startswith("ad:")),
+            (
+                line.partition(":")[2].strip()
+                for line in self.description.splitlines()
+                if line.casefold().startswith("ad:")
+            ),
             "Şəkil qrupu",
         )
         return first[:100]
