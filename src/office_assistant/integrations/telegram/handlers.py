@@ -1807,9 +1807,7 @@ async def handle_photo_group_edit(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
-async def handle_photo_group_append(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_photo_group_append(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Authorize one short-lived group append session; /saxla performs the write."""
 
     resolved = await _active_user(update, context)
@@ -1857,9 +1855,7 @@ async def handle_photo_group_append(
     )
 
 
-def _photo_group_append_id(
-    data: object, telegram_user_id: int
-) -> int | None:
+def _photo_group_append_id(data: object, telegram_user_id: int) -> int | None:
     if not isinstance(data, dict):
         return None
     pending = data.get(PHOTO_GROUP_APPEND_KEY)
@@ -1941,9 +1937,7 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Fayllar qrupa bağlanmadı. /cancel ilə paketi ləğv edib yenidən başlayın."
             )
             return
-        summary = await services.ingestion.commit(
-            user, append_photo_group_id=append_group_id
-        )
+        summary = await services.ingestion.commit(user, append_photo_group_id=append_group_id)
     except ReferenceImageSaveDenied as denied:
         # The session rolled back with the refused picture, so say which claim blocked the save.
         await message.reply_text(_reference_image_denied(denied))
@@ -3984,9 +3978,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if await _route_caption_command(update, context):
         return
     identity = _identity(update) if getattr(update, "effective_user", None) is not None else None
-    if identity is not None and _photo_group_append_id(
-        getattr(context, "user_data", None), identity.telegram_user_id
-    ) is not None:
+    if (
+        identity is not None
+        and _photo_group_append_id(getattr(context, "user_data", None), identity.telegram_user_id)
+        is not None
+    ):
         # Explicitly selected group: stage the photo, but do not append until /saxla.
         await _handle_upload(
             update,
