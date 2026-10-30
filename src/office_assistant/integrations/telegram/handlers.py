@@ -1934,9 +1934,15 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 update_id=update.update_id,
                 create_session=True,
             )
-        append_group_id = _photo_group_append_id(
-            getattr(context, "user_data", None), identity.telegram_user_id
-        )
+        data = getattr(context, "user_data", None)
+        selected_group = isinstance(data, dict) and PHOTO_GROUP_APPEND_KEY in data
+        append_group_id = _photo_group_append_id(data, identity.telegram_user_id)
+        if selected_group and append_group_id is None:
+            await message.reply_text(
+                "Şəkil qrupunun əlavə etmə icazəsinin vaxtı bitib. "
+                "Fayllar qrupa bağlanmadı. /cancel ilə paketi ləğv edib yenidən başlayın."
+            )
+            return
         summary = await services.ingestion.commit(
             user, append_photo_group_id=append_group_id
         )
