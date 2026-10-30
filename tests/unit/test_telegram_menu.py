@@ -11,10 +11,12 @@ from telegram import Update
 from telegram import User as TelegramUser
 from telegram.constants import ChatType
 from telegram.ext import ContextTypes
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.ingestion import IngestionSessionService
+from office_assistant.application.photo_groups import PhotoGroupService, PhotoGroupView
 from office_assistant.application.inventory import InventoryLedgerService, StockSnapshot
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
 from office_assistant.application.user_management import UserManagementService
@@ -122,6 +124,7 @@ def test_active_user_sees_tap_friendly_menu() -> None:
         ["om:ask", "om:baza"],
         ["om:product", "om:stock"],
         ["om:upload", "om:sales"],
+        ["om:photo", "om:groups"],
         ["om:internet", "om:help"],
     ]
 
@@ -585,4 +588,45 @@ def test_stalled_internet_mode_times_out_without_leaking_to_other_modes() -> Non
     asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
     message.reply_text.assert_awaited_once_with(messages.AI_TIMEOUT)
     internal.answer.assert_not_awaited()
+    assert MENU_SELECTION_KEY not in context.user_data
+
+
+def test_photo_menu_explicit_consent_and_resets_prior_internet_scope() -> None:
+    context, _ = _context(_user())
+    _select(context, "internet")
+    assert MENU_SELECTION_KEY in context.user_data
+    query = _select(context, "photo")
+    query.edit_message_text.assert_awaited_once()
+    assert query.edit_message_text.await_args.args == (messages.MENU_PHOTO_GUIDE,)
+    assert "ayrıca seçim" in messages.MENU_PHOTO_GUIDE
+    assert MENU_SELECTION_KEY not in context.user_data
+
+
+def test_photo_groups_menu_lists_only_current_actor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context, services = _context(_user())
+    services.session_factory = cast(async_sessionmaker[AsyncSession], object())
+
+    async def own_groups(
+        self: PhotoGroupService, telegram_user_id: int
+    ) -> list[PhotoGroupView]:
+        del self
+        assert telegram_user_id == 123
+        return [PhotoGroupView(7, "Ad: Qara saat", 3, 2)]
+
+    monkeypatch.setattr(PhotoGroupService, "list_own", own_groups)
+    query = _select(context, "groups")
+    reply = query.edit_message_text.await_args
+    assert reply is not None
+    assert "№7" in reply.args[0]
+    assert "Qara saat" in reply.args[0]
+    assert "3 foto" in reply.args[0]
+    assert MENU_SELECTION_KEY not in context.user_data
+
+
+def test_photo_groups_menu_without_database_does_not_expose_records() -> None:
+    context, _ = _context(_user())
+    query = _select(context, "groups")
+    query.edit_message_text.assert_awaited_once_with(messages.TEMPORARY_ERROR)
     assert MENU_SELECTION_KEY not in context.user_data
