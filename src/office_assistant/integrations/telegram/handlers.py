@@ -3252,15 +3252,26 @@ async def _handle_exact_photo_lookup(
 
 def _photo_action_keyboard(flow: PhotoFlow) -> InlineKeyboardMarkup:
     token = flow.token
-    return InlineKeyboardMarkup(
+    rows = [
         [
-            [
-                InlineKeyboardButton("💾 Yadda saxla", callback_data=f"pi:{token}:save"),
-                InlineKeyboardButton("📁 Bazada axtar", callback_data=f"pi:{token}:db"),
-            ],
-            [InlineKeyboardButton("🌐 İnternetdə axtar", callback_data=f"pi:{token}:web")],
-        ]
-    )
+            InlineKeyboardButton("💾 Yadda saxla", callback_data=f"pi:{token}:save"),
+            InlineKeyboardButton("📁 Bazada axtar", callback_data=f"pi:{token}:db"),
+        ],
+        [InlineKeyboardButton("🌐 İnternetdə axtar", callback_data=f"pi:{token}:web")],
+    ]
+    # OCR may use a configured external AI vendor. Expose it only as a
+    # deliberate action, not a hidden side effect of local photo search.
+    for index, ref in enumerate(flow.photos):
+        if ref.question:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"📄 Şəkil {index + 1}: mətni oxu və baza ilə yoxla",
+                        callback_data=f"pi:{token}:ocr:{index}",
+                    )
+                ]
+            )
+    return InlineKeyboardMarkup(rows)
 
 
 async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3292,7 +3303,9 @@ async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_T
         f"📷 {len(flow.photos)} şəkil seçilib"
         + (f" (bir albomda maksimum {MAX_ALBUM_PHOTOS})" if message.media_group_id else "")
         + "\n\nNə etmək istəyirsiniz?\n"
-        "İnternet axtarışı seçilməyənədək foto xarici xidmətə göndərilmir.",
+        "İnternet axtarışı seçilməyənədək foto Yandex-ə göndərilmir. "
+        "«Mətni oxu» seçimi foto məzmununu quraşdırılmış AI oxuma xidmətinə "
+        "göndərə bilər; bu, ayrıca seçilən əməliyyatdır.",
         reply_markup=_photo_action_keyboard(flow),
     )
 
@@ -3501,6 +3514,71 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                 chat_id=identity.telegram_user_id,
                 text="Namizəd seçimi təsdiqlənmədi. Axtarışı yeniləyin; "
                 "vizual oxşarlıq məhsulun eyniliyini sübut etmir.",
+            )
+        return
+    if action == "ocr" and len(parts) == 4:
+        # Explicit consent boundary: this path may send photo bytes to the
+        # configured vision provider, whereas ordinary DB matching remains local.
+        if services.image_reader is None or services.internal_evidence is None:
+            await query.edit_message_text("Şəkil mətnini oxuma xidməti hazırda əlçatan deyil.")
+            return
+        try:
+            index = int(parts[3])
+            if not 0 <= index < len(flow.photos):
+                raise ValueError("Photo index outside current actor flow")
+            ref = flow.photos[index]
+            if not ref.question:
+                raise ValueError("No attached question to answer")
+        except ValueError:
+            await query.edit_message_text("Bu foto sualı artıq əlçatan deyil.")
+            return
+        await query.edit_message_text(
+            f"Şəkil {index + 1} üçün mətn oxunur və daxili mənbələr yoxlanılır. "
+            "Foto yalnız seçdiyiniz oxuma xidməti üçün göndərilir."
+        )
+        try:
+            body = await _photo_download(context, ref.file_id)
+            transcription = await asyncio.wait_for(
+                services.image_reader.read(
+                    image_bytes=body,
+                    media_type="image/jpeg",
+                    user_id=user.id,
+                ),
+                timeout=8.0,
+            )
+            if transcription.is_empty:
+                await context.bot.send_message(
+                    chat_id=identity.telegram_user_id,
+                    text="Bu fotoda oxuna bilən mətn tapılmadı. "
+                    "Bu nəticə kataloqda məhsulun olmadığı demək deyil.",
+                )
+                return
+            readings = [
+                ImageReading(
+                    filename=f"telegram_photo_{ref.message_id}.jpg",
+                    text=transcription.text or transcription.description,
+                    description=transcription.description if transcription.text else "",
+                    model=transcription.model,
+                )
+            ]
+            result = await asyncio.wait_for(
+                services.internal_evidence.answer(
+                    user, ref.question, force_internal=True, image_readings=readings
+                ),
+                timeout=15.0,
+            )
+            await _reply_long(
+                query.message,
+                "Şəkildən oxunan mətn təsdiqlənmiş məhsul kimliyi, qiymət "
+                "və ya stok deyil.\n\n" + _format_internal(result),
+                services.telegram_message_limit,
+            )
+        except Exception as error:  # noqa: BLE001 - no fabricated OCR or DB fact
+            logger.warning("Explicit photo OCR answer unavailable | type=%s", type(error).__name__)
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id,
+                text="Şəkil mətni və daxili məlumatların birgə yoxlanması "
+                "tamamlanmadı. Heç bir məhsul və stok faktı təxmin edilmədi.",
             )
         return
     if action == "dbpg" and len(parts) == 5:
