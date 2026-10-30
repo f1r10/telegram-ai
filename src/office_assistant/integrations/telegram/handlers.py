@@ -3064,13 +3064,19 @@ async def _handle_exact_photo_lookup(
             holder = await ProductImageRelationRepository(
                 session
             ).active_confirmation_holder_by_content(digest, active_product_only=True)
-            if holder is not None:
-                await message.reply_text(
-                    await _confirmed_photo_question_answer(
-                        services, user, question if question is not None else message.caption, holder[1]
-                    )
+        # Do not retain the initial database session while an LLM/evidence query
+        # runs: even a bounded question could otherwise exhaust DB connections.
+        if holder is not None:
+            await message.reply_text(
+                await _confirmed_photo_question_answer(
+                    services,
+                    user,
+                    question if question is not None else message.caption,
+                    holder[1],
                 )
-                return
+            )
+            return
+        async with services.session_factory() as session:
             # Full-corpus ANN is authoritative for candidate *discovery* only.
             # All ANN hits are revalidated against ACTIVE PostgreSQL and source SHA.
             if services.indexed_visual is not None:
