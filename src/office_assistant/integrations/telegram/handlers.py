@@ -59,6 +59,7 @@ from office_assistant.application.inventory import (
     parse_stock_draft,
     parse_stock_request,
 )
+from office_assistant.application.photo_groups import PhotoGroupService
 from office_assistant.application.products import ProductService
 from office_assistant.application.reference_images import (
     ReferenceImageDenialReason,
@@ -193,6 +194,8 @@ SALES_DRAFT_KEY = "office_sales_draft"
 STOCK_DRAFT_KEY = "office_stock_draft"
 PRODUCT_REGISTRATION_KEY = "office_product_registration_draft"
 PRODUCT_REGISTRATION_TTL_SECONDS = 600
+PHOTO_GROUP_APPEND_KEY = "office_photo_group_append_v1"
+PHOTO_GROUP_APPEND_TTL_SECONDS = 600
 SALES_IMPORT_KEY = "office_sales_import"
 SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
@@ -1736,6 +1739,146 @@ async def _send_auth_result(
                 continue
 
 
+async def handle_photo_groups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List only the actor's own saved image groups."""
+
+    resolved = await _active_user(update, context)
+    if resolved is None:
+        return
+    services, user, message = resolved
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        groups = await PhotoGroupService(services.session_factory).list_own(user.telegram_user_id)
+    except (AuthorizationDenied, SQLAlchemyError):
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    if not groups:
+        await message.reply_text("Saxlanılmış şəkil qrupunuz yoxdur.")
+        return
+    lines = ["📁 ŞƏKİL QRUPLARI"]
+    for group in groups:
+        lines.append(
+            f"№{group.id} · {group.title} · {group.image_count} foto · "
+            f"redaktə {group.revision}"
+        )
+    lines.append(
+        "\nMəlumatı yeniləmək: /qrup_redakte <ID> | Ad: ...\n"
+        "Yeni foto əlavə etmək: /qrupa_elave <ID>"
+    )
+    await _reply_long(message, "\n".join(lines), services.telegram_message_limit)
+
+
+async def handle_photo_group_edit(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Replace group annotation without modifying the originals or catalog."""
+
+    resolved = await _active_user(update, context)
+    if resolved is None:
+        return
+    services, user, message = resolved
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    raw = _command_text(message).partition(" ")[2].strip()
+    group_text, separator, metadata = raw.partition("|")
+    try:
+        if not separator:
+            raise ValueError("Missing metadata delimiter")
+        group_id = int(group_text.strip())
+        if group_id <= 0:
+            raise ValueError("Invalid group ID")
+        group = await PhotoGroupService(services.session_factory).update(
+            user.telegram_user_id, group_id, metadata
+        )
+    except ValueError:
+        await message.reply_text(
+            "Format: /qrup_redakte <ID> | Ad: Yeni ad\nTəsvir: Yenilənmiş məlumat"
+        )
+        return
+    except AuthorizationDenied:
+        await message.reply_text("Bu şəkil qrupu tapılmadı və ya sizə aid deyil.")
+        return
+    except SQLAlchemyError:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    await message.reply_text(
+        f"✅ Qrup №{group.id} yeniləndi (versiya {group.revision}). "
+        "Mövcud şəkillər və təsdiqli məhsul məlumatları dəyişdirilməyib."
+    )
+
+
+async def handle_photo_group_append(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Authorize one short-lived group append session; /saxla performs the write."""
+
+    resolved = await _active_user(update, context)
+    if resolved is None:
+        return
+    services, user, message = resolved
+    if services.session_factory is None or services.ingestion is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    data = getattr(context, "user_data", None)
+    if data is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        group_id = int(_command_text(message).partition(" ")[2].strip())
+        if group_id <= 0:
+            raise ValueError("Invalid group ID")
+    except ValueError:
+        await message.reply_text("Format: /qrupa_elave <qrup ID>")
+        return
+    try:
+        group = await PhotoGroupService(services.session_factory).get(
+            user.telegram_user_id, group_id
+        )
+        if group is None:
+            await message.reply_text("Qrup tapılmadı və ya sizə aid deyil.")
+            return
+        if await services.ingestion.has_open_session(user):
+            await message.reply_text(
+                "Əvvəl açıq saxlanma paketini /saxla və ya /cancel ilə yekunlaşdırın."
+            )
+            return
+    except (AuthorizationDenied, ApplicationError, SQLAlchemyError):
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return
+    data[PHOTO_GROUP_APPEND_KEY] = (
+        user.telegram_user_id,
+        group.id,
+        monotonic() + PHOTO_GROUP_APPEND_TTL_SECONDS,
+    )
+    await message.reply_text(
+        f"📷 Qrup №{group.id} ({group.title}) seçildi. "
+        "İndi 1–12 foto göndərin və /saxla ilə təsdiqləyin. "
+        "/cancel əməliyyatı ləğv edir. Foto göndərmək özü qeydiyyat deyil."
+    )
+
+
+def _photo_group_append_id(
+    data: object, telegram_user_id: int
+) -> int | None:
+    if not isinstance(data, dict):
+        return None
+    pending = data.get(PHOTO_GROUP_APPEND_KEY)
+    if (
+        not isinstance(pending, tuple)
+        or len(pending) != 3
+        or pending[0] != telegram_user_id
+        or not isinstance(pending[1], int)
+        or not isinstance(pending[2], (int, float))
+        or monotonic() > pending[2]
+    ):
+        data.pop(PHOTO_GROUP_APPEND_KEY, None)
+        return None
+    return pending[1] if pending[1] > 0 else None
+
+
 async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update):
         return
@@ -1745,6 +1888,9 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     services = _services(context)
     services.password_state.clear(identity.telegram_user_id)
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(PHOTO_GROUP_APPEND_KEY, None)
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is not None and user.status == UserStatus.ACTIVE and services.ingestion is not None:
         try:
@@ -1789,7 +1935,12 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 update_id=update.update_id,
                 create_session=True,
             )
-        summary = await services.ingestion.commit(user)
+        append_group_id = _photo_group_append_id(
+            getattr(context, "user_data", None), identity.telegram_user_id
+        )
+        summary = await services.ingestion.commit(
+            user, append_photo_group_id=append_group_id
+        )
     except ReferenceImageSaveDenied as denied:
         # The session rolled back with the refused picture, so say which claim blocked the save.
         await message.reply_text(_reference_image_denied(denied))
@@ -1800,6 +1951,9 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if summary is None:
         await message.reply_text(messages.SAVE_NO_SESSION)
         return
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(PHOTO_GROUP_APPEND_KEY, None)
     reply = messages.SAVE_SUCCESS.format(
         files=summary.file_count,
         instructions=summary.instruction_count,
@@ -1807,6 +1961,8 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     if summary.reference_images_linked:
         reply += messages.REFERENCE_IMAGE_LINKED_NOTE.format(count=summary.reference_images_linked)
+    if summary.photo_group_id is not None:
+        reply += f"\n📁 Qrup №{summary.photo_group_id} — fotolar əlavə edildi."
     await message.reply_text(reply)
 
 
@@ -3791,7 +3947,11 @@ async def _save_photo_album_description(
             message_id=message.message_id,
             update_id=update.update_id,
         )
-        summary = await services.ingestion.commit(user, expected_file_count=len(flow.photos))
+        summary = await services.ingestion.commit(
+            user,
+            expected_file_count=len(flow.photos),
+            photo_group_description=description,
+        )
     except (ValueError, OSError, TelegramError, ApplicationError, StorageError, SQLAlchemyError):
         try:
             await services.ingestion.cancel(user)
@@ -3805,7 +3965,7 @@ async def _save_photo_album_description(
         data.pop(PHOTO_FLOW_KEY, None)
     await message.reply_text(
         f"✅ {len(flow.photos)} şəkil və məlumat bir yadda saxlama paketində "
-        f"qeydə alındı. Paket: {summary.session_id if summary is not None else 'yoxlanmalıdır'}. "
+        f"qeydə alındı. Qrup: №{summary.photo_group_id if summary is not None else 'yoxlanmalıdır'}. "
         "Şəkillər axtarış indeksinə worker tərəfindən əlavə edilir; "
         "məhsul kodu ayrıca təsdiqlənməlidir."
     )
@@ -3817,6 +3977,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if message is None or not message.photo:
         return
     if await _route_caption_command(update, context):
+        return
+    identity = _identity(update)
+    if identity is not None and _photo_group_append_id(
+        getattr(context, "user_data", None), identity.telegram_user_id
+    ) is not None:
+        # Explicitly selected group: stage the photo, but do not append until /saxla.
+        await _handle_upload(
+            update,
+            context,
+            file_id=message.photo[-1].file_id,
+            filename=f"photo_group_{message.message_id}.jpg",
+            content_type="image/jpeg",
+            known_size=message.photo[-1].file_size,
+            caption=message.caption,
+        )
         return
     # Ordinary captions (including descriptive labels) are not permission
     # to save an image. Preserve deliberate /saxla, reference binding,
@@ -4207,6 +4382,9 @@ COMMAND_CALLBACKS: dict[str, CommandCallback] = {
     "stok": handle_stock_command,
     "menu": handle_menu,
     "whoami": handle_whoami,
+    "qruplar": handle_photo_groups,
+    "qrup_redakte": handle_photo_group_edit,
+    "qrupa_elave": handle_photo_group_append,
     "users": handle_users,
     "cancel": handle_cancel,
     "saxla": handle_save,
