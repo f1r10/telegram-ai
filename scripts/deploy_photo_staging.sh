@@ -56,7 +56,7 @@ compose config --quiet || fail "updated_compose_invalid"
 required_revision="0023_photo_groups"
 current_revision="$(compose exec -T postgres sh -c \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "SELECT version_num FROM alembic_version"' \
-  | tr -d '\\r\\n')" || fail "schema_revision_probe_failed"
+  | tr -d '[:space:]')" || fail "schema_revision_probe_failed"
 [[ "$current_revision" == "$required_revision" ]] || fail "schema_migration_required"
 
 # Stage only the two existing application processes. Build before restart.
