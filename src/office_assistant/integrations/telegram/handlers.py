@@ -1760,8 +1760,7 @@ async def handle_photo_groups(update: Update, context: ContextTypes.DEFAULT_TYPE
     lines = ["📁 ŞƏKİL QRUPLARI"]
     for group in groups:
         lines.append(
-            f"№{group.id} · {group.title} · {group.image_count} foto · "
-            f"redaktə {group.revision}"
+            f"№{group.id} · {group.title} · {group.image_count} foto · redaktə {group.revision}"
         )
     lines.append(
         "\nMəlumatı yeniləmək: /qrup_redakte <ID> | Ad: ...\n"
