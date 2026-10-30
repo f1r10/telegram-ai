@@ -173,8 +173,6 @@ from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.image_search import (
     ImageWebResult,
-    ImageWebSearchBlocked,
-    ImageWebSearchUnavailable,
     YandexReverseImageSearch,
     image_web_page,
 )
