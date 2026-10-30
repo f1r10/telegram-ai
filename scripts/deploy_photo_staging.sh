@@ -73,10 +73,19 @@ compose exec -T app uv run --no-dev python \
   -m office_assistant.scripts.prepare_visual_catalog \
   || fail "visual_catalog_dry_run_failed"
 
-docker inspect tgstage_app --format 'PHOTO_APP={{.State.Status}} RESTARTS={{.RestartCount}}' \
-  || fail "app_inspection_failed"
-docker inspect tgstage_worker --format 'PHOTO_WORKER={{.State.Status}} RESTARTS={{.RestartCount}}' \
-  || fail "worker_inspection_failed"
+# A printed container state is not a successful readiness check.
+# Fail closed when an app/worker was recreated but exited or is restarting.
+for service in app worker; do
+  container="tgstage_${service}"
+  status="$(docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null)" \
+    || fail "${service}_inspection_failed"
+  [[ "$status" == "running" ]] || fail "${service}_not_running"
+  health="$(docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null)" \
+    || fail "${service}_health_probe_failed"
+  [[ "$health" == "none" || "$health" == "healthy" ]] || fail "${service}_unhealthy"
+  docker inspect "$container" --format "PHOTO_${service^^}={{.State.Status}} RESTARTS={{.RestartCount}}" \
+    || fail "${service}_inspection_failed"
+done
 printf 'PHOTO_STAGING=DEPLOYED previous_sha=%s deployed_sha=%s\n' \
   "$previous" "$(git rev-parse HEAD)"
 printf 'PHOTO_STAGING=MANUAL_PHOTO_UAT_REQUIRED\n'
