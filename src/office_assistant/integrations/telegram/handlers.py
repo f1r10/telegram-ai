@@ -3458,6 +3458,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         "🌐 Seçilmiş şəkillər üzrə internet mənbələri yoxlanılır. "
         "Fotolar yalnız indi Yandex-ə ötürülür."
     )
+
     async def download_one(file_id: str) -> bytes:
         return await _photo_download(context, file_id)
 
