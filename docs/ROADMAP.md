@@ -345,3 +345,14 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       PDF/DOCX/XLSX image provenance, with no source IDs masquerading as SKUs.
 - [ ] Extend source evidence UX with authenticated Mini App original-file
       download once actor-bound per-result file tickets and access checks are tested.
+
+## V1 readiness hardening — 2026-10-30
+
+- [x] Fail closed when an ACTIVE newly processed JPEG/PNG or embedded document
+      image is not added to the full DINO/Qdrant projection: change any
+      existing `office_visual_dino_ann_ready_v1=ready` marker to `stale`.
+      Source ingestion succeeds; an explicit complete operator backfill is
+      required before the index can claim whole-corpus coverage again.
+- [ ] Validate failed-index recovery and full-corpus re-backfill on the Kali
+      staging host with private data; GitHub disposable-DB tests do not
+      represent a real model / loaded vector corpus.

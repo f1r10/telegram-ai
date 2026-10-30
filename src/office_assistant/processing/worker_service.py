@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.infrastructure.database.models import (
@@ -34,6 +34,7 @@ from office_assistant.infrastructure.database.models import (
     ProductImageRelation,
     ProductImageRelationConfirmation,
     StructuredExtractionJob,
+    SystemMetadata,
     User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
@@ -298,15 +299,27 @@ class IngestionJobService:
                         source_parse_run_id=run_id,
                         locator=image.locator,
                     )
-        # Derived vectors are expendable and never part of the source transaction.
-        # A model failure must not roll back or retry an otherwise valid upload.
+        # Source writes are already committed. A missing/failed model must
+        # never roll back the document, but must not leave the full ANN marked
+        # READY if a new active picture was not indexed.
+        has_images = parser.name == "image-probe" or bool(parsed.embedded_images)
+        index_complete = False
         if self.visual_semantic is not None:
             try:
                 await self._warm_file_images(file_id)
+                index_complete = self.visual_ann is not None
             except Exception as error:  # noqa: BLE001 - optional model must not fail ingestion
                 logger.warning(
                     "Document visual prewarm unavailable | file_id=%s error_type=%s",
                     file_id,
+                    type(error).__name__,
+                )
+        if has_images and not index_complete:
+            try:
+                await self._invalidate_visual_ann_ready()
+            except Exception as error:  # noqa: BLE001 - do not roll back committed source
+                logger.error(
+                    "Visual ANN readiness invalidation failed | error_type=%s",
                     type(error).__name__,
                 )
         logger.info(
@@ -318,6 +331,22 @@ class IngestionJobService:
             len(parsed.blocks),
         )
         return status
+
+    async def _invalidate_visual_ann_ready(self) -> None:
+        """Fail closed after a committed photo was not added to the full index.
+
+        A later operator full backfill/reconciliation restores READY. This
+        deliberately does not delete source data or any Qdrant collection.
+        """
+        async with self.session_factory.begin() as session:
+            await session.execute(
+                update(SystemMetadata)
+                .where(
+                    SystemMetadata.key == "office_visual_dino_ann_ready_v1",
+                    SystemMetadata.value == "ready",
+                )
+                .values(value="stale")
+            )
 
     async def _warm_file_images(self, file_id: int) -> None:
         """Index all new image occurrences in keyset pages after source commit.
@@ -413,6 +442,8 @@ class IngestionJobService:
                     await self.visual_ann.upsert(
                         [IndexedVisualPoint("product", str(relation_id), digest, vector)]
                     )
+        if self.visual_ann is not None and skipped:
+            raise RuntimeError("At least one committed source image lacks a DINO vector")
         logger.info(
             "Document visual indexing complete | file_id=%s prepared=%s skipped=%s",
             file_id,
