@@ -1,3 +1,12 @@
+## 2026-10-28 — Reject private URLs in Yandex photo evidence
+
+- Untrusted provider source and thumbnail URLs cannot point at loopback,
+  cloud-metadata IPs, private numeric hosts, local/internal names or invalid
+  port numbers. Public result/source pairs remain usable and admin-priority
+  ordering is unchanged. This does not attempt CAPTCHA or provider-block bypass.
+- Add deterministic regression fixtures; live provider response behavior and
+  Android/iOS previews remain separate manual acceptance gates.
+
 ## 2026-10-28 — Bounded full visual lookup deadline
 
 - Apply one four-second async deadline across DINO query inference, ANN
