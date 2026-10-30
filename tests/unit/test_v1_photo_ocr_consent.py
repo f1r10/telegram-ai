@@ -132,12 +132,14 @@ def test_invalid_ocr_index_never_contacts_model(monkeypatch: pytest.MonkeyPatch)
         )
 
     monkeypatch.setattr(handlers, "_services", get_services)
-    monkeypatch.setattr(
-        handlers,
-        "_identity",
-        lambda _update: SimpleNamespace(telegram_user_id=actor_id),
-    )
-    monkeypatch.setattr(handlers, "_is_private", lambda _update: True)
+    def get_identity(_update: Update) -> TelegramIdentity:
+        return cast(TelegramIdentity, SimpleNamespace(telegram_user_id=actor_id))
+
+    def is_private(_update: Update) -> bool:
+        return True
+
+    monkeypatch.setattr(handlers, "_identity", get_identity)
+    monkeypatch.setattr(handlers, "_is_private", is_private)
     query = SimpleNamespace(
         data=f"pi:{flow.token}:ocr:9", answer=AsyncMock(), edit_message_text=AsyncMock()
     )
