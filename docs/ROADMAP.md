@@ -367,3 +367,8 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 - [x] Deny browser-normalized noncanonical IPv4 hosts, integer/octal/hex
       loopback shortcuts and public wildcard-to-loopback DNS suffixes in
       untrusted Yandex photo evidence/thumbnail URLs. No new outbound fetches.
+
+- [x] Add an always-on GitHub Actions Compose contract test for the optional
+      V1 DINO CPU staging overlay: matching app/worker/Mini App model,
+      volume parity, port isolation and no accidental activation of
+      the operator-only service.
