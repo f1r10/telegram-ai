@@ -96,6 +96,45 @@ def test_image_search_never_presents_internal_or_malformed_provider_links() -> N
     assert matches[0].image_url == "https://cdn.example.az/safe.jpg"
 
 
+def test_browser_ip_shortcuts_and_wildcard_loopback_names_are_never_presented() -> None:
+    risky = [
+        "http://127.1/secret",
+        "http://0177.0.0.1/internal",
+        "http://2130706433/admin",
+        "http://0x7f000001/meta",
+        "https://127.0.0.1.nip.io/test",
+        "https://127-0-0-1.sslip.io/private",
+        "https://localhost.localtest.me/private",
+        "https://router.lan/index",
+        "https://scanner.home/private",
+        "https://169.254.169.254.nip.io/metadata",
+        "https://public.example:65536/product",
+        "http://127%2e0%2e0%2e1/config",
+        "http://intranet/resource",
+    ]
+    entries = [
+        {
+            "title": f"Rejected {number}",
+            "url": url,
+            "originalImage": {"url": "https://cdn.example.az/safe.jpg"},
+        }
+        for number, url in enumerate(risky)
+    ]
+    entries.append(
+        {
+            "title": "Valid product",
+            "url": "https://shop.example.az/watch?id=12",
+            "originalImage": {"url": "https://cdn.example.az/watch.jpg"},
+        }
+    )
+    state = {"initialState": {"cbirSites": {"sites": entries}}}
+    html = "<div data-state='" + json.dumps(state) + "'></div>"
+    found = parse_yandex_results(html)
+    assert len(found) == 1
+    assert found[0].source_url == "https://shop.example.az/watch?id=12"
+    assert found[0].image_url == "https://cdn.example.az/watch.jpg"
+
+
 def test_html_card_pair_never_joins_sibling_source_links() -> None:
     html = (
         "<ul>"
