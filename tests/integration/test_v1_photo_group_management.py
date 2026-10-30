@@ -76,9 +76,7 @@ async def _clean(settings: Settings) -> None:
             await session.execute(
                 delete(IngestionSessionItem).where(IngestionSessionItem.sender_user_id.in_(ids))
             )
-            await session.execute(
-                delete(IngestionSession).where(IngestionSession.user_id.in_(ids))
-            )
+            await session.execute(delete(IngestionSession).where(IngestionSession.user_id.in_(ids)))
             if files:
                 await session.execute(delete(FileObject).where(FileObject.id.in_(files)))
             await session.execute(delete(AuditEvent).where(AuditEvent.actor_user_id.in_(ids)))
@@ -133,9 +131,7 @@ def test_photo_group_create_edit_append_and_other_actor_denial() -> None:
             assert await groups.get(OTHER, gid) is None
             with pytest.raises(AuthorizationDenied):
                 await groups.update(OTHER, gid, "Ad: Başqasının qrupu")
-            changed = await groups.update(
-                ACTOR, gid, "Ad: Yeni ad\nTəsvir: Ön və yan bucaq"
-            )
+            changed = await groups.update(ACTOR, gid, "Ad: Yeni ad\nTəsvir: Ön və yan bucaq")
             assert changed.revision == 2
             assert "Yeni ad" in changed.description
             await intake.add_file(actor, _upload(storage, body=b"second-photo", message_id=802))
