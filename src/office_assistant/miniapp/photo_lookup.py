@@ -279,8 +279,10 @@ class MiniAppPhotoLookup:
                     timeout=5.0,
                 )
             except TimeoutError:
+                # A timed-out document scan did not inspect all evidence.
+                # Never present its empty partial result as a completed search.
                 hits = ()
-                limited = False
+                limited = True
             if hits:
                 return PhotoLookupResult(
                     "source_candidates",
