@@ -128,6 +128,12 @@ class DummyBackend:
         self.calls.append("upload-cancel:" + raw + ":" + token)
         return {"status": "cancelled", "notice": "Not saved"}
 
+    async def photo_source_preview(self, raw: str, *, token: str) -> bytes:
+        self.calls.append("photo-preview:" + raw + ":" + token)
+        if self.original is None:
+            raise FileDeliveryError("No image ticket")
+        return self.original.read_bytes()
+
     async def source_file(self, raw: str, *, token: str) -> DeliverableFile:
         self.calls.append("source:" + raw + ":" + token)
         if self.original is None:
@@ -855,3 +861,65 @@ def test_unsigned_json_post_is_rejected_before_body_read() -> None:
         assert response.status == 401
         assert backend.calls == []
         connection.close()
+
+
+def test_photo_preview_http_never_exposes_bytes_without_signed_header(
+    tmp_path: Path,
+) -> None:
+    image = BytesIO()
+    with Image.new("RGB", (32, 32), (30, 70, 180)) as picture:
+        picture.save(image, "PNG")
+    image_path = tmp_path / "verified.png"
+    image_path.write_bytes(image.getvalue())
+    with serve(original=image_path) as (port, backend):
+        ticket = "fake-opaque-actor-bound-ticket-token"
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/photo/preview",
+                body={"token": ticket},
+                signed=None,
+            )[0]
+            == 401
+        )
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/photo/preview",
+                body={"token": ticket},
+                origin="https://malicious.example",
+            )[0]
+            == 403
+        )
+        assert backend.calls == []
+        assert (
+            call(
+                port,
+                "POST",
+                "/api/photo/preview",
+                body={"token": 5},
+            )[0]
+            == 400
+        )
+        assert backend.calls == []
+        status, headers, result = call(
+            port,
+            "POST",
+            "/api/photo/preview",
+            body={"token": ticket},
+            origin="https://assistant.example.org",
+        )
+        assert status == 200
+        assert result == image.getvalue()
+        assert headers["Content-Type"] == "image/png"
+        assert headers["Cache-Control"] == "no-store"
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert backend.calls == ["photo-preview:pretend-signed-data:" + ticket]
+
+
+def test_source_preview_does_not_allow_unauthenticated_get() -> None:
+    with serve() as (port, backend):
+        assert call(port, "GET", "/api/photo/preview", signed=None)[0] == 404
+        assert backend.calls == []
