@@ -118,7 +118,7 @@ jobs:
       - name: Run Ruff lint
         run: uv run --no-sync ruff check src tests
       - name: Check Ruff formatting
-        run: uv run --no-sync ruff format --check src tests
+        run: uv run --no-sync ruff format --diff src tests
       - name: Run strict Pyright
         run: uv run --no-sync pyright
 
