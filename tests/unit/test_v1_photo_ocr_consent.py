@@ -125,9 +125,7 @@ def test_invalid_ocr_index_never_contacts_model(monkeypatch: pytest.MonkeyPatch)
             SimpleNamespace(
                 users=SimpleNamespace(
                     get_by_telegram_id=AsyncMock(
-                        return_value=cast(
-                            User, SimpleNamespace(id=9, status=UserStatus.ACTIVE)
-                        )
+                        return_value=cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
                     )
                 ),
                 image_reader=SimpleNamespace(read=reader),
@@ -136,6 +134,7 @@ def test_invalid_ocr_index_never_contacts_model(monkeypatch: pytest.MonkeyPatch)
         )
 
     monkeypatch.setattr(handlers, "_services", get_services)
+
     def get_identity(_update: Update) -> TelegramIdentity:
         return cast(TelegramIdentity, SimpleNamespace(telegram_user_id=actor_id))
 
