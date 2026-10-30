@@ -15,12 +15,8 @@ from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, ad
 
 
 def test_album_keeps_per_photo_question_without_cross_actor_reuse() -> None:
-    first = add_photo(
-        None, 123, "front", 21, 31, "group-1", question="Bunun qiyməti nə qədərdir?"
-    )
-    second = add_photo(
-        first, 123, "back", 22, 32, "group-1", question="Neçə ədəd satılıb?"
-    )
+    first = add_photo(None, 123, "front", 21, 31, "group-1", question="Bunun qiyməti nə qədərdir?")
+    second = add_photo(first, 123, "back", 22, 32, "group-1", question="Neçə ədəd satılıb?")
     assert first is second
     assert [item.question for item in second.photos] == [
         "Bunun qiyməti nə qədərdir?",
@@ -67,9 +63,7 @@ def test_confirmed_photo_answer_requires_cited_evidence() -> None:
 
 def test_uncited_or_failing_evidence_cannot_invent_price() -> None:
     actor = cast(User, SimpleNamespace(id=5))
-    no_citations = AsyncMock(
-        return_value=SimpleNamespace(answer="Qiymət 500 AZN", citations=())
-    )
+    no_citations = AsyncMock(return_value=SimpleNamespace(answer="Qiymət 500 AZN", citations=()))
     service = cast(
         handlers.TelegramServices,
         SimpleNamespace(internal_evidence=SimpleNamespace(answer=no_citations)),
@@ -94,9 +88,7 @@ def test_db_choice_passes_original_photo_question_not_bot_menu_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor = 123
-    flow = add_photo(
-        None, actor, "f-1", 10, 20, None, question="Bu məhsulun qiyməti nədir?"
-    )
+    flow = add_photo(None, actor, "f-1", 10, 20, None, question="Bu məhsulun qiyməti nədir?")
     query = SimpleNamespace(
         data=f"pi:{flow.token}:db",
         answer=AsyncMock(),
