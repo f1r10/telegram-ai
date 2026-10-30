@@ -597,6 +597,10 @@ def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
         ],
         [
+            InlineKeyboardButton(messages.MENU_PHOTO_BUTTON, callback_data="om:photo"),
+            InlineKeyboardButton(messages.MENU_GROUPS_BUTTON, callback_data="om:groups"),
+        ],
+        [
             InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
             InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
         ],
@@ -1265,6 +1269,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:internet",
         "om:tamaxtar",
         "om:upload",
+        "om:photo",
+        "om:groups",
         "om:help",
         "om:examples",
         "om:save",
@@ -1305,6 +1311,31 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 messages.MENU_UPLOAD_GUIDE, reply_markup=_upload_keyboard()
             )
             return
+        if action == "om:photo":
+            await query.edit_message_text(
+                messages.MENU_PHOTO_GUIDE, reply_markup=_answer_keyboard()
+            )
+            return
+        if action == "om:groups":
+            if services.session_factory is None:
+                await query.edit_message_text(messages.TEMPORARY_ERROR)
+                return
+            groups = await PhotoGroupService(services.session_factory).list_own(
+                identity.telegram_user_id
+            )
+            if not groups:
+                await query.edit_message_text(
+                    messages.MENU_GROUPS_EMPTY, reply_markup=_answer_keyboard()
+                )
+                return
+            lines = ["🗂 ŞƏKİL QRUPLARIM"]
+            for group in groups[:15]:
+                lines.append(f"№{group.id} · {group.title} · {group.image_count} foto")
+            lines.append(messages.MENU_GROUPS_FOOTER)
+            await query.edit_message_text(
+                "\n".join(lines), reply_markup=_answer_keyboard()
+            )
+            return
         if action == "om:ask":
             await query.edit_message_text(messages.MENU_CHAT_PROMPT)
             return
@@ -1326,7 +1357,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             "tamaxtar": messages.MENU_ASK_COMBINED,
         }[choice]
         await query.edit_message_text(prompt)
-    except SQLAlchemyError:
+    except (AuthorizationDenied, SQLAlchemyError):
         logger.exception("Telegram menu callback database lookup failed")
         await query.edit_message_text(messages.TEMPORARY_ERROR)
 
