@@ -95,7 +95,32 @@ def _http_url(raw: object) -> str:
         or parts.password is not None
         or port not in {None, 80, 443}
         or hostname == "localhost"
-        or hostname.endswith((".localhost", ".local", ".internal", ".test", ".invalid"))
+        or hostname.endswith(
+            (
+                ".localhost",
+                ".local",
+                ".internal",
+                ".test",
+                ".invalid",
+                ".lan",
+                ".home",
+                ".corp",
+                ".intranet",
+                ".arpa",
+                ".onion",
+                ".nip.io",
+                ".sslip.io",
+                ".localtest.me",
+                ".lvh.me",
+            )
+        )
+        # Browser URL parsers may treat 127.1, 0177.0.0.1 or 2130706433
+        # as loopback even though ipaddress.ip_address() rejects them.
+        or "." not in hostname
+        or hostname.rsplit(".", 1)[-1].isdigit()
+        or "%" in hostname
+        or "\\" in hostname
+        or not re.fullmatch(r"[a-z0-9.-]+", hostname)
     ):
         return ""
     # Untrusted provider links are displayed or previewed in client browsers.
