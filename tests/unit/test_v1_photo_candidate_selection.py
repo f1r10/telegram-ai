@@ -75,23 +75,23 @@ def test_ranked_page_offers_question_action_only_for_user_photo_question(
     assert call is not None
     markup = cast(InlineKeyboardMarkup, call.kwargs["reply_markup"])
     callbacks = [
-        button.callback_data
+        str(button.callback_data)
         for row in markup.inline_keyboard
         for button in row
-        if button.callback_data
+        if isinstance(button.callback_data, str)
     ]
     assert any(callback.startswith(f"pi:{flow.token}:ask:0:0:0:") for callback in callbacks)
     flow.photos[0] = TelegramPhotoRef("f-1", 10, 20, None)
     asyncio.run(
         handlers._send_indexed_visual_page(
-            cast(object, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
+            cast(Message, message), cast(ContextTypes.DEFAULT_TYPE, context), 123, ranked
         )
     )
     call = message.reply_text.await_args
     assert call is not None
     markup = cast(InlineKeyboardMarkup, call.kwargs["reply_markup"])
     assert not any(
-        button.callback_data and ":ask:" in button.callback_data
+        isinstance(button.callback_data, str) and ":ask:" in str(button.callback_data)
         for row in markup.inline_keyboard
         for button in row
     )
