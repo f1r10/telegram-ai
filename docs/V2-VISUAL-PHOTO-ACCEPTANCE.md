@@ -197,3 +197,15 @@ Qdrant search and source validation. A timeout or DB/Qdrant exception returns
 `unavailable`, not a fabricated product match. This is a stage budget, not a
 promise that Telegram upload/download or a subsequent legacy fallback will
 complete within five seconds. Verify actual end-to-end p95 on Kali staging.
+
+## V1 bounded photo-album handling (2026-10-30)
+
+Telegram supports up to 12 photos in one album. Local database lookup now has
+an upper bound of 40 seconds per album and 12 seconds per photo; reverse-image
+lookup has a 40-second total budget and a 15-second budget per source. A
+remaining photo which could not be checked is reported explicitly as
+**unprocessed/timeout**, not as proof the source is absent. The web results
+remain in original picture order and per-photo pagination keeps functioning
+for completed photos. These are safety budgets, **not** measured response-time
+SLOs. Real mobile p95 and independent Yandex availability remain acceptance
+gates.
