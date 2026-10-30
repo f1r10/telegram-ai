@@ -24,9 +24,7 @@ def test_group_metadata_validation_preserves_explicit_title() -> None:
 
 
 def test_group_append_token_belongs_to_actor_and_expires() -> None:
-    data: dict[str, object] = {
-        PHOTO_GROUP_APPEND_KEY: (123, 9, monotonic() + 120)
-    }
+    data: dict[str, object] = {PHOTO_GROUP_APPEND_KEY: (123, 9, monotonic() + 120)}
     assert _photo_group_append_id(data, 123) == 9
     assert _photo_group_append_id(data, 456) is None
     assert PHOTO_GROUP_APPEND_KEY not in data
