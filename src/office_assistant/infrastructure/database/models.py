@@ -1682,3 +1682,52 @@ class SalesEntry(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PhotoGroup(Base):
+    """Owner-bound saved photo set; metadata is not an approved SKU or stock fact."""
+
+    __tablename__ = "photo_groups"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    source_session_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ingestion_sessions.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    metadata_text: Mapped[str] = mapped_column(Text, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PhotoGroupImage(Base):
+    """Membership references committed source file items; never copies/deletes bytes."""
+
+    __tablename__ = "photo_group_images"
+    __table_args__ = (
+        UniqueConstraint("group_id", "position", name="uq_photo_group_image_position"),
+        UniqueConstraint("group_id", "session_item_id", name="uq_photo_group_image_source"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("photo_groups.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    session_item_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("ingestion_session_items.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
