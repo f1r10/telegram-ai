@@ -64,6 +64,9 @@ async def bounded_web_photo_album(
                 body = await download(file_id)
                 found = await search(body)
             results.append(found)
+            if found.blocked:
+                # Provider-level denials are incomplete even without exceptions.
+                failed += 1
         except Exception as error:  # noqa: BLE001 - an external provider must not crash the album
             logger.info("Photo batch source failed | type=%s", type(error).__name__)
             failed += 1
