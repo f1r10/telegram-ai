@@ -1,5 +1,7 @@
 ## 2026-10-28 — Reject private URLs in Yandex photo evidence
 
+- V1 visual index integrity: when document/image ingestion succeeds but DINOv2 worker indexing is disabled or fails, revoke the full-corpus READY flag without modifying the saved source; protect against stale searchable coverage and test with disposable PostgreSQL.
+
 - Untrusted provider source and thumbnail URLs cannot point at loopback,
   cloud-metadata IPs, private numeric hosts, local/internal names or invalid
   port numbers. Public result/source pairs remain usable and admin-priority
