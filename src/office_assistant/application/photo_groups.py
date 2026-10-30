@@ -116,31 +116,36 @@ async def apply_photo_group_commit(
         if group is None:
             raise AuthorizationDenied("Photo group does not belong to this actor")
         existing = (
-            await session.execute(
-                select(FileObject.sha256)
-                .select_from(PhotoGroupImage)
-                .join(
-                    IngestionSessionItem, IngestionSessionItem.id == PhotoGroupImage.session_item_id
+            (
+                await session.execute(
+                    select(FileObject.sha256)
+                    .select_from(PhotoGroupImage)
+                    .join(
+                        IngestionSessionItem,
+                        IngestionSessionItem.id == PhotoGroupImage.session_item_id,
+                    )
+                    .join(FileObject, FileObject.id == IngestionSessionItem.file_object_id)
+                    .where(PhotoGroupImage.group_id == group.id)
                 )
-                .join(FileObject, FileObject.id == IngestionSessionItem.file_object_id)
-                .where(PhotoGroupImage.group_id == group.id)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if any(digest in existing for digest in hashes):
             raise InvalidStateTransition("An identical photo already belongs to this group")
         start = int(
             await session.scalar(
-                select(func.coalesce(func.max(PhotoGroupImage.position), 0))
-                .where(PhotoGroupImage.group_id == group.id)
-            ) or 0
+                select(func.coalesce(func.max(PhotoGroupImage.position), 0)).where(
+                    PhotoGroupImage.group_id == group.id
+                )
+            )
+            or 0
         )
         action = "PHOTO_GROUP_PHOTOS_APPENDED"
     if start + len(file_items) > MAX_GROUP_PHOTOS:
         raise InvalidStateTransition("Photo group is at its image limit")
     for index, item in enumerate(file_items, start=start + 1):
-        session.add(
-            PhotoGroupImage(group_id=group.id, session_item_id=item.id, position=index)
-        )
+        session.add(PhotoGroupImage(group_id=group.id, session_item_id=item.id, position=index))
     group.updated_at = datetime.now(UTC)
     session.add(
         AuditEvent(
@@ -235,7 +240,8 @@ class PhotoGroupService:
                     select(func.count(PhotoGroupImage.id)).where(
                         PhotoGroupImage.group_id == group.id
                     )
-                ) or 0
+                )
+                or 0
             )
             session.add(
                 AuditEvent(
