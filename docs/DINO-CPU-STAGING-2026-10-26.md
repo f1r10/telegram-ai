@@ -208,3 +208,20 @@ currently valid results after revocation filtering. This is a **candidate
 window**, not an archive-size cap. Every shown result retains ACTIVE
 PostgreSQL/SHA source checks; a real-world p95 performance claim still
 requires an owner-supplied Kali benchmark.
+
+### V1 readiness invalidation on ingestion failure (2026-10-30)
+
+The ingestion worker must not silently preserve `ready` after committing a
+picture which it fails to insert into the derived Qdrant visual collection.
+With missing CPU model, disabled visual worker, failed Qdrant upsert or any
+unencoded registered source, the persistent readiness marker becomes `stale`
+if a `ready` marker existed. The document remains saved in PostgreSQL and
+original storage; no transaction is rolled back solely for this derived
+projection. User requests must abstain from claiming full ANN coverage while
+`stale`; the legacy bounded fallback remains incomplete by design.
+
+To restore full coverage, provision the approved offline model, resolve the
+index outage and run the operator-owned `rebuild_visual_ann --apply` backfill
+and stale-point reconciliation before accepting `ready` again. During a full
+rebuild avoid concurrent ingestion writes/revocations; arrange an operator
+maintenance window and preserve existing backups.
