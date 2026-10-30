@@ -1858,7 +1858,8 @@ async def handle_photo_group_append(update: Update, context: ContextTypes.DEFAUL
 def _photo_group_append_id(data: object, telegram_user_id: int) -> int | None:
     if not isinstance(data, dict):
         return None
-    pending = data.get(PHOTO_GROUP_APPEND_KEY)
+    store = cast(dict[str, object], data)
+    pending: object = store.get(PHOTO_GROUP_APPEND_KEY)
     if (
         not isinstance(pending, tuple)
         or len(pending) != 3
@@ -1867,7 +1868,7 @@ def _photo_group_append_id(data: object, telegram_user_id: int) -> int | None:
         or not isinstance(pending[2], (int, float))
         or monotonic() > pending[2]
     ):
-        data.pop(PHOTO_GROUP_APPEND_KEY, None)
+        store.pop(PHOTO_GROUP_APPEND_KEY, None)
         return None
     return pending[1] if pending[1] > 0 else None
 
@@ -1929,8 +1930,9 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 create_session=True,
             )
         data = getattr(context, "user_data", None)
-        selected_group = isinstance(data, dict) and PHOTO_GROUP_APPEND_KEY in data
-        append_group_id = _photo_group_append_id(data, identity.telegram_user_id)
+        store = cast(dict[str, object], data) if isinstance(data, dict) else None
+        selected_group = store is not None and PHOTO_GROUP_APPEND_KEY in store
+        append_group_id = _photo_group_append_id(store, identity.telegram_user_id)
         if selected_group and append_group_id is None:
             await message.reply_text(
                 "Şəkil qrupunun əlavə etmə icazəsinin vaxtı bitib. "
