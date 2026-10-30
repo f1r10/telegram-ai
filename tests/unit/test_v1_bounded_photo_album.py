@@ -86,3 +86,26 @@ def test_oversized_album_is_rejected_before_any_network_call() -> None:
             )
 
     asyncio.run(run())
+
+
+def test_blocked_provider_response_marks_album_incomplete_without_exception() -> None:
+    async def download(key: str) -> bytes:
+        return key.encode("ascii")
+
+    async def search(body: bytes) -> ImageWebResult:
+        return ImageWebResult(
+            (),
+            "https://yandex.com/images/search",
+            blocked=body == b"blocked",
+        )
+
+    async def run() -> None:
+        result = await bounded_web_photo_album(
+            ["first", "blocked", "third"], download=download, search=search
+        )
+        assert [item.blocked for item in result.results] == [False, True, False]
+        assert result.failed == 1
+        assert result.deadline_skipped == 0
+        assert result.incomplete
+
+    asyncio.run(run())
