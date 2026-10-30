@@ -3567,12 +3567,12 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                 ),
                 timeout=15.0,
             )
-            await _reply_long(
-                query.message,
+            text = (
                 "Şəkildən oxunan mətn təsdiqlənmiş məhsul kimliyi, qiymət "
-                "və ya stok deyil.\n\n" + _format_internal(result),
-                services.telegram_message_limit,
+                "və ya stok deyil.\n\n" + _format_internal(result)
             )
+            for part in split_telegram_text(text, limit=services.telegram_message_limit):
+                await context.bot.send_message(chat_id=identity.telegram_user_id, text=part)
         except Exception as error:  # noqa: BLE001 - no fabricated OCR or DB fact
             logger.warning("Explicit photo OCR answer unavailable | type=%s", type(error).__name__)
             await context.bot.send_message(
