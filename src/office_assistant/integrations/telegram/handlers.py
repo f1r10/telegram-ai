@@ -1961,8 +1961,9 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     if summary.reference_images_linked:
         reply += messages.REFERENCE_IMAGE_LINKED_NOTE.format(count=summary.reference_images_linked)
-    if summary.photo_group_id is not None:
-        reply += f"\n📁 Qrup №{summary.photo_group_id} — fotolar əlavə edildi."
+    group_id = getattr(summary, "photo_group_id", None)
+    if group_id is not None:
+        reply += f"\n📁 Qrup №{group_id} — fotolar əlavə edildi."
     await message.reply_text(reply)
 
 
@@ -3978,7 +3979,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     if await _route_caption_command(update, context):
         return
-    identity = _identity(update)
+    identity = _identity(update) if getattr(update, "effective_user", None) is not None else None
     if identity is not None and _photo_group_append_id(
         getattr(context, "user_data", None), identity.telegram_user_id
     ) is not None:
