@@ -318,3 +318,41 @@ def test_mobile_returns_document_sources_without_product_codes(
         }
     ]
     assert "stok deyil" in result.notice
+
+
+def test_document_scan_timeout_reports_incomplete_instead_of_false_no_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted document scan must not be represented as exhaustive."""
+    from types import SimpleNamespace
+
+    from office_assistant.miniapp import photo_lookup
+
+    async def no_holder(
+        self: ProductImageRelationRepository, digest: str, *, active_product_only: bool = False
+    ) -> None:
+        del self, digest, active_product_only
+        return None
+
+    async def fake_document_sources(_session: object) -> tuple[tuple[object, ...], bool]:
+        return (object(),), False
+
+    async def immediate_timeout(awaitable: object, *, timeout: float) -> object:
+        assert timeout == 5.0
+        awaitable.close()  # type: ignore[attr-defined]
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        ProductImageRelationRepository, "active_confirmation_holder_by_content", no_holder
+    )
+    monkeypatch.setattr(photo_lookup, "active_document_images", fake_document_sources)
+    monkeypatch.setattr(
+        photo_lookup,
+        "asyncio",
+        SimpleNamespace(to_thread=asyncio.to_thread, wait_for=immediate_timeout),
+    )
+    result = asyncio.run(make_service(tmp_path, FakeSession([])).lookup(picture((180, 60, 20))))
+    assert result.status == "not_found"
+    assert result.incomplete is True
+    assert result.payload()["incomplete"] is True
+    assert result.codes == ()
