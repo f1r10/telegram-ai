@@ -59,39 +59,41 @@ def _stage(tmp_path: Path) -> dict[str, str]:
     binaries.mkdir()
     git = binaries / "git"
     git.write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$1" in\n'
-        "  branch) echo main;;\n"
-        "  status) exit 0;;\n"
-        "  ls-files) exit 1;;\n"
-        "  rev-parse) echo 1234567890abcdef;;\n"
-        "  *) exit 7;;\n"
-        "esac\n",
+        """#!/usr/bin/env bash
+case "$1" in
+  branch) echo main;;
+  status) exit 0;;
+  ls-files) exit 1;;
+  rev-parse) echo 1234567890abcdef;;
+  *) exit 7;;
+esac
+""",
         encoding="utf-8",
     )
     docker = binaries / "docker"
     docker.write_text(
-        "#!/usr/bin/env bash\n"
-        'case "$1" in\n'
-        "  inspect)\n"
-        '    case "$*" in\n'
-        '      *com.docker.compose.project*) echo tgstage_ai_assistand;;\n'
-        '      *State.Status*) echo running;;\n'
-        '      *State.Health*) echo healthy;;\n'
-        "      *) exit 7;;\n"
-        "    esac;;\n"
-        "  exec)\n"
-        '    case "$2" in\n'
-        '      tgstage_app) test "${SIM_POLLING:-1}" = 1;;\n'
-        '      tgstage_miniapp) test "${SIM_MINIAPP:-1}" = 1;;\n'
-        "      *) exit 8;;\n"
-        "    esac;;\n"
-        "  compose)\n"
-        '    case "$*" in\n'
-        '      *SELECT*version_num*) echo "${SIM_REVISION:-0023_photo_groups}";;\n'
-        "    esac;;\n"
-        "  *) exit 9;;\n"
-        "esac\n",
+        """#!/usr/bin/env bash
+case "$1" in
+  inspect)
+    case "$*" in
+      *com.docker.compose.project*) echo tgstage_ai_assistand;;
+      *State.Status*) echo running;;
+      *State.Health*) echo healthy;;
+      *) exit 7;;
+    esac;;
+  exec)
+    case "$2" in
+      tgstage_app) test "${SIM_POLLING:-1}" = 1;;
+      tgstage_miniapp) test "${SIM_MINIAPP:-1}" = 1;;
+      *) exit 8;;
+    esac;;
+  compose)
+    case "$*" in
+      *SELECT*version_num*) echo "${SIM_REVISION:-0023_photo_groups}";;
+    esac;;
+  *) exit 9;;
+esac
+""",
         encoding="utf-8",
     )
     git.chmod(0o755)
