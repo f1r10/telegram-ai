@@ -279,3 +279,35 @@ procedure, without changing storage volumes or bypassing the migration
 prerequisite. Never share an unredacted Compose config, `.env`, tokens or
 customer files. The gate cannot prove full commit/image parity, backup
 restore or real-photo recognition accuracy.
+
+### Resolving `schema_probe_failed` on Kali (2026-11-02)
+
+The observed live result had five running/healthy staging services and
+`MANUAL_UAT_CHECK=telegram_polling status=PASS`, but stopped at
+`MANUAL_UAT_CHECK=schema_revision status=RUNNING` with
+`reason=schema_probe_failed`. This does **not** prove that migration
+0023 is missing: the SQL connection, version table or query may have failed.
+
+The revised read-only gate separates the outcomes without printing PostgreSQL
+credentials, database names, schema contents or raw server error messages:
+
+- `postgres_sql_connection_failed`: the application-designated staging
+  database could not complete a trivial `SELECT 1`; inspect that the
+  container's `POSTGRES_DB` and `POSTGRES_USER` match the initialized
+  local staging database, without publishing their values.
+- `schema_version_table_missing`: database SQL works, but Alembic's
+  `alembic_version` relation is absent in the active schema. Do not
+  initialize or upgrade blindly; first verify this is the intended
+  staging database and review its backup/restore point.
+- `schema_migration_required`: the version table exists but its revision
+  does not equal `0023_photo_groups`. Follow the previously documented
+  staging-only backup + reviewed migration procedure.
+- `schema_table_probe_failed` or `schema_revision_query_failed`:
+  SQL is available but a further read-only metadata query failed.
+  Investigate local PostgreSQL privileges/schema and do not bypass the gate.
+
+After fetching the updated script, run
+`bash scripts/gate_manual_photo_uat.sh --photo-only` and share only
+the `MANUAL_UAT_CHECK` and `MANUAL_UAT_GATE` status lines. Keep the
+existing database, image storage, Docker volumes, private backup and test
+bot token untouched.
