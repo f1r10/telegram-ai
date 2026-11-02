@@ -25,11 +25,31 @@ if git ls-files --error-unmatch .env >/dev/null 2>&1; then
   fail "env_is_tracked"
 fi
 
-compose() {
-  timeout 90 docker compose -f docker-compose.staging.yml --env-file .env "$@"
+# Every potentially blocking operation has its own deadline and visible stage.
+# Child stdout/stderr is hidden to avoid printing credentials or private paths.
+compose_timed() {
+  local seconds="$1"
+  shift
+  timeout --signal=TERM --kill-after=5s "$seconds" \
+    docker compose -f docker-compose.staging.yml --env-file .env "$@"
 }
 
-compose config --quiet >/dev/null 2>&1 || fail "invalid_staging_compose"
+run_check() {
+  local name="$1"
+  shift
+  local result=0
+  printf 'MANUAL_UAT_CHECK=%s status=RUNNING\n' "$name"
+  "$@" >/dev/null 2>&1 || result=$?
+  if (( result == 124 || result == 137 )); then
+    fail "${name}_timeout"
+  fi
+  if (( result != 0 )); then
+    fail "${name}_failed"
+  fi
+  printf 'MANUAL_UAT_CHECK=%s status=PASS\n' "$name"
+}
+
+run_check compose_configuration compose_timed 20 config --quiet
 services=(app worker postgres qdrant searxng)
 if [[ "$mode" == "--full" ]]; then
   services+=(miniapp)
@@ -56,31 +76,39 @@ for service in "${services[@]}"; do
 done
 
 # Never echo environment, database credentials, bot tokens or private filenames.
-timeout 12 docker exec tgstage_app sh -c \
-  'case "$TELEGRAM_POLLING_ENABLED" in true|TRUE|1|yes|YES) exit 0;; *) exit 1;; esac' \
-  >/dev/null 2>&1 || fail "telegram_polling_disabled"
+run_check telegram_polling timeout --signal=TERM --kill-after=5s 15 \
+  docker exec tgstage_app sh -c \
+  'case "$TELEGRAM_POLLING_ENABLED" in true|TRUE|1|yes|YES) exit 0;; *) exit 1;; esac'
 
 if [[ "$mode" == "--full" ]]; then
-  timeout 12 docker exec tgstage_miniapp sh -c \
-    'case "$MINIAPP_ENABLED:$MINIAPP_PUBLIC_ORIGIN" in true:https://*|TRUE:https://*) exit 0;; *) exit 1;; esac' \
-    >/dev/null 2>&1 || fail "miniapp_https_not_configured"
+  run_check miniapp_https_configuration timeout --signal=TERM --kill-after=5s 15 \
+    docker exec tgstage_miniapp sh -c \
+    'case "$MINIAPP_ENABLED:$MINIAPP_PUBLIC_ORIGIN" in true:https://*|TRUE:https://*) exit 0;; *) exit 1;; esac'
 fi
 
-revision="$(compose exec -T postgres sh -c \
+printf 'MANUAL_UAT_CHECK=schema_revision status=RUNNING\n'
+revision="$(compose_timed 25 exec -T postgres sh -c \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "SELECT version_num FROM alembic_version"' \
   2>/dev/null | tr -d '[:space:]')" || fail "schema_probe_failed"
 [[ "$revision" == "0023_photo_groups" ]] || fail "schema_migration_required"
+printf 'MANUAL_UAT_CHECK=schema_revision status=PASS\n'
+
+# A source checkout update changes host files only; ensure BOTH running images include the V1
+# photo-group service before allowing the operator to test its callbacks.
+for service in app worker; do
+  run_check "${service}_photo_group_runtime" compose_timed 25 exec -T "$service" \
+    uv run --no-dev python -c \
+    'from office_assistant.application.photo_groups import PhotoGroupService; assert PhotoGroupService'
+done
 
 # These tools perform SELECTs, network health probes and an image catalog DRY RUN.
-# Their reports are aggregate; do not forward logs containing private source data.
-compose exec -T app uv run --no-dev python -m office_assistant.scripts.check_readiness \
-  >/dev/null 2>&1 || fail "live_readiness_failed"
-compose exec -T app uv run --no-dev python \
-  -m office_assistant.scripts.check_three_acceptance_gates \
-  >/dev/null 2>&1 || fail "aggregate_photo_preflight_failed"
-compose exec -T app uv run --no-dev python \
-  -m office_assistant.scripts.prepare_visual_catalog \
-  >/dev/null 2>&1 || fail "visual_catalog_dry_run_failed"
+# Some checks load existing model caches: each is bounded and progress is visible.
+run_check live_readiness compose_timed 65 exec -T app \
+  uv run --no-dev python -m office_assistant.scripts.check_readiness
+run_check aggregate_photo_preflight compose_timed 35 exec -T app \
+  uv run --no-dev python -m office_assistant.scripts.check_three_acceptance_gates
+run_check visual_catalog_dry_run compose_timed 80 exec -T app \
+  uv run --no-dev python -m office_assistant.scripts.prepare_visual_catalog
 
 printf 'MANUAL_UAT_GATE=TECHNICAL_PASS mode=%s sha=%s\n' "$mode" "$(git rev-parse HEAD)"
 printf 'MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED\n'
