@@ -192,3 +192,57 @@ In an existing authorized test account only:
    metadata edit; treat new group metadata as authoritative **for group
    management only** until a versioned textual reindex mechanism is verified.
    Never report a changed group description as an approved product fact.
+
+
+## One-command read-only technical UAT gate — 2026-11-02
+
+**This gate does not deploy code, migrate the database, create a backup,
+activate semantic image matching, or run any owner-controlled mobile test.**
+It is intended to run only on the existing Kali staging host *after* the
+staging-only backup has been independently verified, migration
+`0023_photo_groups` has been applied and the updated services have been
+deployed. Never run the existing-stack preflight
+`scripts/preflight_isolated_staging.sh` on an already-running staging stack:
+that first-install probe deliberately treats existing staging volumes as a
+collision.
+
+Run from the existing staging checkout:
+
+```bash
+cd ~/telegram-ai-staging
+git status --short --untracked-files=no
+git pull --ff-only origin main
+bash scripts/gate_manual_photo_uat.sh --full
+```
+
+`--full` requires a running staging bot, worker, PostgreSQL, Qdrant,
+SearXNG and separately enabled Mini App with an HTTPS origin.
+For **Telegram photo-only** acceptance, use
+`bash scripts/gate_manual_photo_uat.sh --photo-only`;
+this does *not* qualify the Mini App or the overall application for full
+manual acceptance.
+
+The gate checks the clean `main` checkout, untracked private `.env`,
+staging Compose project and container health, active Telegram polling,
+required database migration, actual readiness checks (including live
+SearXNG JSON results and OCR prerequisites), aggregate photo reference
+counts and visual-catalog dry run. It prints no credentials or customer
+data. A successful read-only run ends with:
+
+```text
+MANUAL_UAT_GATE=TECHNICAL_PASS mode=--full sha=<actual-commit>
+MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED
+MANUAL_UAT_WARN=REAL_PHOTO_ACCURACY_MOBILE_HTTPS_BACKUP_RESTORE_NOT_CERTIFIED
+```
+
+`TECHNICAL_PASS` **is not** a successful visual-model benchmark,
+backup/restore certification, real HTTPS/TLS connection proof or Android/iOS
+acceptance. A failed prerequisite returns
+`MANUAL_UAT_GATE=BLOCKED reason=...` and a nonzero exit status.
+Do not bypass a blocked gate or share the private `.env` file.
+
+The existing staging deployment script performs code-only rollout and
+requires migration 0023; it deliberately **does not perform an automatic
+database migration** because an operator must first verify the backup,
+restore checkpoint and schema compatibility. Follow the staged migration
+procedure above if the gate reports `schema_migration_required`.
