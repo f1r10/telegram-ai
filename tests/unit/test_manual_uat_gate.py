@@ -23,6 +23,8 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "prepare_visual_catalog" in text
     assert "MANUAL_UAT_GATE=TECHNICAL_PASS" in text
     assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in text
+    assert "MANUAL_UAT_CHECK=" in text
+    assert "timeout --signal=TERM --kill-after=5s" in text
     for forbidden in (
         "docker compose down",
         "docker volume rm",
@@ -90,6 +92,7 @@ case "$1" in
   compose)
     case "$*" in
       *SELECT*version_num*) echo "${SIM_REVISION:-0023_photo_groups}";;
+      *check_readiness*) exit "${SIM_READINESS_EXIT:-0}";;
     esac;;
   *) exit 9;;
 esac
@@ -106,8 +109,8 @@ esac
     [
         ("--full", "1", "1", "0023_photo_groups", True, ""),
         ("--photo-only", "1", "0", "0023_photo_groups", True, ""),
-        ("--full", "0", "1", "0023_photo_groups", False, "telegram_polling_disabled"),
-        ("--full", "1", "0", "0023_photo_groups", False, "miniapp_https_not_configured"),
+        ("--full", "0", "1", "0023_photo_groups", False, "telegram_polling_failed"),
+        ("--full", "1", "0", "0023_photo_groups", False, "miniapp_https_configuration_failed"),
         ("--full", "1", "1", "0022_inventory_units", False, "schema_migration_required"),
     ],
 )
@@ -134,7 +137,37 @@ def test_gate_fails_closed_with_stubbed_docker(
         assert result.returncode == 0, result.stderr
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" in result.stdout
         assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in result.stdout
+        assert "MANUAL_UAT_CHECK=live_readiness status=PASS" in result.stdout
+        assert "MANUAL_UAT_CHECK=visual_catalog_dry_run status=PASS" in result.stdout
     else:
         assert result.returncode == 2
         assert f"reason={blocked_reason}" in result.stderr
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "blocked_reason"),
+    [
+        ("1", "live_readiness_failed"),
+        ("124", "live_readiness_timeout"),
+    ],
+)
+def test_gate_labels_slow_or_failed_readiness_without_leaking_output(
+    tmp_path: Path, exit_code: str, blocked_reason: str
+) -> None:
+    env = _stage(tmp_path)
+    env["SIM_READINESS_EXIT"] = exit_code
+    result = subprocess.run(
+        ["bash", str(tmp_path / "scripts" / SCRIPT.name), "--photo-only"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=12,
+    )
+    assert result.returncode == 2
+    assert "MANUAL_UAT_CHECK=schema_revision status=PASS" in result.stdout
+    assert "MANUAL_UAT_CHECK=live_readiness status=RUNNING" in result.stdout
+    assert "MANUAL_UAT_CHECK=live_readiness status=PASS" not in result.stdout
+    assert f"reason={blocked_reason}" in result.stderr
+    assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
