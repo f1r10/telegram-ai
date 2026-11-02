@@ -93,6 +93,14 @@ revision="$(compose_timed 25 exec -T postgres sh -c \
 [[ "$revision" == "0023_photo_groups" ]] || fail "schema_migration_required"
 printf 'MANUAL_UAT_CHECK=schema_revision status=PASS\n'
 
+# git pull updates host files only; ensure BOTH running images include the V1
+# photo-group service before allowing the operator to test its callbacks.
+for service in app worker; do
+  run_check "${service}_photo_group_runtime" compose_timed 25 exec -T "$service" \
+    uv run --no-dev python -c \
+    'from office_assistant.application.photo_groups import PhotoGroupService; assert PhotoGroupService'
+done
+
 # These tools perform SELECTs, network health probes and an image catalog DRY RUN.
 # Some checks load existing model caches: each is bounded and progress is visible.
 run_check live_readiness compose_timed 65 exec -T app \
