@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."
-mode="\${1:---full}"
+mode="${1:---full}"
 case "$mode" in
   --full|--photo-only) ;;
   *) printf 'MANUAL_UAT_GATE=BLOCKED reason=invalid_mode\n' >&2; exit 2 ;;
@@ -35,7 +35,7 @@ if [[ "$mode" == "--full" ]]; then
   services+=(miniapp)
 fi
 
-for service in "\${services[@]}"; do
+for service in "${services[@]}"; do
   container="tgstage_$service"
   project="$(timeout 12 docker inspect "$container" \
     --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null)" \
