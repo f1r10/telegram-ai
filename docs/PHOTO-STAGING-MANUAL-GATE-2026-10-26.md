@@ -246,3 +246,36 @@ requires migration 0023; it deliberately **does not perform an automatic
 database migration** because an operator must first verify the backup,
 restore checkpoint and schema compatibility. Follow the staged migration
 procedure above if the gate reports `schema_migration_required`.
+
+
+### When the Kali gate appears to hang after service health (2026-11-02)
+
+Before PR #151, the gate printed five healthy service rows and then could remain
+silent during Telegram polling, the schema query or the per-service read-only
+probes (each of which had a 90-second Compose deadline). Seeing five rows
+alone **never proved** the migration or photo runtime was ready; Ctrl+C is
+an interrupted test, not a PASS or a confirmed deadlock.
+
+The revised gate prints `MANUAL_UAT_CHECK=<stage> status=RUNNING` before
+each blocking step and `status=PASS` only after it finishes. A timed-out
+step fails closed with `reason=<stage>_timeout`. It also checks that both
+the active app and worker images contain the V1 photo-group service: pulling
+new repository files alone does not rebuild running containers.
+
+After updating `main`, run the read-only test:
+
+```bash
+cd ~/telegram-ai-staging
+git pull --ff-only origin main
+bash scripts/gate_manual_photo_uat.sh --photo-only
+```
+
+On failure, report only the `MANUAL_UAT_CHECK` and `MANUAL_UAT_GATE`
+lines. If `schema_migration_required`, follow the verified-backup and
+staging migration procedure above. If `app_photo_group_runtime_failed`
+or `worker_photo_group_runtime_failed`, the corresponding container may
+still use an older code image: follow the *code-only* build and deployment
+procedure, without changing storage volumes or bypassing the migration
+prerequisite. Never share an unredacted Compose config, `.env`, tokens or
+customer files. The gate cannot prove full commit/image parity, backup
+restore or real-photo recognition accuracy.
