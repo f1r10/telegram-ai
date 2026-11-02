@@ -86,10 +86,28 @@ if [[ "$mode" == "--full" ]]; then
     'case "$MINIAPP_ENABLED:$MINIAPP_PUBLIC_ORIGIN" in true:https://*|TRUE:https://*) exit 0;; *) exit 1;; esac'
 fi
 
+# Distinguish a reachable PostgreSQL service from a queryable database,
+# a missing Alembic version table, and an outdated migration. These are all
+# read-only SQL operations and no raw PostgreSQL errors or secrets are printed.
 printf 'MANUAL_UAT_CHECK=schema_revision status=RUNNING\n'
-revision="$(compose_timed 25 exec -T postgres sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "SELECT version_num FROM alembic_version"' \
-  2>/dev/null | tr -d '[:space:]')" || fail "schema_probe_failed"
+sql_one() {
+  local query="$1"
+  compose_timed 25 exec -T postgres sh -c \
+    'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "$1"' \
+    sh "$query"
+}
+connectivity="$(sql_one 'SELECT 1' 2>/dev/null | tr -d '[:space:]')" \
+  || fail "postgres_sql_connection_failed"
+[[ "$connectivity" == "1" ]] || fail "postgres_sql_unexpected_response"
+printf 'MANUAL_UAT_CHECK=postgres_sql status=PASS\n'
+
+table="$(sql_one "SELECT COALESCE(to_regclass('alembic_version')::text, 'MISSING')" \
+  2>/dev/null | tr -d '[:space:]')" || fail "schema_table_probe_failed"
+[[ "$table" == "alembic_version" || "$table" == "public.alembic_version" ]] \
+  || fail "schema_version_table_missing"
+
+revision="$(sql_one 'SELECT version_num FROM alembic_version' 2>/dev/null \
+  | tr -d '[:space:]')" || fail "schema_revision_query_failed"
 [[ "$revision" == "0023_photo_groups" ]] || fail "schema_migration_required"
 printf 'MANUAL_UAT_CHECK=schema_revision status=PASS\n'
 

@@ -91,7 +91,11 @@ case "$1" in
     esac;;
   compose)
     case "$*" in
-      *SELECT*version_num*) echo "${SIM_REVISION:-0023_photo_groups}";;
+      *SELECT*1*) test "${SIM_SQL_FAIL:-0}" = 0 && echo 1;;
+      *to_regclass*) echo "${SIM_TABLE:-alembic_version}";;
+      *SELECT*version_num*)
+        test "${SIM_REVISION_QUERY_FAIL:-0}" = 0 || exit 13
+        echo "${SIM_REVISION:-0023_photo_groups}";;
       *check_readiness*) exit "${SIM_READINESS_EXIT:-0}";;
     esac;;
   *) exit 9;;
@@ -137,6 +141,7 @@ def test_gate_fails_closed_with_stubbed_docker(
         assert result.returncode == 0, result.stderr
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" in result.stdout
         assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in result.stdout
+        assert "MANUAL_UAT_CHECK=postgres_sql status=PASS" in result.stdout
         assert "MANUAL_UAT_CHECK=live_readiness status=PASS" in result.stdout
         assert "MANUAL_UAT_CHECK=visual_catalog_dry_run status=PASS" in result.stdout
     else:
@@ -171,3 +176,32 @@ def test_gate_labels_slow_or_failed_readiness_without_leaking_output(
     assert "MANUAL_UAT_CHECK=live_readiness status=PASS" not in result.stdout
     assert f"reason={blocked_reason}" in result.stderr
     assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected_reason"),
+    [
+        ({"SIM_SQL_FAIL": "1"}, "postgres_sql_connection_failed"),
+        ({"SIM_TABLE": "MISSING"}, "schema_version_table_missing"),
+        ({"SIM_REVISION_QUERY_FAIL": "1"}, "schema_revision_query_failed"),
+        ({"SIM_REVISION": "0022_inventory_units"}, "schema_migration_required"),
+    ],
+)
+def test_schema_probe_classifies_read_only_failure_without_raw_database_errors(
+    tmp_path: Path, environment: dict[str, str], expected_reason: str
+) -> None:
+    env = _stage(tmp_path)
+    env.update(environment)
+    result = subprocess.run(
+        ["bash", str(tmp_path / "scripts" / SCRIPT.name), "--photo-only"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=12,
+    )
+    assert result.returncode == 2
+    assert "MANUAL_UAT_CHECK=schema_revision status=RUNNING" in result.stdout
+    assert f"reason={expected_reason}" in result.stderr
+    assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
+    assert "postgres://" not in result.stdout + result.stderr
