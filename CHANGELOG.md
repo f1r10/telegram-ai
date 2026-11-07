@@ -1,3 +1,26 @@
+## 2026-11-08 — Album = one product (combined photo lookup)
+
+- Photos arriving in one Telegram media album are now treated as a single product
+  unit for local lookup. The choice prompt is consolidated and edited in place as
+  album photos arrive (one panel, with an explicit "bir albom = bir məhsul" note)
+  instead of a separate prompt per photo.
+- "Bazada axtar" on an album produces one combined result: a confirmed SHA holder
+  anywhere in the album yields one confirmed-product answer (or an honest
+  multi-code notice when photos match different confirmed codes); otherwise
+  `merge_indexed_results` dedupes product codes and document occurrences across
+  photos, keeps each strongest score and renders a single ranked page. Download
+  and timeout failures are counted and reported, never hidden or mistaken for a
+  no-match. Paging/preview/question callbacks reuse the stored merged result
+  rather than re-downloading every photo per page turn.
+- Similarity still never confirms identity, price or stock; saving remains the
+  explicit caption/`/saxla` flow (one `PhotoGroup`, not an authoritative catalog
+  item). A fresh album after a result starts a new actor-bound group. All new
+  bot-facing strings live in the Azerbaijani message catalog.
+- Offline Linux verification: ruff check/format clean, pyright strict 0 errors,
+  `pytest -m "not integration"` 1099 passed (72 integration deselected), including
+  the new `test_album_one_product.py`. Live Kali staging album acceptance remains
+  a separate open gate.
+
 ## 2026-11-08 — Priority-site menu section and image-search filter UX
 
 - Add a "Prioritet saytlar" Telegram menu panel: ACTIVE users view the ordered

@@ -393,3 +393,22 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       flow, filter views, ranking and source formatting.
 - [ ] Confirm the menu site flow and image filters on the owner's Kali staging bot
       with real accounts/photos; GitHub unit tests do not close live UAT.
+
+## Album = one product — 2026-11-08
+
+- [x] Treat photos that arrive in one Telegram media album as a single product
+      unit for local lookup: one consolidated, edit-in-place choice prompt (with
+      an explicit "bir albom = bir məhsul" note) instead of a prompt per photo.
+- [x] Combine the whole album's local lookup into one ranked result. A confirmed
+      SHA holder anywhere in the album yields one confirmed-product answer (or an
+      honest multi-code notice); otherwise `merge_indexed_results` dedupes product
+      codes and document occurrences across photos, keeps each strongest score and
+      renders a single combined page. Download/timeout failures are counted and
+      reported, never hidden or mistaken for `NO_MATCH`.
+- [x] Album paging/preview/question callbacks reuse the stored merged result
+      instead of re-downloading every photo per page turn; a fresh album after a
+      result starts a new actor-bound group. Similarity still never confirms
+      identity, price or stock, and saving stays the explicit caption/`/saxla`
+      flow (one `PhotoGroup`, not an authoritative catalog item).
+- [ ] Confirm the combined album prompt, result and save on the owner's Kali
+      staging bot with a real 3-4 photo album; GitHub unit tests do not close UAT.

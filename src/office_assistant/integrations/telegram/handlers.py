@@ -170,7 +170,7 @@ from office_assistant.processing.semantic_visual import SemanticReference, Seman
 from office_assistant.processing.verified_photo_preview import verified_photo_preview
 from office_assistant.processing.vision import ImageVisionExtractor
 from office_assistant.processing.visual_ann import IndexedResults, IndexedVisualLookup
-from office_assistant.processing.visual_paging import indexed_page
+from office_assistant.processing.visual_paging import indexed_page, merge_indexed_results
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.image_search import (
@@ -3209,6 +3209,7 @@ async def _send_indexed_visual_page(
     photo_index: int = 0,
     page: int = 0,
     query: CallbackQuery | None = None,
+    intro: str | None = None,
 ) -> None:
     """Five ranked product/source candidates; expiring file buttons and live paging."""
 
@@ -3281,10 +3282,11 @@ async def _send_indexed_visual_page(
         if navigation:
             rows.append(navigation)
     markup = InlineKeyboardMarkup(rows)
+    text = f"{intro}\n\n{view.text}" if intro else view.text
     if query is not None:
-        await query.edit_message_text(view.text, reply_markup=markup)
+        await query.edit_message_text(text, reply_markup=markup)
         return
-    await message.reply_text(view.text, reply_markup=markup)
+    await message.reply_text(text, reply_markup=markup)
 
 
 def _confirmed_photo_question(question: str | None, code: str) -> str | None:
@@ -3581,6 +3583,94 @@ async def _handle_exact_photo_lookup(
         await message.reply_text("Şəkil axtarışı hazırda mümkün deyil; yenidən sınayın.")
 
 
+def _album_question(flow: PhotoFlow) -> str | None:
+    return next((ref.question for ref in flow.photos if ref.question), None)
+
+
+async def _handle_album_db_lookup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    flow: PhotoFlow,
+    user: User,
+    identity: TelegramIdentity,
+) -> None:
+    """One combined ranked result for a whole album, never per-photo panels."""
+
+    services = _services(context)
+    query = update.callback_query
+    chat_id = identity.telegram_user_id
+    total = len(flow.photos)
+    if query is not None:
+        await query.edit_message_text(messages.PHOTO_ALBUM_DB_SEARCHING.format(count=total))
+    if services.session_factory is None:
+        await context.bot.send_message(chat_id=chat_id, text=messages.TEMPORARY_ERROR)
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 40.0
+    holders: dict[str, None] = {}
+    indexed_parts: list[IndexedResults] = []
+    checked = failed = 0
+    for ref in flow.photos:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            failed += total - checked
+            break
+        try:
+            async with asyncio.timeout(min(12.0, remaining)):
+                body = await _photo_download(context, ref.file_id)
+                if not 0 < len(body) <= 4 * 1024 * 1024:
+                    raise ValueError("Album photo exceeds lookup size")
+                digest = sha256(body).hexdigest()
+                async with services.session_factory() as session:
+                    holder = await ProductImageRelationRepository(
+                        session
+                    ).active_confirmation_holder_by_content(digest, active_product_only=True)
+                if holder is not None:
+                    holders.setdefault(holder[1], None)
+                if services.indexed_visual is not None:
+                    indexed_parts.append(await services.indexed_visual.search(body))
+        except (OSError, ValueError, TelegramError, TimeoutError, SQLAlchemyError):
+            failed += 1
+        else:
+            checked += 1
+    if holders:
+        flow.indexed_results = None
+        codes = list(holders)
+        if len(codes) == 1:
+            answer = await _confirmed_photo_question_answer(
+                services, user, _album_question(flow), codes[0]
+            )
+            text = messages.PHOTO_ALBUM_CONFIRMED_HEADER.format(count=total) + "\n\n" + answer
+        else:
+            text = messages.PHOTO_ALBUM_MULTI_CONFIRMED.format(count=total, codes=", ".join(codes))
+        await context.bot.send_message(chat_id=chat_id, text=text)
+        return
+    merged = merge_indexed_results(indexed_parts)
+    if not merged.unavailable and (merged.products or merged.documents):
+        flow.indexed_results = merged
+        message = update.effective_message
+        if message is not None:
+            await _send_indexed_visual_page(
+                message,
+                context,
+                chat_id,
+                merged,
+                photo_index=0,
+                intro=messages.PHOTO_ALBUM_RESULT_HEADER.format(count=total),
+            )
+        return
+    flow.indexed_results = None
+    template = (
+        messages.PHOTO_ALBUM_INDEX_UNAVAILABLE
+        if merged.unavailable
+        else messages.PHOTO_ALBUM_NO_MATCH
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=template.format(total=total, checked=checked, failed=failed),
+    )
+
+
 def _photo_action_keyboard(flow: PhotoFlow) -> InlineKeyboardMarkup:
     token = flow.token
     rows = [
@@ -3630,15 +3720,26 @@ async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_T
         question=message.caption,
     )
     data[PHOTO_FLOW_KEY] = flow
-    await message.reply_text(
-        f"📷 {len(flow.photos)} şəkil seçilib"
-        + (f" (bir albomda maksimum {MAX_ALBUM_PHOTOS})" if message.media_group_id else "")
-        + "\n\nNə etmək istəyirsiniz?\n"
-        "İnternet axtarışı seçilməyənədək foto Yandex-ə göndərilmir. "
-        "«Mətni oxu» seçimi foto məzmununu quraşdırılmış AI oxuma xidmətinə "
-        "göndərə bilər; bu, ayrıca seçilən əməliyyatdır.",
-        reply_markup=_photo_action_keyboard(flow),
+    album_note = (
+        messages.PHOTO_ALBUM_NOTE.format(max=MAX_ALBUM_PHOTOS) if message.media_group_id else ""
     )
+    text = messages.PHOTO_CHOICE_PROMPT.format(count=len(flow.photos), album_note=album_note)
+    if message.media_group_id:
+        text += messages.PHOTO_ALBUM_ONE_PRODUCT
+    keyboard = _photo_action_keyboard(flow)
+    if message.media_group_id and flow.prompt_message_id is not None:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=message.chat_id,
+                message_id=flow.prompt_message_id,
+                text=text,
+                reply_markup=keyboard,
+            )
+        except TelegramError:
+            logger.info("Album prompt refresh skipped | reason=edit_unavailable")
+        return
+    sent = await message.reply_text(text, reply_markup=keyboard)
+    flow.prompt_message_id = sent.message_id
 
 
 async def _photo_download(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> bytes:
@@ -3790,7 +3891,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         )
         return
     if action == "dbimg" and len(parts) == 6:
-        if services.indexed_visual is None:
+        if services.indexed_visual is None and flow.indexed_results is None:
             await context.bot.send_message(
                 chat_id=identity.telegram_user_id,
                 text="Şəkil önizləməsi hazırda əlçatan deyil.",
@@ -3800,8 +3901,12 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             photo_index, page, occurrence_id = map(int, parts[3:])
             if not (0 <= photo_index < len(flow.photos) and 0 <= page < 8 and occurrence_id > 0):
                 raise ValueError("Invalid photo preview reference")
-            body = await _photo_download(context, flow.photos[photo_index].file_id)
-            indexed = await services.indexed_visual.search(body)
+            if flow.indexed_results is not None:
+                indexed = flow.indexed_results
+            else:
+                body = await _photo_download(context, flow.photos[photo_index].file_id)
+                assert services.indexed_visual is not None
+                indexed = await services.indexed_visual.search(body)
             if indexed.unavailable:
                 raise RuntimeError("Visual index unavailable")
             view = indexed_page(indexed, page)
@@ -3811,6 +3916,8 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             )
             if selected is None:
                 raise ValueError("Source no longer in current ranked page")
+            if services.indexed_visual is None:
+                raise ValueError("Visual index unavailable for preview")
             preview = await asyncio.to_thread(
                 verified_photo_preview,
                 services.indexed_visual.encoder.storage_root,
@@ -3839,7 +3946,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
     if action == "ask" and len(parts) == 7:
         # Only an actor-bound choice, checked against the *current* verified
         # ANN shortlist, may trigger a read-only structured/document question.
-        if services.indexed_visual is None:
+        if services.indexed_visual is None and flow.indexed_results is None:
             await query.edit_message_text("Vizual namizədlər hazırda əlçatan deyil.")
             return
         try:
@@ -3855,8 +3962,12 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             ref = flow.photos[photo_index]
             if not ref.question:
                 raise ValueError("Question is missing from photo")
-            body = await _photo_download(context, ref.file_id)
-            indexed = await services.indexed_visual.search(body)
+            if flow.indexed_results is not None:
+                indexed = flow.indexed_results
+            else:
+                body = await _photo_download(context, ref.file_id)
+                assert services.indexed_visual is not None
+                indexed = await services.indexed_visual.search(body)
             if indexed.unavailable:
                 raise ValueError("Visual index unavailable")
             view = indexed_page(indexed, page)
@@ -3952,7 +4063,9 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             )
         return
     if action == "dbpg" and len(parts) == 5:
-        if services.indexed_visual is None or update.effective_message is None:
+        if (
+            services.indexed_visual is None and flow.indexed_results is None
+        ) or update.effective_message is None:
             await query.edit_message_text("Tam vizual indeks hələ hazır deyil.")
             return
         try:
@@ -3963,10 +4076,19 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
             await query.edit_message_text("Nəticə səhifəsi etibarsızdır.")
             return
         try:
-            body = await _photo_download(context, flow.photos[photo_index].file_id)
-            indexed = await services.indexed_visual.search(body)
+            if flow.indexed_results is not None:
+                indexed = flow.indexed_results
+            else:
+                body = await _photo_download(context, flow.photos[photo_index].file_id)
+                assert services.indexed_visual is not None
+                indexed = await services.indexed_visual.search(body)
             if indexed.unavailable:
                 raise RuntimeError("DINO index unavailable")
+            intro = (
+                messages.PHOTO_ALBUM_RESULT_HEADER.format(count=len(flow.photos))
+                if flow.indexed_results is not None
+                else None
+            )
             await _send_indexed_visual_page(
                 update.effective_message,
                 context,
@@ -3975,6 +4097,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                 photo_index=photo_index,
                 page=page,
                 query=query,
+                intro=intro,
             )
         except (ValueError, RuntimeError, OSError, TelegramError):
             await query.edit_message_text("Nəticə yenilənmədi. Şəkli yenidən axtarın.")
@@ -4005,6 +4128,9 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         )
         return
     if action == "db":
+        if len(flow.photos) > 1:
+            await _handle_album_db_lookup(update, context, flow, user, identity)
+            return
         await query.edit_message_text(
             f"📁 {len(flow.photos)} şəkil üzrə təsdiqli məhsullar və sənəd şəkilləri axtarılır."
         )
