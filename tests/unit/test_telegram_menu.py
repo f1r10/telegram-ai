@@ -121,9 +121,17 @@ def test_active_user_sees_tap_friendly_menu() -> None:
     assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
         ["om:ask", "om:baza"],
         ["om:product", "om:stock"],
+        ["om:photo"],
         ["om:upload", "om:sales"],
         ["om:internet", "om:help"],
     ]
+
+
+def test_photo_menu_opens_photo_search_instructions_without_text_scope() -> None:
+    context, _ = _context(_user())
+    query = _select(context, "photo")
+    query.edit_message_text.assert_awaited_once_with(messages.MENU_PHOTO_PROMPT)
+    assert MENU_SELECTION_KEY not in context.user_data
 
 
 @pytest.mark.parametrize(
