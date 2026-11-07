@@ -142,6 +142,36 @@ PHOTO_WEB_DISCLAIMER = (
     "Şəkil yalnız bu seçimdən sonra Yandex-ə göndərilib."
 )
 PHOTO_WEB_PAGE_UNAVAILABLE = "Bu nəticə səhifəsi artıq əlçatan deyil."
+PHOTO_CHOICE_PROMPT = (
+    "📷 {count} şəkil seçilib{album_note}\n\n"
+    "Nə etmək istəyirsiniz?\n"
+    "İnternet axtarışı seçilməyənədək foto Yandex-ə göndərilmir. "
+    "«Mətni oxu» seçimi foto məzmununu quraşdırılmış AI oxuma xidmətinə "
+    "göndərə bilər; bu, ayrıca seçilən əməliyyatdır."
+)
+PHOTO_ALBUM_NOTE = " (bir albomda maksimum {max})"
+PHOTO_ALBUM_ONE_PRODUCT = "\nEyni albomdakı şəkillər bir məhsul kimi birləşdirilir."
+PHOTO_ALBUM_DB_SEARCHING = (
+    "📁 {count} şəkil bir məhsul kimi yoxlanılır — birləşmiş nəticə hazırlanır."
+)
+PHOTO_ALBUM_RESULT_HEADER = "📁 {count} şəkil üzrə BİRLƏŞMİŞ nəticə · bir albom = bir məhsul"
+PHOTO_ALBUM_CONFIRMED_HEADER = "📦 {count} şəkil bir məhsul kimi yoxlanıldı — təsdiqli uyğunluq:"
+PHOTO_ALBUM_MULTI_CONFIRMED = (
+    "📦 {count} şəkil bir məhsul kimi yoxlanıldı. Birdən çox təsdiqli kod tapıldı: {codes}.\n"
+    "Albomdakı şəkillər fərqli məhsullara aid ola bilər; kodları yoxlayın. Stok təsdiqlənmir."
+)
+PHOTO_ALBUM_NO_MATCH = (
+    "📁 {total} şəkil bir məhsul kimi yoxlanıldı ({checked} oxundu, {failed} uğursuz).\n\n"
+    "Təsdiqli məhsul uyğunluğu tapılmadı. Bu, məhsulun bazada olmadığını sübut etmir; "
+    "fərqli bucaqdan çəkilmiş şəkillər tanınmaya bilər. Məhsulu dəqiq kodu ilə "
+    "«Bu KA45-dir, yadda saxla» kimi göndərib təsdiqləyin. "
+    "Şəkillər «Yadda saxla» ilə bir qrup kimi saxlanıla bilər."
+)
+PHOTO_ALBUM_INDEX_UNAVAILABLE = (
+    "📁 {total} şəkil bir məhsul kimi yoxlanıldı ({checked} oxundu, {failed} uğursuz).\n\n"
+    "Vizual axtarış indeksi hazırda əlçatan deyil. Məhsulun kimliyini təxmin etmirəm; "
+    "dəqiq kodla axtarın və ya «Yadda saxla» ilə şəkilləri bir qrup kimi saxlayın."
+)
 MENU_STOCK_PROMPT = (
     "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
     "Bu sorğu yalnız təsdiqlənmiş anbar hərəkətlərini yoxlayır. "

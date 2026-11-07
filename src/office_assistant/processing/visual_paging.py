@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil
 
@@ -88,4 +89,35 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
         pages,
         page > 0,
         page < pages - 1,
+    )
+
+
+def merge_indexed_results(results: Sequence[IndexedResults]) -> IndexedResults:
+    """Combine same-album photo lookups into one ranked candidate set.
+
+    A product code or document occurrence surfaced by any photo appears once,
+    keeping its strongest score. Similarity never confirms identity or stock.
+    """
+
+    products: dict[str, IndexedProduct] = {}
+    documents: dict[int, IndexedDocument] = {}
+    available = False
+    for result in results:
+        if result.unavailable:
+            continue
+        available = True
+        for item in result.products:
+            current = products.get(item.code)
+            if current is None or item.score > current.score:
+                products[item.code] = item
+        for item in result.documents:
+            key = item.source.occurrence_id
+            current_doc = documents.get(key)
+            if current_doc is None or item.score > current_doc.score:
+                documents[key] = item
+    if not available:
+        return IndexedResults((), (), unavailable=True)
+    return IndexedResults(
+        tuple(sorted(products.values(), key=lambda item: -item.score)),
+        tuple(sorted(documents.values(), key=lambda item: -item.score)),
     )

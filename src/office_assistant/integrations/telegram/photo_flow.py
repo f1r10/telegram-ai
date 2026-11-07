@@ -9,8 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from secrets import token_urlsafe
 from time import monotonic
+from typing import TYPE_CHECKING
 
 from office_assistant.web_evidence.image_search import ImageWebResult
+
+if TYPE_CHECKING:
+    from office_assistant.processing.visual_ann import IndexedResults
 
 PHOTO_FLOW_KEY = "office_photo_choices_v1"
 PHOTO_TTL_SECONDS = 600
@@ -34,6 +38,8 @@ class PhotoFlow:
     photos: list[TelegramPhotoRef] = field(default_factory=lambda: list[TelegramPhotoRef]())
     awaiting_description: bool = False
     web_results: list[ImageWebResult] = field(default_factory=lambda: list[ImageWebResult]())
+    prompt_message_id: int | None = None
+    indexed_results: IndexedResults | None = None
 
     def valid(self, user: int, token: str | None = None) -> bool:
         return (
@@ -62,6 +68,7 @@ def add_photo(
         or current.media_group != media_group
         or current.awaiting_description
         or current.web_results
+        or current.indexed_results is not None
     ):
         current = PhotoFlow(actor, token_urlsafe(7), media_group, monotonic())
     if len(current.photos) < MAX_ALBUM_PHOTOS and not any(
