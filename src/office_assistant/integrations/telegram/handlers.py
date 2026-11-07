@@ -593,6 +593,9 @@ def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
         ],
         [
+            InlineKeyboardButton(messages.MENU_PHOTO_BUTTON, callback_data="om:photo"),
+        ],
+        [
             InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
             InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
         ],
@@ -1258,6 +1261,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if action not in {
         "om:ask",
         "om:product",
+        "om:photo",
         "om:sales",
         "om:stock",
         "om:home",
@@ -1304,6 +1308,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(
                 messages.MENU_UPLOAD_GUIDE, reply_markup=_upload_keyboard()
             )
+            return
+        if action == "om:photo":
+            await query.edit_message_text(messages.MENU_PHOTO_PROMPT)
             return
         if action == "om:ask":
             await query.edit_message_text(messages.MENU_CHAT_PROMPT)
