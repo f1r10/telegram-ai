@@ -26,9 +26,10 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "MANUAL_UAT_CHECK=" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
     assert "docker exec tgstage_postgres sh -c" in text
-    assert "docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.check_readiness" in text
-    assert "docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.check_three_acceptance_gates" in text
-    assert "docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.prepare_visual_catalog" in text
+    direct_python = "docker exec tgstage_app /app/.venv/bin/python -m "
+    assert direct_python + "office_assistant.scripts.check_readiness" in text
+    assert direct_python + "office_assistant.scripts.check_three_acceptance_gates" in text
+    assert direct_python + "office_assistant.scripts.prepare_visual_catalog" in text
     assert "compose_timed 65 exec -T app" not in text
     assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in text
     for forbidden in (
