@@ -40,7 +40,7 @@ class FakeSession:
         rows: list[tuple[str, str, str]],
         *,
         known_asset: bool = False,
-        embedded_rows: list[tuple[int, int, str, str, dict[str, object], str, str]] | None = None,
+        embedded_rows: list[tuple[int, int, str, str, dict[str, object], str, str, str | None]] | None = None,
     ) -> None:
         self.rows = rows
         self.embedded_rows = embedded_rows or []
