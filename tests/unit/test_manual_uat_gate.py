@@ -162,7 +162,6 @@ def test_gate_fails_closed_with_stubbed_docker(
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
 
 
-
 @pytest.mark.parametrize(
     ("environment", "blocked_reason"),
     [
