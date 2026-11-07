@@ -9,9 +9,11 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 
-from telegram import Message
+import pytest
+from telegram import Message, Update
 from telegram.ext import ContextTypes
 
+from office_assistant.application.authentication import TelegramIdentity
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
@@ -22,6 +24,7 @@ from office_assistant.integrations.telegram.handlers import (
     TelegramServices,
     _catalog_source_keyboard,
     _try_catalog_source_delivery,
+    handle_catalog_source_button,
 )
 from office_assistant.internal_evidence.delivery import (
     DeliverableFile,
@@ -102,10 +105,77 @@ def test_recent_catalog_ticket_delivers_exact_original_pdf(tmp_path: Path) -> No
     assert handled
     assert reply_document.await_count == 1
     source_service.resolve_catalog_original.assert_awaited_once_with(
-        123, file_id=8, occurrence_id=45
+        123, file_id=8, occurrence_id=45, allow_standalone=True
     )
     assert reply_document.await_args is not None
     assert reply_document.await_args.kwargs["filename"] == "VKLUX.pdf"
+
+
+def test_standalone_catalog_source_is_returned_as_inline_photo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket = issue_catalog_ticket(
+        123,
+        (
+            PdfPageCandidate(
+                "telegram_photo_316.jpg",
+                0,
+                0,
+                source_file_id=88,
+                occurrence_id=91,
+            ),
+        ),
+    )
+    assert ticket is not None
+    path = tmp_path / "telegram_photo_316.jpg"
+    path.write_bytes(b"jpeg-fixture")
+    query = SimpleNamespace(
+        data=f"cat:{ticket.token}:1",
+        answer=AsyncMock(),
+    )
+    update = cast(Update, SimpleNamespace(callback_query=query))
+    bot = SimpleNamespace(
+        send_photo=AsyncMock(),
+        send_document=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    context = cast(
+        ContextTypes.DEFAULT_TYPE,
+        SimpleNamespace(
+            user_data={CATALOG_SOURCE_TICKET_KEY: ticket},
+            bot=bot,
+        ),
+    )
+    service = SimpleNamespace(
+        resolve_catalog_original=AsyncMock(
+            return_value=DeliverableFile(path, "telegram_photo_316.jpg", "image/jpeg", 88)
+        )
+    )
+    services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
+
+    def fake_is_private(_update: Update) -> bool:
+        return True
+
+    def fake_identity(_update: Update) -> TelegramIdentity:
+        return cast(TelegramIdentity, SimpleNamespace(telegram_user_id=123))
+
+    def fake_services(_context: ContextTypes.DEFAULT_TYPE) -> TelegramServices:
+        return services
+
+    monkeypatch.setattr(
+        "office_assistant.integrations.telegram.handlers._is_private", fake_is_private
+    )
+    monkeypatch.setattr("office_assistant.integrations.telegram.handlers._identity", fake_identity)
+    monkeypatch.setattr("office_assistant.integrations.telegram.handlers._services", fake_services)
+    asyncio.run(handle_catalog_source_button(update, context))
+
+    service.resolve_catalog_original.assert_awaited_once_with(
+        123, file_id=88, occurrence_id=91, allow_standalone=True
+    )
+    bot.send_photo.assert_awaited_once()
+    bot.send_document.assert_not_awaited()
+    assert bot.send_photo.await_args is not None
+    assert bot.send_photo.await_args.kwargs["caption"] == "📷 telegram_photo_316.jpg"
 
 
 def test_catalog_ticket_cannot_serve_other_user(tmp_path: Path) -> None:
