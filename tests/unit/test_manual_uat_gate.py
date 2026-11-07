@@ -25,6 +25,7 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in text
     assert "MANUAL_UAT_CHECK=" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
+    assert 'docker exec tgstage_postgres sh -c' in text
     assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in text
     for forbidden in (
         "docker compose down",
@@ -88,15 +89,19 @@ case "$1" in
     case "$2" in
       tgstage_app) test "${SIM_POLLING:-1}" = 1;;
       tgstage_miniapp) test "${SIM_MINIAPP:-1}" = 1;;
+      tgstage_postgres)
+        case "$*" in
+          *"SELECT 1"*) test "${SIM_SQL_FAIL:-0}" = 0 && echo 1;;
+          *to_regclass*) echo "${SIM_TABLE:-alembic_version}";;
+          *"SELECT version_num"*)
+            test "${SIM_REVISION_QUERY_FAIL:-0}" = 0 || exit 13
+            echo "${SIM_REVISION:-0023_photo_groups}";;
+          *) exit 14;;
+        esac;;
       *) exit 8;;
     esac;;
   compose)
     case "$*" in
-      *SELECT*1*) test "${SIM_SQL_FAIL:-0}" = 0 && echo 1;;
-      *to_regclass*) echo "${SIM_TABLE:-alembic_version}";;
-      *SELECT*version_num*)
-        test "${SIM_REVISION_QUERY_FAIL:-0}" = 0 || exit 13
-        echo "${SIM_REVISION:-0023_photo_groups}";;
       *check_readiness*) exit "${SIM_READINESS_EXIT:-0}";;
     esac;;
   *) exit 9;;
