@@ -55,8 +55,10 @@ compose config --quiet || fail "updated_compose_invalid"
 # The check does not print credentials, run migrations, or touch business rows.
 required_revision="0023_photo_groups"
 current_revision="$(compose exec -T postgres sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "SELECT version_num FROM alembic_version"' \
-  | tr -d '[:space:]')" || fail "schema_revision_probe_failed"
+  'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432 \
+    -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -A -t -q -c "SELECT version_num FROM alembic_version"' \
+  2>/dev/null | tr -d '[:space:]')" || fail "schema_revision_probe_failed"
 [[ "$current_revision" == "$required_revision" ]] || fail "schema_migration_required"
 
 # Stage only the two existing application processes. Build before restart.
