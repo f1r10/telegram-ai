@@ -26,7 +26,7 @@ def test_photo_staging_script_is_syntax_valid_and_non_destructive() -> None:
     assert "PHOTO_STAGING=MANUAL_PHOTO_UAT_REQUIRED" in body
     assert "schema_migration_required" in body
     assert "SELECT version_num FROM alembic_version" in body
-    assert "compose exec -T postgres" in body
+    assert "docker exec tgstage_postgres sh -c" in body
     assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in body
     assert '[[ "$status" == "running" ]]' in body
     assert '[[ "$health" == "none" || "$health" == "healthy" ]]' in body
