@@ -13,6 +13,7 @@ from typing import cast
 
 import httpx
 from sqlalchemy import exists, func, select
+from sqlalchemy.sql import Select
 
 from office_assistant.core.settings import Settings, load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -123,6 +124,30 @@ def replay_progress_health(
     return Check("historical_pdf_ocr_replay", status, detail)
 
 
+def current_deferred_parse_count_query() -> Select[tuple[int]]:
+    """Count unresolved text parses, excluding on-demand standalone image probes.
+
+    ImageProbeParser intentionally leaves image-only uploads DEFERRED when OCR finds no
+    text. Their original bytes are registered as searchable visual assets, and vision
+    reading is performed only when a user asks about that image; these are not stuck
+    document-ingestion jobs and must not degrade service readiness.
+    """
+
+    current_parse = (
+        select(func.max(DocumentParseRun.id).label("id"))
+        .group_by(DocumentParseRun.file_object_id)
+        .subquery()
+    )
+    return (
+        select(func.count(DocumentParseRun.id))
+        .join(current_parse, DocumentParseRun.id == current_parse.c.id)
+        .where(
+            DocumentParseRun.status == DocumentProcessingStatus.DEFERRED,
+            DocumentParseRun.parser_name != "image-probe",
+        )
+    )
+
+
 async def _database() -> list[Check]:
     settings = load_settings()
     engine = create_database_engine(settings)
@@ -135,18 +160,9 @@ async def _database() -> list[Check]:
                     KnowledgeIndexRecord.chunk_count == 0,
                 )
             )
-            # Count unresolved *current* parses only. A successful, immutable
-            # OCR replay must not leave an obsolete historical DEFERRED warning.
-            current_parse = (
-                select(func.max(DocumentParseRun.id).label("id"))
-                .group_by(DocumentParseRun.file_object_id)
-                .subquery()
-            )
-            deferred = await session.scalar(
-                select(func.count(DocumentParseRun.id))
-                .join(current_parse, DocumentParseRun.id == current_parse.c.id)
-                .where(DocumentParseRun.status == DocumentProcessingStatus.DEFERRED)
-            )
+            # Count unresolved *current* text parses only. On-demand image probes are
+            # intentionally DEFERRED after visual-asset registration and are not stuck jobs.
+            deferred = await session.scalar(current_deferred_parse_count_query())
             ingestion_failed = await session.scalar(
                 select(func.count(IngestionJob.id)).where(
                     IngestionJob.status == IngestionJobStatus.FAILED
