@@ -152,6 +152,7 @@ def test_standalone_catalog_source_is_returned_as_inline_photo(
         )
     )
     services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
+
     def fake_is_private(_update: Update) -> bool:
         return True
 
