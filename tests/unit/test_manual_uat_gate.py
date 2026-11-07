@@ -26,6 +26,11 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "MANUAL_UAT_CHECK=" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
     assert "docker exec tgstage_postgres sh -c" in text
+    direct_python = "docker exec tgstage_app /app/.venv/bin/python -m "
+    assert direct_python + "office_assistant.scripts.check_readiness" in text
+    assert direct_python + "office_assistant.scripts.check_three_acceptance_gates" in text
+    assert direct_python + "office_assistant.scripts.prepare_visual_catalog" in text
+    assert "compose_timed 65 exec -T app" not in text
     assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in text
     for forbidden in (
         "docker compose down",
@@ -90,6 +95,9 @@ case "$1" in
       tgstage_app)
         case "$*" in
           *PhotoGroupService*) test "${SIM_PHOTO_APP:-1}" = 1;;
+          *check_readiness*) exit "${SIM_READINESS_EXIT:-0}";;
+          *check_three_acceptance_gates*) exit "${SIM_PREFLIGHT_EXIT:-0}";;
+          *prepare_visual_catalog*) exit "${SIM_CATALOG_EXIT:-0}";;
           *) test "${SIM_POLLING:-1}" = 1;;
         esac;;
       tgstage_worker) test "${SIM_PHOTO_WORKER:-1}" = 1;;
@@ -105,10 +113,8 @@ case "$1" in
         esac;;
       *) exit 8;;
     esac;;
-  compose)
-    case "$*" in
-      *check_readiness*) exit "${SIM_READINESS_EXIT:-0}";;
-    esac;;
+  compose) exit 0;;
+
   *) exit 9;;
 esac
 """,
