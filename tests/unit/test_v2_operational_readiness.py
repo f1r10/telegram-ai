@@ -8,6 +8,7 @@ from office_assistant.core.settings import Settings
 from office_assistant.scripts import check_readiness
 from office_assistant.scripts.check_readiness import (
     Check,
+    current_deferred_parse_count_query,
     ocr_runtime_health,
     overall,
     replay_progress_health,
@@ -75,6 +76,17 @@ def test_pdf_ocr_readiness_sanitizes_engine_timeouts(
     outcome = ocr_runtime_health(Settings())
     assert outcome.status == "WARN"
     assert "secret" not in outcome.detail
+
+
+
+def test_expected_on_demand_image_probe_does_not_degrade_readiness() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    statement = current_deferred_parse_count_query()
+    sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "document_parse_runs.parser_name != 'image-probe'" in sql
+    assert "document_parse_runs.status = 'DEFERRED'" in sql
+
 
 
 def test_replay_progress_requires_nonempty_indexed_vectors() -> None:
