@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from telegram import Message, Update
 from telegram.ext import ContextTypes
 
@@ -112,7 +113,7 @@ def test_recent_catalog_ticket_delivers_exact_original_pdf(tmp_path: Path) -> No
 
 
 def test_standalone_catalog_source_is_returned_as_inline_photo(
-    tmp_path: Path, monkeypatch: object
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ticket = issue_catalog_ticket(
         123,
