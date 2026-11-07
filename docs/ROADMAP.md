@@ -343,8 +343,9 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
 
 - [x] Add Mini App `source_candidates` result and safe display of active
       PDF/DOCX/XLSX image provenance, with no source IDs masquerading as SKUs.
-- [ ] Extend source evidence UX with authenticated Mini App original-file
-      download once actor-bound per-result file tickets and access checks are tested.
+- [x] Extend source evidence UX with authenticated Mini App original-file
+      download via actor-bound per-result file tickets; access checks
+      (actor/ACTIVE/SHA digest, expiry, supersession, revocation) are unit-tested.
 
 ## V1 readiness hardening — 2026-10-30
 

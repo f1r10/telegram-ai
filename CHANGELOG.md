@@ -1,3 +1,14 @@
+## 2026-11-08 — Reconcile ROADMAP Mini App source-download status
+
+- Mark the authenticated Mini App original-file download ROADMAP item complete.
+  Actor-bound per-result file tickets and access checks are already implemented
+  (`miniapp/backend.py` `source_file`, signed `/api/source`, `assets/app.js`
+  download controls) and covered by passing offline unit tests
+  (`test_v2_miniapp_backend.py`, `test_v1_miniapp_source_preview.py`,
+  `test_v2_source_download_buttons.py`, `test_v1_visual_source_tickets.py`:
+  27 passed on Linux). Documentation-only reconciliation; no behavior change.
+  Real Kali staging and Android/iOS acceptance remain separate open gates.
+
 ## 2026-10-28 — Reject private URLs in Yandex photo evidence
 
 - V1 release gate: every pull request now validates resolved optional DINO CPU Compose settings for app/worker/Mini App, identical model version, staging namespace/volumes, local-only host ports and isolated default image.
