@@ -113,8 +113,9 @@ async def active_document_images(
             digest,
             metadata_text or "",
         )
-        for occurrence_id, file_id, filename, origin, locator, key, digest, metadata_text
-        in rows[:limit]
+        for occurrence_id, file_id, filename, origin, locator, key, digest, metadata_text in rows[
+            :limit
+        ]
     ]
     return sources, len(rows) > limit
 
