@@ -13,6 +13,7 @@ import pytest
 from telegram import Message, Update
 from telegram.ext import ContextTypes
 
+from office_assistant.application.authentication import TelegramIdentity
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
@@ -151,17 +152,23 @@ def test_standalone_catalog_source_is_returned_as_inline_photo(
         )
     )
     services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
+    def fake_is_private(_update: Update) -> bool:
+        return True
+
+    def fake_identity(_update: Update) -> TelegramIdentity:
+        return cast(TelegramIdentity, SimpleNamespace(telegram_user_id=123))
+
+    def fake_services(_context: ContextTypes.DEFAULT_TYPE) -> TelegramServices:
+        return services
+
     monkeypatch.setattr(
-        "office_assistant.integrations.telegram.handlers._is_private",
-        lambda _update: True,
+        "office_assistant.integrations.telegram.handlers._is_private", fake_is_private
     )
     monkeypatch.setattr(
-        "office_assistant.integrations.telegram.handlers._identity",
-        lambda _update: SimpleNamespace(telegram_user_id=123),
+        "office_assistant.integrations.telegram.handlers._identity", fake_identity
     )
     monkeypatch.setattr(
-        "office_assistant.integrations.telegram.handlers._services",
-        lambda _context: services,
+        "office_assistant.integrations.telegram.handlers._services", fake_services
     )
     asyncio.run(handle_catalog_source_button(update, context))
 
