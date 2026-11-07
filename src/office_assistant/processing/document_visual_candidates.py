@@ -19,6 +19,9 @@ from office_assistant.infrastructure.database.models import (
     ImageAsset,
     ImageAssetOccurrence,
     ImageAssetOrigin,
+    IngestionSessionItem,
+    PhotoGroup,
+    PhotoGroupImage,
 )
 from office_assistant.processing.catalog_visual_candidates import (
     SEMANTIC_ALTERNATIVE_MARGIN,
@@ -77,10 +80,20 @@ async def active_document_images(
                 ImageAssetOccurrence.locator,
                 ImageAsset.storage_key,
                 ImageAsset.content_sha256,
+                PhotoGroup.metadata_text,
             )
             .select_from(ImageAssetOccurrence)
             .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
             .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+            .outerjoin(
+                IngestionSessionItem,
+                IngestionSessionItem.file_object_id == ImageAssetOccurrence.source_file_id,
+            )
+            .outerjoin(
+                PhotoGroupImage,
+                PhotoGroupImage.session_item_id == IngestionSessionItem.id,
+            )
+            .outerjoin(PhotoGroup, PhotoGroup.id == PhotoGroupImage.group_id)
             .where(
                 ImageAssetOccurrence.origin_type.in_(DOCUMENT_IMAGE_ORIGINS),
                 FileObject.state == FileObjectState.ACTIVE,
@@ -90,8 +103,18 @@ async def active_document_images(
         )
     ).all()
     sources = [
-        DocumentImageSource(occurrence_id, file_id, filename, origin, locator, key, digest)
-        for occurrence_id, file_id, filename, origin, locator, key, digest in rows[:limit]
+        DocumentImageSource(
+            occurrence_id,
+            file_id,
+            filename,
+            origin,
+            locator,
+            key,
+            digest,
+            metadata_text or "",
+        )
+        for occurrence_id, file_id, filename, origin, locator, key, digest, metadata_text
+        in rows[:limit]
     ]
     return sources, len(rows) > limit
 
@@ -208,7 +231,11 @@ def render_document_image_hits(
 
     if not hits:
         return ""
-    details = " ".join(query_details.split())[:600] if query_details else ""
+    # Prefer the metadata attached to the query caption; when the same saved
+    # photo is searched later, recover its owner-scoped photo-group metadata.
+    stored_details = next((hit.source.description for hit in hits if hit.source.description), "")
+    raw_details = query_details or stored_details
+    details = " ".join(raw_details.split())[:600] if raw_details else ""
     lines = ["📁 FAYLLARDA ŞƏKİL ÜZRƏ NƏTİCƏ"]
     if details:
         lines.extend(["", "🔎 AXTARIŞ MƏLUMATLARI", details])
