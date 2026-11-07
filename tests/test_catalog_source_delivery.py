@@ -164,12 +164,8 @@ def test_standalone_catalog_source_is_returned_as_inline_photo(
     monkeypatch.setattr(
         "office_assistant.integrations.telegram.handlers._is_private", fake_is_private
     )
-    monkeypatch.setattr(
-        "office_assistant.integrations.telegram.handlers._identity", fake_identity
-    )
-    monkeypatch.setattr(
-        "office_assistant.integrations.telegram.handlers._services", fake_services
-    )
+    monkeypatch.setattr("office_assistant.integrations.telegram.handlers._identity", fake_identity)
+    monkeypatch.setattr("office_assistant.integrations.telegram.handlers._services", fake_services)
     asyncio.run(handle_catalog_source_button(update, context))
 
     service.resolve_catalog_original.assert_awaited_once_with(
