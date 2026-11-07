@@ -125,8 +125,9 @@ printf 'MANUAL_UAT_CHECK=schema_revision status=PASS\n'
 # A source checkout update changes host files only; ensure BOTH running images include the V1
 # photo-group service before allowing the operator to test its callbacks.
 for service in app worker; do
-  run_check "${service}_photo_group_runtime" compose_timed 25 exec -T "$service" \
-    uv run --no-dev python -c \
+  container="tgstage_${service}"
+  run_check "${service}_photo_group_runtime" timeout --signal=TERM --kill-after=5s 25 \
+    docker exec "$container" /app/.venv/bin/python -c \
     'from office_assistant.application.photo_groups import PhotoGroupService; assert PhotoGroupService'
 done
 
