@@ -199,13 +199,20 @@ def document_image_location(source: DocumentImageSource) -> str:
 
 
 def render_document_image_hits(
-    hits: tuple[DocumentImageHit, ...], *, incomplete: bool = False
+    hits: tuple[DocumentImageHit, ...],
+    *,
+    incomplete: bool = False,
+    query_details: str | None = None,
 ) -> str:
-    """Show source provenance, not product identity or invented PDF page labels."""
+    """Show the user's original search details with source provenance."""
 
     if not hits:
         return ""
-    lines = ["📁 FAYLLARDA ŞƏKİL ÜZRƏ NƏTİCƏ", ""]
+    details = " ".join(query_details.split())[:600] if query_details else ""
+    lines = ["📁 FAYLLARDA ŞƏKİL ÜZRƏ NƏTİCƏ"]
+    if details:
+        lines.extend(["", "🔎 AXTARIŞ MƏLUMATLARI", details])
+    lines.append("")
     for position, hit in enumerate(hits, start=1):
         filename = " ".join(hit.source.filename.split())[:96]
         kind = hit.source.origin.replace("_EMBEDDED", "")
@@ -224,6 +231,8 @@ def render_document_image_hits(
         "təsdiqlənməmiş mənbələrdir. Məhsulun dəqiq kodunu, qiymətini "
         "və anbar qalığını təsdiqləmir. Mənbə faylını açıb yoxlayın."
     )
+    if details:
+        lines.extend(["", "Axtarış üçün daxil etdiyiniz məlumatlar:", details])
     if incomplete:
         lines.append("Yoxlama ilk 500 aktiv sənəd şəkli qeydi ilə məhdudlaşıb.")
     return "\n".join(lines)
