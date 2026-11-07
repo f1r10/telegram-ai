@@ -114,9 +114,8 @@ table="$(sql_one "SELECT COALESCE(to_regclass('alembic_version')::text, 'MISSING
 revision="$(sql_one 'SELECT version_num FROM alembic_version' 2>/dev/null \
   | tr -d '[:space:]')" || fail "schema_revision_query_failed"
 if [[ "$revision" != "0023_photo_groups" ]]; then
-  safe_revision="$revision"
+  safe_revision="${revision:-EMPTY}"
   [[ "$safe_revision" =~ ^[A-Za-z0-9_.-]+$ ]] || safe_revision="UNEXPECTED"
-  [[ -n "$safe_revision" ]] || safe_revision="EMPTY"
   printf 'MANUAL_UAT_GATE=BLOCKED reason=schema_migration_required current=%s required=0023_photo_groups\n' \
     "$safe_revision" >&2
   exit 2
