@@ -90,9 +90,12 @@ fi
 # a missing Alembic version table, and an outdated migration. These are all
 # read-only SQL operations and no raw PostgreSQL errors or secrets are printed.
 printf 'MANUAL_UAT_CHECK=schema_revision status=RUNNING\n'
+# Use the exact container that was independently verified above. Avoid
+# Compose service resolution here: the direct docker exec TCP probe is the
+# known-good path on this host and cannot silently select another project.
 sql_one() {
   local query="$1"
-  compose_timed 25 exec -T postgres sh -c \
+  timeout --signal=TERM --kill-after=5s 25 docker exec tgstage_postgres sh -c \
     'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432 \
       -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
       -A -t -q -c "$1"' \
@@ -110,7 +113,13 @@ table="$(sql_one "SELECT COALESCE(to_regclass('alembic_version')::text, 'MISSING
 
 revision="$(sql_one 'SELECT version_num FROM alembic_version' 2>/dev/null \
   | tr -d '[:space:]')" || fail "schema_revision_query_failed"
-[[ "$revision" == "0023_photo_groups" ]] || fail "schema_migration_required"
+if [[ "$revision" != "0023_photo_groups" ]]; then
+  safe_revision="${revision:-EMPTY}"
+  [[ "$safe_revision" =~ ^[A-Za-z0-9_.-]+$ ]] || safe_revision="UNEXPECTED"
+  printf 'MANUAL_UAT_GATE=BLOCKED reason=schema_migration_required current=%s required=0023_photo_groups\n' \
+    "$safe_revision" >&2
+  exit 2
+fi
 printf 'MANUAL_UAT_CHECK=schema_revision status=PASS\n'
 
 # A source checkout update changes host files only; ensure BOTH running images include the V1

@@ -18,6 +18,7 @@ fail() {
 [[ -f docker-compose.staging.yml && -f .env ]] || fail "staging_files_missing"
 command -v git >/dev/null 2>&1 || fail "git_missing"
 command -v docker >/dev/null 2>&1 || fail "docker_missing"
+command -v timeout >/dev/null 2>&1 || fail "timeout_missing"
 [[ "$(git branch --show-current)" == "main" ]] || fail "not_on_main"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked_changes_exist"
 if git ls-files --error-unmatch .env >/dev/null 2>&1; then
@@ -54,12 +55,23 @@ compose config --quiet || fail "updated_compose_invalid"
 # *staging* PostgreSQL version before replacing running bot/worker containers.
 # The check does not print credentials, run migrations, or touch business rows.
 required_revision="0023_photo_groups"
-current_revision="$(compose exec -T postgres sh -c \
-  'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432 \
-    -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -A -t -q -c "SELECT version_num FROM alembic_version"' \
+postgres_sql() {
+  local query="$1"
+  timeout --signal=TERM --kill-after=5s 25 docker exec tgstage_postgres sh -c \
+    'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432 \
+      -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -A -t -q -c "$1"' \
+    sh "$query"
+}
+current_revision="$(postgres_sql 'SELECT version_num FROM alembic_version' \
   2>/dev/null | tr -d '[:space:]')" || fail "schema_revision_probe_failed"
-[[ "$current_revision" == "$required_revision" ]] || fail "schema_migration_required"
+if [[ "$current_revision" != "$required_revision" ]]; then
+  safe_revision="${current_revision:-EMPTY}"
+  [[ "$safe_revision" =~ ^[A-Za-z0-9_.-]+$ ]] || safe_revision="UNEXPECTED"
+  printf 'PHOTO_STAGING=BLOCKED reason=schema_migration_required current=%s required=%s\n' \
+    "$safe_revision" "$required_revision" >&2
+  exit 2
+fi
 
 # Stage only the two existing application processes. Build before restart.
 compose build app worker || fail "image_build_failed"
