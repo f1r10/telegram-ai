@@ -300,6 +300,7 @@ def test_mobile_returns_document_sources_without_product_codes(
                 record.locator,
                 record.storage_key,
                 record.content_sha256,
+                None,
             )
         ],
     )
