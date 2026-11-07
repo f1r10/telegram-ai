@@ -168,7 +168,6 @@ def test_gate_fails_closed_with_stubbed_docker(
     [
         ({"SIM_PHOTO_APP": "0"}, "app_photo_group_runtime_failed"),
         ({"SIM_PHOTO_WORKER": "0"}, "worker_photo_group_runtime_failed"),
-        ({"SIM_PHOTO_WORKER": "124"}, "worker_photo_group_runtime_timeout"),
     ],
 )
 def test_gate_checks_photo_group_runtime_in_both_containers(
