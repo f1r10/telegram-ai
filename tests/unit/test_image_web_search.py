@@ -9,10 +9,13 @@ import pytest
 from PIL import Image
 
 from office_assistant.web_evidence.image_search import (
+    ImageWebHit,
+    ImageWebResult,
     ImageWebSearchBlocked,
     ImageWebSearchUnavailable,
     YandexReverseImageSearch,
     image_web_page,
+    image_web_view,
     parse_yandex_results,
 )
 
@@ -206,3 +209,68 @@ def test_wrong_content_never_becomes_successful_search() -> None:
                 await service.search(picture())
 
     asyncio.run(scenario())
+
+
+def _sites_markup(sites: list[tuple[str, str, str]]) -> str:
+    payload = {
+        "initialState": {
+            "cbirSites": {
+                "sites": [
+                    {"title": title, "url": page, "originalImage": {"url": image}}
+                    for page, image, title in sites
+                ]
+            }
+        }
+    }
+    return "<div data-state='" + json.dumps(payload) + "'></div>"
+
+
+def test_az_domains_lead_non_priority_image_results() -> None:
+    markup = _sites_markup(
+        [
+            ("https://global.com/p", "https://cdn.global.com/p.jpg", "Global"),
+            ("https://shop.az/p", "https://cdn.shop.az/p.jpg", "AZ shop"),
+            ("https://preferred.com/p", "https://cdn.preferred.com/p.jpg", "Preferred"),
+        ]
+    )
+    hits = parse_yandex_results(markup)
+    assert [hit.domain for hit in hits] == ["shop.az", "global.com", "preferred.com"]
+    assert all(not hit.priority for hit in hits)
+
+
+def test_priority_sites_precede_az_then_other_image_results() -> None:
+    markup = _sites_markup(
+        [
+            ("https://global.com/p", "https://cdn.global.com/p.jpg", "Global"),
+            ("https://shop.az/p", "https://cdn.shop.az/p.jpg", "AZ shop"),
+            ("https://preferred.com/p", "https://cdn.preferred.com/p.jpg", "Preferred"),
+        ]
+    )
+    hits = parse_yandex_results(markup, ("preferred.com",))
+    assert [hit.domain for hit in hits] == ["preferred.com", "shop.az", "global.com"]
+    assert hits[0].priority and not hits[1].priority and not hits[2].priority
+
+
+def test_image_web_view_filters_priority_and_other_without_new_request() -> None:
+    hits = (
+        ImageWebHit(
+            "P",
+            "https://cdn.preferred.com/p.jpg",
+            "https://preferred.com/p",
+            "",
+            "preferred.com",
+            True,
+        ),
+        ImageWebHit("AZ", "https://cdn.shop.az/p.jpg", "https://shop.az/p", "", "shop.az", False),
+        ImageWebHit(
+            "G", "https://cdn.global.com/p.jpg", "https://global.com/p", "", "global.com", False
+        ),
+    )
+    result = ImageWebResult(hits, "https://yandex.com/images/search?cbir_id=x")
+    assert image_web_view(result, "all").results == hits
+    assert [hit.domain for hit in image_web_view(result, "priority").results] == ["preferred.com"]
+    assert [hit.domain for hit in image_web_view(result, "other").results] == [
+        "shop.az",
+        "global.com",
+    ]
+    assert image_web_view(result, "other").provider_url == result.provider_url
