@@ -334,3 +334,13 @@ After this code-only script update is merged, fetch `main` and rerun
 will either confirm the expected revision or report a distinct, fail-closed
 revision-query/migration reason. Do not run a migration until the exact
 revision is known and the staging backup is verified.
+
+### PostgreSQL authentication path (2026-11-07)
+
+Both the read-only UAT gate and the code-only deployment script now query
+the staging database over loopback TCP with the container's existing
+`POSTGRES_PASSWORD`, using `psql -w` so no interactive password prompt can
+hang a non-interactive run. This avoids relying on local Unix-socket
+authentication. The probes remain read-only; they do not change roles,
+passwords, schema or business data. The deploy script checks the exact
+`0023_photo_groups` revision before rebuilding/recreating app and worker.
