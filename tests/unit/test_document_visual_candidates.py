@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageStat
 
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
     DocumentImageSource,
     find_document_images,
     render_document_image_hits,
