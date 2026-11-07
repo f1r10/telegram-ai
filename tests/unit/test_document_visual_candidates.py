@@ -94,8 +94,13 @@ def test_embedded_sources_from_all_three_file_types_are_searchable(tmp_path: Pat
         assert detailed.count("Kateqoriya: Qələm") == 2
         assert detailed.count("Təsvir: Metal") == 2
         stored = DocumentImageSource(
-            99, 199, "saved.jpg", ImageAssetOrigin.STANDALONE_UPLOAD,
-            {}, "saved.png", sha256(b"stored").hexdigest(),
+            99,
+            199,
+            "saved.jpg",
+            ImageAssetOrigin.STANDALONE_UPLOAD,
+            {},
+            "saved.png",
+            sha256(b"stored").hexdigest(),
             "Ad: Qara mürəkkəb qələm\\nKateqoriya: Qələm\\nTəsvir: Metal",
         )
         stored_text = render_document_image_hits((DocumentImageHit(stored, "near_duplicate"),))
