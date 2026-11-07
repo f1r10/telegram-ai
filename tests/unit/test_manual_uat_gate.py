@@ -25,7 +25,7 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in text
     assert "MANUAL_UAT_CHECK=" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
-    assert 'docker exec tgstage_postgres sh -c' in text
+    assert "docker exec tgstage_postgres sh -c" in text
     assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in text
     for forbidden in (
         "docker compose down",
