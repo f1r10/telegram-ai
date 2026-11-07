@@ -88,7 +88,8 @@ def test_embedded_sources_from_all_three_file_types_are_searchable(tmp_path: Pat
         assert item.filename in text
         assert "təsdiqlənməmiş" in text
         assert "anbar" in text
-        detailed = render_document_image_hits(hits, query_details="Ad: Qara mürəkkəb qələm | Kateqoriya: Qələm | Təsvir: Metal")
+        details = "Ad: Qara mürəkkəb qələm | Kateqoriya: Qələm | Təsvir: Metal"
+        detailed = render_document_image_hits(hits, query_details=details)
         assert detailed.count("Ad: Qara mürəkkəb qələm") == 2
         assert detailed.count("Kateqoriya: Qələm") == 2
         assert detailed.count("Təsvir: Metal") == 2
