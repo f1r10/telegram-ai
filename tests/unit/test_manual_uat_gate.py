@@ -87,7 +87,12 @@ case "$1" in
     esac;;
   exec)
     case "$2" in
-      tgstage_app) test "${SIM_POLLING:-1}" = 1;;
+      tgstage_app)
+        case "$*" in
+          *PhotoGroupService*) test "${SIM_PHOTO_APP:-1}" = 1;;
+          *) test "${SIM_POLLING:-1}" = 1;;
+        esac;;
+      tgstage_worker) test "${SIM_PHOTO_WORKER:-1}" = 1;;
       tgstage_miniapp) test "${SIM_MINIAPP:-1}" = 1;;
       tgstage_postgres)
         case "$*" in
@@ -155,6 +160,34 @@ def test_gate_fails_closed_with_stubbed_docker(
         assert result.returncode == 2
         assert f"reason={blocked_reason}" in result.stderr
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
+
+
+
+@pytest.mark.parametrize(
+    ("environment", "blocked_reason"),
+    [
+        ({"SIM_PHOTO_APP": "0"}, "app_photo_group_runtime_failed"),
+        ({"SIM_PHOTO_WORKER": "0"}, "worker_photo_group_runtime_failed"),
+        ({"SIM_PHOTO_WORKER": "124"}, "worker_photo_group_runtime_timeout"),
+    ],
+)
+def test_gate_checks_photo_group_runtime_in_both_containers(
+    tmp_path: Path, environment: dict[str, str], blocked_reason: str
+) -> None:
+    env = _stage(tmp_path)
+    env.update(environment)
+    result = subprocess.run(
+        ["bash", str(tmp_path / "scripts" / SCRIPT.name), "--photo-only"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=12,
+    )
+    assert result.returncode == 2
+    assert "MANUAL_UAT_CHECK=schema_revision status=PASS" in result.stdout
+    assert f"reason={blocked_reason}" in result.stderr
+    assert "MANUAL_UAT_GATE=TECHNICAL_PASS" not in result.stdout
 
 
 @pytest.mark.parametrize(
