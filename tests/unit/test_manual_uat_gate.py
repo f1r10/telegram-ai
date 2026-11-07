@@ -112,6 +112,7 @@ case "$1" in
         esac;;
       *) exit 8;;
     esac;;
+  compose) exit 0;;
 
   *) exit 9;;
 esac
