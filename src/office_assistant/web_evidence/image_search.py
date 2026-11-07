@@ -18,7 +18,7 @@ from html import unescape
 from html.parser import HTMLParser
 from io import BytesIO
 from time import monotonic
-from typing import cast
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -134,6 +134,14 @@ def _http_url(raw: object) -> str:
 
 def _domain(url: str) -> str:
     return (urlsplit(url).hostname or "").casefold().removeprefix("www.").rstrip(".")
+
+
+def _is_az_domain(domain: str) -> bool:
+    return domain.casefold().rstrip(".").endswith(".az")
+
+
+def _rank_key(hit: ImageWebHit) -> tuple[bool, bool]:
+    return (not hit.priority, not _is_az_domain(hit.domain))
 
 
 def _approved_page(url: str) -> str:
@@ -272,8 +280,9 @@ def parse_yandex_results(markup: str, domains: tuple[str, ...] = ()) -> tuple[Im
                 priority,
             )
         )
-    # Admin-preferred results are first, preserving provider rank within each group.
-    return tuple(sorted(results, key=lambda candidate: not candidate.priority))
+    # Admin-preferred results are first; .az sources lead the remaining results,
+    # preserving provider rank within each group via a stable sort.
+    return tuple(sorted(results, key=_rank_key))
 
 
 def _optimized_jpeg(raw: bytes) -> bytes:
@@ -327,7 +336,7 @@ def _ranked(
             )
         )
     return ImageWebResult(
-        tuple(sorted(hits, key=lambda hit: not hit.priority)),
+        tuple(sorted(hits, key=_rank_key)),
         data.provider_url,
         cache_hit=cache_hit,
     )
@@ -426,6 +435,23 @@ class YandexReverseImageSearch:
                 self._cache.clear()
             self._cache[digest] = (monotonic() + self._cache_ttl, data)
             return _ranked(data, preferred_domains)
+
+
+ImageFilterMode = Literal["all", "priority", "other"]
+
+
+def image_web_view(result: ImageWebResult, mode: ImageFilterMode = "all") -> ImageWebResult:
+    """Read-only view selection over already-ranked hits; no new provider request."""
+
+    if mode == "priority":
+        hits = tuple(hit for hit in result.results if hit.priority)
+    elif mode == "other":
+        hits = tuple(hit for hit in result.results if not hit.priority)
+    else:
+        hits = result.results
+    return ImageWebResult(
+        hits, result.provider_url, blocked=result.blocked, cache_hit=result.cache_hit
+    )
 
 
 def image_web_page(

@@ -22,7 +22,9 @@ from office_assistant.infrastructure.database.models import User, UserRole, User
 from office_assistant.integrations.telegram import messages
 from office_assistant.integrations.telegram.handlers import (
     MENU_SELECTION_KEY,  # pyright: ignore[reportPrivateUsage]
+    SITES_ENTRY_KEY,  # pyright: ignore[reportPrivateUsage]
     TelegramServices,
+    handle_cancel,
     handle_menu,
     handle_menu_callback,
     handle_menu_interruption,
@@ -43,11 +45,15 @@ class FakeUsers:
         return self.user
 
 
-def _user(status: UserStatus = UserStatus.ACTIVE, telegram_user_id: int = 123) -> User:
+def _user(
+    status: UserStatus = UserStatus.ACTIVE,
+    telegram_user_id: int = 123,
+    role: UserRole = UserRole.USER,
+) -> User:
     return User(
         id=telegram_user_id - 122,
         telegram_user_id=telegram_user_id,
-        role=UserRole.USER,
+        role=role,
         status=status,
     )
 
@@ -124,6 +130,7 @@ def test_active_user_sees_tap_friendly_menu() -> None:
         ["om:photo"],
         ["om:upload", "om:sales"],
         ["om:internet", "om:help"],
+        ["om:sites"],
     ]
 
 
@@ -594,3 +601,150 @@ def test_stalled_internet_mode_times_out_without_leaking_to_other_modes() -> Non
     message.reply_text.assert_awaited_once_with(messages.AI_TIMEOUT)
     internal.answer.assert_not_awaited()
     assert MENU_SELECTION_KEY not in context.user_data
+
+
+def _arm_sites_service(
+    monkeypatch: pytest.MonkeyPatch,
+    services: TelegramServices,
+    *,
+    domains: tuple[str, ...] = (),
+    updated: tuple[str, ...] = (),
+) -> SimpleNamespace:
+    from office_assistant.integrations.telegram import handlers
+
+    services.session_factory = cast(object, object())  # type: ignore[assignment]
+    fake = SimpleNamespace(
+        list_domains=AsyncMock(return_value=domains),
+        update=AsyncMock(return_value=updated),
+    )
+
+    def _factory_stub(_session_factory: object) -> SimpleNamespace:
+        return fake
+
+    monkeypatch.setattr(handlers, "PrioritySitesService", _factory_stub)
+    return fake
+
+
+def test_sites_panel_lists_domains_with_admin_controls(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    fake = _arm_sites_service(monkeypatch, services, domains=("knatank.az", "example.com"))
+    query = _select(context, "sites")
+    fake.list_domains.assert_awaited_once()
+    query.edit_message_text.assert_awaited_once()
+    args = query.edit_message_text.await_args
+    text = args.args[0]
+    assert messages.SITES_PANEL_HEADER in text
+    assert "1. knatank.az" in text
+    assert "2. example.com" in text
+    keyboard = args.kwargs["reply_markup"]
+    assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
+        ["om:sites:add", "om:sites:remove"],
+        ["om:home"],
+    ]
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_sites_panel_is_read_only_for_regular_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user())
+    _arm_sites_service(monkeypatch, services, domains=("knatank.az",))
+    query = _select(context, "sites")
+    args = query.edit_message_text.await_args
+    assert messages.SITES_ADMIN_ONLY in args.args[0]
+    keyboard = args.kwargs["reply_markup"]
+    assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
+        ["om:home"]
+    ]
+
+
+def test_sites_panel_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    _arm_sites_service(monkeypatch, services, domains=())
+    query = _select(context, "sites")
+    assert messages.SITES_EMPTY in query.edit_message_text.await_args.args[0]
+
+
+def test_sites_add_button_arms_entry_then_domain_text_adds(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    fake = _arm_sites_service(monkeypatch, services, updated=("knatank.az", "example.com"))
+    query = _select(context, "sites:add")
+    query.edit_message_text.assert_awaited_once_with(messages.SITES_ADD_PROMPT)
+    assert SITES_ENTRY_KEY in context.user_data
+    message = _message("knatank.az")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    fake.update.assert_awaited_once_with(123, "add", "knatank.az")
+    message.reply_text.assert_awaited_once_with(
+        messages.SITES_ADDED.format(domain="knatank.az", domains="knatank.az, example.com")
+    )
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_sites_remove_button_consumes_domain_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    fake = _arm_sites_service(monkeypatch, services, updated=("example.com",))
+    query = _select(context, "sites:remove")
+    query.edit_message_text.assert_awaited_once_with(messages.SITES_REMOVE_PROMPT)
+    message = _message("knatank.az")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    fake.update.assert_awaited_once_with(123, "remove", "knatank.az")
+    message.reply_text.assert_awaited_once_with(
+        messages.SITES_REMOVED.format(domain="knatank.az", domains="example.com")
+    )
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_sites_add_button_denied_for_regular_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user())
+    fake = _arm_sites_service(monkeypatch, services)
+    query = _select(context, "sites:add")
+    query.edit_message_text.assert_awaited_once_with(messages.NO_PERMISSION)
+    assert SITES_ENTRY_KEY not in context.user_data
+    fake.update.assert_not_awaited()
+
+
+def test_sites_entry_expiry_does_not_mutate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from office_assistant.integrations.telegram import handlers
+
+    context, services = _context(_user(role=UserRole.ADMIN))
+    fake = _arm_sites_service(monkeypatch, services)
+    monkeypatch.setattr(handlers, "monotonic", lambda: 100.0)
+    _select(context, "sites:add")
+    monkeypatch.setattr(handlers, "monotonic", lambda: 1000.0)
+    message = _message("knatank.az")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    message.reply_text.assert_awaited_once_with(messages.SITES_ENTRY_EXPIRED)
+    fake.update.assert_not_awaited()
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_sites_invalid_domain_reports_error_without_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    fake = _arm_sites_service(monkeypatch, services)
+    _select(context, "sites:add")
+    message = _message("bu domen deyil")
+    asyncio.run(handle_password_text(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    message.reply_text.assert_awaited_once()
+    assert "Domen" in message.reply_text.await_args.args[0]
+    fake.update.assert_not_awaited()
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_cancel_clears_armed_site_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    _arm_sites_service(monkeypatch, services)
+    _select(context, "sites:add")
+    assert SITES_ENTRY_KEY in context.user_data
+    asyncio.run(
+        handle_cancel(_update(_message("/cancel")), cast(ContextTypes.DEFAULT_TYPE, context))
+    )
+    assert SITES_ENTRY_KEY not in context.user_data
+
+
+def test_navigation_home_clears_armed_site_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    context, services = _context(_user(role=UserRole.ADMIN))
+    _arm_sites_service(monkeypatch, services)
+    _select(context, "sites:add")
+    assert SITES_ENTRY_KEY in context.user_data
+    _select(context, "home")
+    assert SITES_ENTRY_KEY not in context.user_data

@@ -49,3 +49,52 @@ def test_web_pagination_is_bounded_and_never_confirms_sku() -> None:
     assert len(image_web_page(result, 1)) == 5
     assert len(image_web_page(result, 2)) == 3
     assert image_web_page(result, 3) == ()
+
+
+def test_web_photo_filter_views_and_buttons_share_one_ranked_result() -> None:
+    from office_assistant.integrations.telegram import messages
+    from office_assistant.integrations.telegram.handlers import (
+        _web_photo_keyboard,  # pyright: ignore[reportPrivateUsage]
+        _web_photo_text,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    ranked = (
+        ImageWebHit(
+            "Preferred",
+            "https://img.example/p.jpg",
+            "https://shop.example.az/p",
+            "",
+            "shop.example.az",
+            priority=True,
+        ),
+        ImageWebHit("Local", "https://img.example/l.jpg", "https://other.az/l", "", "other.az"),
+        ImageWebHit(
+            "Global", "https://img.example/g.jpg", "https://global.com/g", "", "global.com"
+        ),
+    )
+    flow = PhotoFlow(123, "tok", None, 0.0)
+    flow.web_results.append(ImageWebResult(ranked, "https://yandex.com/images/search"))
+
+    all_text = _web_photo_text(flow, 0, 0, "all")
+    assert f"Filtr: {messages.PHOTO_FILTER_ALL}" in all_text
+    assert all_text.index("Preferred") < all_text.index("Local") < all_text.index("Global")
+
+    priority_text = _web_photo_text(flow, 0, 0, "priority")
+    assert "Preferred" in priority_text
+    assert "Local" not in priority_text
+    assert "Global" not in priority_text
+
+    other_text = _web_photo_text(flow, 0, 0, "other")
+    assert "Preferred" not in other_text
+    assert other_text.index("Local") < other_text.index("Global")
+
+    keyboard = _web_photo_keyboard(flow, 0, 0, "priority")
+    callbacks = [
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+    assert "pi:tok:pg:0:0:priority" in callbacks
+    assert "pi:tok:pg:0:0:other" in callbacks
+    assert "pi:tok:pg:0:0:all" in callbacks

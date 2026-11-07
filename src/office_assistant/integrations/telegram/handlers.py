@@ -174,15 +174,18 @@ from office_assistant.processing.visual_paging import indexed_page
 from office_assistant.reminders.time_parsing import looks_like_reminder_request
 from office_assistant.repositories.product_image_relations import ProductImageRelationRepository
 from office_assistant.web_evidence.image_search import (
+    ImageFilterMode,
     ImageWebResult,
     YandexReverseImageSearch,
     image_web_page,
+    image_web_view,
 )
 from office_assistant.web_evidence.models import WebAnswer, WebEvidenceUnavailable
 from office_assistant.web_evidence.priority_sites import (
     InvalidPrioritySite,
     PrioritySitePermissionDenied,
     PrioritySitesService,
+    normalize_priority_domain,
 )
 from office_assistant.web_evidence.service import WebEvidenceService
 
@@ -200,6 +203,8 @@ PHOTO_GROUP_APPEND_TTL_SECONDS = 600
 SALES_IMPORT_KEY = "office_sales_import"
 SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
+SITES_ENTRY_KEY = "office_priority_site_entry"
+SITES_ENTRY_TTL_SECONDS = 600
 logger = logging.getLogger(__name__)
 
 
@@ -450,14 +455,14 @@ def _format_internal(result: InternalAnswer) -> str:
     if not result.citations:
         return result.answer
     source_lines = [f"[{item.number}] {item.label}" for item in result.citations]
-    return f"{result.answer}\n\nMənbələr:\n" + "\n".join(source_lines)
+    return f"{result.answer}\n\n{messages.SOURCES_HEADER}\n" + "\n".join(source_lines)
 
 
 def _format_web(result: WebAnswer) -> str:
     if not result.citations:
         return result.answer
     source_lines = [f"[{item.number}] {item.label}" for item in result.citations]
-    return f"{result.answer}\n\nMənbələr:\n" + "\n".join(source_lines)
+    return f"{result.answer}\n\n{messages.SOURCES_HEADER}\n" + "\n".join(source_lines)
 
 
 async def _try_file_delivery(
@@ -622,6 +627,9 @@ def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
             InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
+        ],
+        [
+            InlineKeyboardButton(messages.MENU_SITES_BUTTON, callback_data="om:sites"),
         ],
     ]
     if miniapp_url is not None and miniapp_url.startswith("https://"):
@@ -1231,6 +1239,7 @@ def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
     data = getattr(context, "user_data", None)
     if data is not None:
         data.pop(MENU_SELECTION_KEY, None)
+        data.pop(SITES_ENTRY_KEY, None)
 
 
 async def handle_menu_interruption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1293,6 +1302,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:examples",
         "om:save",
         "om:cancel",
+        "om:sites",
+        "om:sites:add",
+        "om:sites:remove",
     }:
         return
     # A later tap replaces the earlier scope, including help, upload and access denial.
@@ -1335,6 +1347,27 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if action == "om:ask":
             await query.edit_message_text(messages.MENU_CHAT_PROMPT)
             return
+        if action == "om:sites":
+            await _render_sites_panel(query, services, user)
+            return
+        if action in {"om:sites:add", "om:sites:remove"}:
+            if user.role != UserRole.ADMIN:
+                await query.edit_message_text(messages.NO_PERMISSION)
+                return
+            if services.session_factory is None:
+                await query.edit_message_text(messages.TEMPORARY_ERROR)
+                return
+            data = getattr(context, "user_data", None)
+            if data is None:
+                await query.edit_message_text(messages.MENU_TEMPORARY_UNAVAILABLE)
+                return
+            operation = "add" if action == "om:sites:add" else "remove"
+            data[SITES_ENTRY_KEY] = (operation, monotonic() + SITES_ENTRY_TTL_SECONDS)
+            prompt = (
+                messages.SITES_ADD_PROMPT if operation == "add" else messages.SITES_REMOVE_PROMPT
+            )
+            await query.edit_message_text(prompt)
+            return
         # A pending document may remain staged while the user asks questions,
         # checks a product, or runs a sale report. Buttons must not lock the chat.
         data = getattr(context, "user_data", None)
@@ -1356,6 +1389,38 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     except SQLAlchemyError:
         logger.exception("Telegram menu callback database lookup failed")
         await query.edit_message_text(messages.TEMPORARY_ERROR)
+
+
+async def _render_sites_panel(query: CallbackQuery, services: TelegramServices, user: User) -> None:
+    """List priority domains; admins get add/remove controls, everyone gets home."""
+
+    if services.session_factory is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        domains = await PrioritySitesService(services.session_factory).list_domains()
+    except SQLAlchemyError:
+        logger.exception("Priority website panel lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    listing = (
+        "\n".join(f"{index}. {domain}" for index, domain in enumerate(domains, start=1))
+        if domains
+        else messages.SITES_EMPTY
+    )
+    text = messages.SITES_PANEL_HEADER + "\n" + listing
+    rows: list[list[InlineKeyboardButton]] = []
+    if user.role == UserRole.ADMIN:
+        rows.append(
+            [
+                InlineKeyboardButton(messages.SITES_ADD_BUTTON, callback_data="om:sites:add"),
+                InlineKeyboardButton(messages.SITES_REMOVE_BUTTON, callback_data="om:sites:remove"),
+            ]
+        )
+    else:
+        text += messages.SITES_ADMIN_ONLY
+    rows.append([InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="om:home")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
 
 
 async def handle_catalog_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1591,6 +1656,65 @@ async def _try_menu_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
     return True
 
 
+async def _try_priority_site_entry(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Consume one admin text turn as a priority-site add/remove, then clear it."""
+
+    data = getattr(context, "user_data", None)
+    if data is None:
+        return False
+    pending: object = data.pop(SITES_ENTRY_KEY, None)
+    if not isinstance(pending, tuple):
+        return False
+    entry = cast(tuple[object, ...], pending)
+    if len(entry) != 2:
+        return False
+    operation, expires_at = entry
+    if (
+        not isinstance(operation, str)
+        or operation not in {"add", "remove"}
+        or not isinstance(expires_at, (int, float))
+    ):
+        return False
+    message = update.effective_message
+    identity = _identity(update)
+    if message is None or identity is None:
+        return True
+    if monotonic() > expires_at:
+        await message.reply_text(messages.SITES_ENTRY_EXPIRED)
+        return True
+    if user.role != UserRole.ADMIN:
+        await message.reply_text(messages.NO_PERMISSION)
+        return True
+    if services.session_factory is None:
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return True
+    try:
+        domain = normalize_priority_domain(text)
+        domains = await PrioritySitesService(services.session_factory).update(
+            identity.telegram_user_id, operation, domain
+        )
+    except InvalidPrioritySite as error:
+        await message.reply_text(str(error))
+        return True
+    except PrioritySitePermissionDenied:
+        await message.reply_text(messages.NO_PERMISSION)
+        return True
+    except SQLAlchemyError:
+        logger.exception("Priority website entry failed")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return True
+    listing = ", ".join(domains) if domains else messages.SITES_EMPTY_LIST
+    template = messages.SITES_ADDED if operation == "add" else messages.SITES_REMOVED
+    await message.reply_text(template.format(domain=domain, domains=listing))
+    return True
+
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update):
         return
@@ -1637,6 +1761,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.reply_text(messages.UNKNOWN_USER)
             elif user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
+            elif await _try_priority_site_entry(update, context, services, user, message.text):
+                return
             elif await _save_photo_album_description(update, context, user):
                 return
             elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
@@ -1922,6 +2048,7 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     data = getattr(context, "user_data", None)
     if data is not None:
         data.pop(PHOTO_GROUP_APPEND_KEY, None)
+        data.pop(SITES_ENTRY_KEY, None)
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is not None and user.status == UserStatus.ACTIVE and services.ingestion is not None:
         try:
@@ -3522,25 +3649,46 @@ async def _photo_download(context: ContextTypes.DEFAULT_TYPE, file_id: str) -> b
     return data
 
 
-def _web_photo_keyboard(flow: PhotoFlow, photo_index: int, page: int) -> InlineKeyboardMarkup:
-    result = flow.web_results[photo_index]
+def _web_photo_keyboard(
+    flow: PhotoFlow, photo_index: int, page: int, mode: ImageFilterMode
+) -> InlineKeyboardMarkup:
+    result = image_web_view(flow.web_results[photo_index], mode)
     start = page * 5
-    rows: list[list[InlineKeyboardButton]] = []
+    filters = (
+        ("priority", messages.PHOTO_FILTER_PRIORITY_BUTTON),
+        ("other", messages.PHOTO_FILTER_OTHER_BUTTON),
+        ("all", messages.PHOTO_FILTER_ALL_BUTTON),
+    )
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                ("✓ " if mode == value else "") + label,
+                callback_data=f"pi:{flow.token}:pg:{photo_index}:0:{value}",
+            )
+            for value, label in filters
+        ]
+    ]
     for number, hit in enumerate(image_web_page(result, page), start=start + 1):
         rows.append(
             [
-                InlineKeyboardButton(f"🔗 Mənbə {number}", url=hit.source_url),
-                InlineKeyboardButton("🖼 Orijinal şəkil", url=hit.image_url),
+                InlineKeyboardButton(
+                    messages.PHOTO_WEB_SOURCE_BUTTON.format(number=number), url=hit.source_url
+                ),
+                InlineKeyboardButton(messages.PHOTO_WEB_IMAGE_BUTTON, url=hit.image_url),
             ]
         )
     navigation: list[InlineKeyboardButton] = []
     if page > 0:
         navigation.append(
-            InlineKeyboardButton("⬅️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page - 1}")
+            InlineKeyboardButton(
+                "⬅️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page - 1}:{mode}"
+            )
         )
     if start + 5 < len(result.results):
         navigation.append(
-            InlineKeyboardButton("➡️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page + 1}")
+            InlineKeyboardButton(
+                "➡️", callback_data=f"pi:{flow.token}:pg:{photo_index}:{page + 1}:{mode}"
+            )
         )
     if navigation:
         rows.append(navigation)
@@ -3548,45 +3696,53 @@ def _web_photo_keyboard(flow: PhotoFlow, photo_index: int, page: int) -> InlineK
         rows.append(
             [
                 InlineKeyboardButton(
-                    f"📷 Şəkil {index + 1}",
-                    callback_data=f"pi:{flow.token}:pg:{index}:0",
+                    messages.PHOTO_WEB_PHOTO_BUTTON.format(number=index + 1),
+                    callback_data=f"pi:{flow.token}:pg:{index}:0:{mode}",
                 )
                 for index in range(len(flow.web_results))
             ]
         )
     if result.provider_url.startswith("https://yandex.com/images/search"):
-        rows.append([InlineKeyboardButton("🌐 Yandex nəticələrində bax", url=result.provider_url)])
+        rows.append(
+            [InlineKeyboardButton(messages.PHOTO_WEB_YANDEX_BUTTON, url=result.provider_url)]
+        )
     return InlineKeyboardMarkup(rows)
 
 
-def _web_photo_text(flow: PhotoFlow, photo_index: int, page: int) -> str:
-    result = flow.web_results[photo_index]
+def _web_photo_text(flow: PhotoFlow, photo_index: int, page: int, mode: ImageFilterMode) -> str:
+    result = image_web_view(flow.web_results[photo_index], mode)
     total = len(result.results)
     pages = max(1, (total + 4) // 5)
+    filter_label = {
+        "all": messages.PHOTO_FILTER_ALL,
+        "priority": messages.PHOTO_FILTER_PRIORITY,
+        "other": messages.PHOTO_FILTER_OTHER,
+    }[mode]
     lines = [
-        f"🌐 İNTERNET ŞƏKİL NƏTİCƏLƏRİ — {photo_index + 1}/{len(flow.web_results)}",
-        f"Nəticələr: {total} | Səhifə: {page + 1}/{pages}",
+        f"{messages.PHOTO_WEB_TITLE} — {photo_index + 1}/{len(flow.web_results)}",
+        messages.PHOTO_WEB_COUNTS.format(
+            total=total, page=page + 1, pages=pages, filter=filter_label
+        ),
         "",
     ]
-    for offset, hit in enumerate(image_web_page(result, page), start=page * 5 + 1):
-        lines.extend(
-            [
-                f"{offset}. {hit.title[:120]}",
-                f"   Sayt: {hit.domain}" + (" · prioritet" if hit.priority else ""),
-                "   Mənbə səhifəsini və orijinal şəkli düymələrlə aça bilərsiniz.",
-                "",
-            ]
-        )
-    if not total:
+    for number, hit in enumerate(image_web_page(result, page), start=page * 5 + 1):
+        badges = f" · {messages.PHOTO_WEB_PRIORITY_BADGE}" if hit.priority else ""
         lines.append(
-            "Bu foto üçün sorğu yekunlaşmadı və ya vaxt limitinə düşdü."
-            if result.blocked
-            else "Bu provayderdə təsdiqlənən şəkil-mənbə cütü tapılmadı."
+            messages.PHOTO_WEB_HIT.format(
+                number=number, title=hit.title[:120], domain=hit.domain, badges=badges
+            )
         )
-    lines.append(
-        "İnternet uyğunluğu məhsul kimliyini, qiyməti və ya stoku təsdiqləmir. "
-        "Şəkil yalnız bu seçimdən sonra Yandex-ə göndərilib."
-    )
+        lines.append("")
+    if not total:
+        if result.blocked:
+            lines.append(messages.PHOTO_WEB_EMPTY_BLOCKED)
+        elif mode != "all":
+            lines.append(messages.PHOTO_WEB_FILTER_EMPTY)
+        else:
+            lines.append(messages.PHOTO_WEB_EMPTY)
+    else:
+        lines.append(messages.PHOTO_WEB_OPEN_HINT)
+    lines.extend(["", messages.PHOTO_WEB_DISCLAIMER])
     return "\n".join(lines)
 
 
@@ -3613,19 +3769,24 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(messages.NO_PERMISSION)
         return
     action = parts[2]
-    if action == "pg" and len(parts) == 5:
+    if action == "pg" and len(parts) == 6:
+        if parts[5] not in {"all", "priority", "other"}:
+            await query.edit_message_text(messages.PHOTO_WEB_PAGE_UNAVAILABLE)
+            return
+        view_mode = cast(ImageFilterMode, parts[5])
         try:
             photo_index, page = int(parts[3]), int(parts[4])
-            if not (0 <= photo_index < len(flow.web_results)) or not (
-                0 <= page * 5 < max(1, len(flow.web_results[photo_index].results))
-            ):
+            if not 0 <= photo_index < len(flow.web_results):
+                raise ValueError
+            filtered = image_web_view(flow.web_results[photo_index], view_mode)
+            if not 0 <= page * 5 < max(1, len(filtered.results)):
                 raise ValueError
         except ValueError:
-            await query.edit_message_text("Bu nəticə səhifəsi artıq əlçatan deyil.")
+            await query.edit_message_text(messages.PHOTO_WEB_PAGE_UNAVAILABLE)
             return
         await query.edit_message_text(
-            _web_photo_text(flow, photo_index, page),
-            reply_markup=_web_photo_keyboard(flow, photo_index, page),
+            _web_photo_text(flow, photo_index, page, view_mode),
+            reply_markup=_web_photo_keyboard(flow, photo_index, page, view_mode),
         )
         return
     if action == "dbimg" and len(parts) == 6:
@@ -3909,7 +4070,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
         search=search_one,
     )
     flow.web_results[:] = batch.results
-    text = _web_photo_text(flow, 0, 0)
+    text = _web_photo_text(flow, 0, 0, "all")
     if batch.incomplete:
         text += (
             f"\n\nDiqqət: {batch.failed} sorğu uğursuz oldu, "
@@ -3919,7 +4080,7 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
     await context.bot.send_message(
         chat_id=identity.telegram_user_id,
         text=text,
-        reply_markup=_web_photo_keyboard(flow, 0, 0),
+        reply_markup=_web_photo_keyboard(flow, 0, 0, "all"),
     )
 
 

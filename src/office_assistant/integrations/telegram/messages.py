@@ -44,6 +44,29 @@ MENU_EXAMPLES_BUTTON = "✨ Nümunələr"
 MENU_NAV_ASK = "💬 Yeni sual"
 MENU_NAV_BAZA = "🏢 Bizim baza"
 MENU_NAV_HOME = "🏠 Menyu"
+MENU_SITES_BUTTON = "🌐 Prioritet saytlar"
+SITES_PANEL_HEADER = (
+    "🌐 PRIORİTET SAYTLAR\n\n"
+    "İnternet və şəkil axtarışı əvvəl bu saytlar üzrə aparılır, sonra digər mənbələr üzrə. "
+    "Digər nəticələrdə .az saytları birinci göstərilir.\n"
+)
+SITES_EMPTY = "Siyahı boşdur. Axtarış ümumi mənbələrdə aparılır."
+SITES_ADMIN_ONLY = "\nSiyahını yalnız administrator dəyişə bilər."
+SITES_ADD_BUTTON = "➕ Sayt əlavə et"
+SITES_REMOVE_BUTTON = "➖ Sayt sil"
+SITES_ADD_PROMPT = (
+    "➕ SAYT ƏLAVƏ ET\n\nƏsas domeni yazın, məsələn: knatank.az\n"
+    "URL yolu, port və IP qəbul edilmir. Maksimum 10 sayt.\n\n"
+    "Ləğv etmək üçün /cancel."
+)
+SITES_REMOVE_PROMPT = (
+    "➖ SAYT SİL\n\nSilmək istədiyiniz domeni yazın, məsələn: knatank.az\n\n"
+    "Ləğv etmək üçün /cancel."
+)
+SITES_ADDED = "✅ Sayt əlavə edildi: {domain}\nCari prioritetlər: {domains}"
+SITES_REMOVED = "✅ Sayt silindi: {domain}\nCari prioritetlər: {domains}"
+SITES_EMPTY_LIST = "siyahı boşdur"
+SITES_ENTRY_EXPIRED = "Bu sayt seçimının vaxtı bitib. Menyudan yenidən başlayın."
 MENU_SOURCE_FILE_BUTTON = "📎 Mənbə {number}"
 MENU_SOURCE_BUTTON_EXPIRED = (
     "Bu mənbə düyməsinin vaxtı bitib və ya daha yeni cavab göstərilib. "
@@ -53,6 +76,7 @@ MENU_SOURCE_NO_FILE = (
     "Bu mənbənin orijinal faylı hazırda təqdim edilmir. "
     "Mənbə nömrəsini yoxlayın və ya son cavabı yenidən açın."
 )
+SOURCES_HEADER = "📎 Mənbələr:"
 MENU_QUICK_HELP = (
     "❔ NECƏ İSTİFADƏ ETMƏLİ?\n\n"
     "1. Mesaj yerinə istədiyiniz sualı yazın; əmrləri əzbərləməyə ehtiyac yoxdur.\n"
@@ -95,6 +119,29 @@ MENU_PHOTO_PROMPT = (
     "anbar qalığını təsdiqləmir.\n\n"
     "Şəkli birbaşa göndərsəniz də axtarış seçimləri açılacaq."
 )
+PHOTO_WEB_TITLE = "🌐 İNTERNET ŞƏKİL NƏTİCƏLƏRİ"
+PHOTO_WEB_COUNTS = "Nəticə: {total} · Səhifə: {page}/{pages} · Filtr: {filter}"
+PHOTO_FILTER_ALL = "Hamısı"
+PHOTO_FILTER_PRIORITY = "Prioritet saytlar"
+PHOTO_FILTER_OTHER = "Digər nəticələr"
+PHOTO_FILTER_ALL_BUTTON = "🌐 Hamısı"
+PHOTO_FILTER_PRIORITY_BUTTON = "⭐ Prioritet"
+PHOTO_FILTER_OTHER_BUTTON = "🔎 Digər"
+PHOTO_WEB_SOURCE_BUTTON = "🔗 Mənbə {number}"
+PHOTO_WEB_IMAGE_BUTTON = "🖼 Orijinal"
+PHOTO_WEB_PHOTO_BUTTON = "📷 Şəkil {number}"
+PHOTO_WEB_YANDEX_BUTTON = "🌐 Yandex nəticələrində bax"
+PHOTO_WEB_PRIORITY_BADGE = "prioritet"
+PHOTO_WEB_HIT = "{number}. {title}\n   {domain}{badges}"
+PHOTO_WEB_OPEN_HINT = "Mənbə səhifəsini və orijinal şəkli aşağıdakı düymələrlə açın."
+PHOTO_WEB_EMPTY = "Bu provayderdə təsdiqlənən şəkil-mənbə cütü tapılmadı."
+PHOTO_WEB_EMPTY_BLOCKED = "Bu foto üçün sorğu yekunlaşmadı və ya vaxt limitinə düşdü."
+PHOTO_WEB_FILTER_EMPTY = "Bu filtrdə nəticə yoxdur. «Hamısı» və ya başqa filtr seçin."
+PHOTO_WEB_DISCLAIMER = (
+    "İnternet uyğunluğu məhsul kimliyini, qiyməti və ya stoku təsdiqləmir. "
+    "Şəkil yalnız bu seçimdən sonra Yandex-ə göndərilib."
+)
+PHOTO_WEB_PAGE_UNAVAILABLE = "Bu nəticə səhifəsi artıq əlçatan deyil."
 MENU_STOCK_PROMPT = (
     "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
     "Bu sorğu yalnız təsdiqlənmiş anbar hərəkətlərini yoxlayır. "

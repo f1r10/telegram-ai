@@ -410,3 +410,52 @@ def test_help_describes_combined_search_and_source_followup_separately() -> None
     assert "/tamaxtar <sual>" in HELP_TEXT
     assert "/tamaxtar <nömrə>" not in HELP_TEXT
     assert "2-ci mənbəni göndər" in HELP_TEXT
+
+
+def test_source_lists_use_catalog_header_and_keep_citation_numbers() -> None:
+    from office_assistant.integrations.telegram import messages
+    from office_assistant.integrations.telegram.handlers import (
+        _format_internal,  # pyright: ignore[reportPrivateUsage]
+        _format_web,  # pyright: ignore[reportPrivateUsage]
+    )
+    from office_assistant.internal_evidence.models import (
+        InternalAnswer,
+        RoutingCategory,
+        UnifiedCitation,
+    )
+    from office_assistant.web_evidence.models import WebCitation
+
+    internal = InternalAnswer(
+        answer="Cavab [1].",
+        route=RoutingCategory.INTERNAL_DOCUMENT,
+        citations=(
+            UnifiedCitation(
+                evidence_id="e1",
+                number=1,
+                source_class="DOCUMENT",
+                label="Sənəd A",
+            ),
+        ),
+    )
+    rendered = _format_internal(internal)
+    assert rendered.startswith("Cavab [1].\n\n")
+    assert messages.SOURCES_HEADER in rendered
+    assert "[1] Sənəd A" in rendered
+    uncited = InternalAnswer(answer="Salam.", route=RoutingCategory.GENERAL_CHAT)
+    assert _format_internal(uncited) == "Salam."
+
+    web = WebAnswer(
+        answer="Xarici cavab [1].",
+        citations=(
+            WebCitation(
+                evidence_id="w1",
+                number=1,
+                title="Başlıq",
+                url="https://example.az/a",
+                domain="example.az",
+            ),
+        ),
+    )
+    web_rendered = _format_web(web)
+    assert messages.SOURCES_HEADER in web_rendered
+    assert "[1] İnternet — example.az — Başlıq — https://example.az/a" in web_rendered
