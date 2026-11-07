@@ -78,7 +78,6 @@ def test_pdf_ocr_readiness_sanitizes_engine_timeouts(
     assert "secret" not in outcome.detail
 
 
-
 def test_expected_on_demand_image_probe_does_not_degrade_readiness() -> None:
     from sqlalchemy.dialects import postgresql
 
@@ -91,7 +90,6 @@ def test_expected_on_demand_image_probe_does_not_degrade_readiness() -> None:
     )
     assert "document_parse_runs.parser_name != 'image-probe'" in sql
     assert "document_parse_runs.status = 'DEFERRED'" in sql
-
 
 
 def test_replay_progress_requires_nonempty_indexed_vectors() -> None:
