@@ -132,13 +132,15 @@ for service in app worker; do
 done
 
 # These tools perform SELECTs, network health probes and an image catalog DRY RUN.
-# Some checks load existing model caches: each is bounded and progress is visible.
-run_check live_readiness compose_timed 65 exec -T app \
-  uv run --no-dev python -m office_assistant.scripts.check_readiness
-run_check aggregate_photo_preflight compose_timed 35 exec -T app \
-  uv run --no-dev python -m office_assistant.scripts.check_three_acceptance_gates
-run_check visual_catalog_dry_run compose_timed 80 exec -T app \
-  uv run --no-dev python -m office_assistant.scripts.prepare_visual_catalog
+# Run them in the exact app container already verified above. Direct docker exec avoids
+# Compose's service-exec wrapper and uv's project/lock resolution on this read-only gate.
+# The image already contains the locked virtualenv at /app/.venv.
+run_check live_readiness timeout --signal=TERM --kill-after=5s 65 \
+  docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.check_readiness
+run_check aggregate_photo_preflight timeout --signal=TERM --kill-after=5s 35 \
+  docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.check_three_acceptance_gates
+run_check visual_catalog_dry_run timeout --signal=TERM --kill-after=5s 80 \
+  docker exec tgstage_app /app/.venv/bin/python -m office_assistant.scripts.prepare_visual_catalog
 
 printf 'MANUAL_UAT_GATE=TECHNICAL_PASS mode=%s sha=%s\n' "$mode" "$(git rev-parse HEAD)"
 printf 'MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED\n'
