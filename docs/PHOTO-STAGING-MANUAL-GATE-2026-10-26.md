@@ -311,3 +311,26 @@ After fetching the updated script, run
 the `MANUAL_UAT_CHECK` and `MANUAL_UAT_GATE` status lines. Keep the
 existing database, image storage, Docker volumes, private backup and test
 bot token untouched.
+
+### PostgreSQL TCP authentication on the staging gate (2026-11-02)
+
+The operator's direct read-only check succeeded with `psql -h 127.0.0.1`
+and the container's `POSTGRES_PASSWORD`, while the gate's prior `psql`
+call omitted `-h`. libpq therefore selected the local Unix socket, which
+can use different PostgreSQL authentication rules. The gate now uses the
+same loopback TCP/password-auth path, disables password prompts with
+`-w`, and keeps all output suppressed. This does not change PostgreSQL
+configuration or data.
+
+The operator's `to_regclass` check returned `alembic_version` (unqualified),
+not `public.alembic_version`; the gate already accepts both. The earlier
+manual diagnostic printed the revision only when the result was the
+qualified form, so it did not yet establish the actual revision. The updated
+gate always queries `version_num` after confirming the table exists and
+only passes when the revision is exactly `0023_photo_groups`.
+
+After this code-only script update is merged, fetch `main` and rerun
+`bash scripts/gate_manual_photo_uat.sh --photo-only`. The next result
+will either confirm the expected revision or report a distinct, fail-closed
+revision-query/migration reason. Do not run a migration until the exact
+revision is known and the staging backup is verified.
