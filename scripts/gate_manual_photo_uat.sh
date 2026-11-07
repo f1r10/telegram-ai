@@ -93,7 +93,9 @@ printf 'MANUAL_UAT_CHECK=schema_revision status=RUNNING\n'
 sql_one() {
   local query="$1"
   compose_timed 25 exec -T postgres sh -c \
-    'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -A -t -q -c "$1"' \
+    'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432 \
+      -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -A -t -q -c "$1"' \
     sh "$query"
 }
 connectivity="$(sql_one 'SELECT 1' 2>/dev/null | tr -d '[:space:]')" \

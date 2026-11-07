@@ -25,6 +25,7 @@ def test_gate_is_valid_bash_and_never_modifies_staging() -> None:
     assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in text
     assert "MANUAL_UAT_CHECK=" in text
     assert "timeout --signal=TERM --kill-after=5s" in text
+    assert 'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -w -h 127.0.0.1 -p 5432' in text
     for forbidden in (
         "docker compose down",
         "docker volume rm",
@@ -142,6 +143,7 @@ def test_gate_fails_closed_with_stubbed_docker(
         assert "MANUAL_UAT_GATE=TECHNICAL_PASS" in result.stdout
         assert "MANUAL_UAT=HUMAN_ACCEPTANCE_REQUIRED" in result.stdout
         assert "MANUAL_UAT_CHECK=postgres_sql status=PASS" in result.stdout
+        assert "MANUAL_UAT_CHECK=schema_revision status=PASS" in result.stdout
         assert "MANUAL_UAT_CHECK=live_readiness status=PASS" in result.stdout
         assert "MANUAL_UAT_CHECK=visual_catalog_dry_run status=PASS" in result.stdout
     else:
