@@ -25,6 +25,7 @@ MENU_TITLE = (
 MENU_CHAT_BUTTON = "💬 Sual ver"
 MENU_BAZA_BUTTON = "🏢 Bizim baza"
 MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
+MENU_PHOTO_BUTTON = "📷 Şəkillə axtar"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
@@ -83,6 +84,16 @@ MENU_PRODUCT_PROMPT = (
     "📦 MƏHSUL TAP\n\nKodu, adını və ya sualınızı yazın. "
     "Məsələn: «KA45 haqqında hansı sənədlərimiz var?»\n"
     "Məhsulun bazada olması anbarda mövcud olduğu anlamına gəlmir."
+)
+MENU_PHOTO_PROMPT = (
+    "📷 ŞƏKİLLƏ AXTARIŞ\n\n"
+    "Məhsulun şəklini və ya bir albomda 1–12 foto göndərin. "
+    "Sonra «Bazad axtar» seçərək təsdiqlənmiş məhsul şəkillərini və "
+    "indekslənmiş sənəd şəkillərini yoxlayın.\n\n"
+    "«İnternetdə axtar» ayrıca seçimdir; foto yalnız həmin düyməni seçəndə "
+    "Yandex-ə ötürülür. Vizual oxşarlıq məhsulun eyniliyini, qiyməti və "
+    "anbar qalığını təsdiqləmir.\n\n"
+    "Şəkli birbaşa göndərsəniz də axtarış seçimləri açılacaq."
 )
 MENU_STOCK_PROMPT = (
     "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
