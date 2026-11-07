@@ -139,6 +139,7 @@ from office_assistant.integrations.telegram.turn_context import (
     needs_an_attached_picture,
 )
 from office_assistant.internal_evidence.delivery import (
+    DeliverableFile,
     FileDeliveryAmbiguous,
     FileDeliveryError,
     SourceFileDeliveryService,
@@ -508,6 +509,16 @@ async def _try_file_delivery(
     return True
 
 
+def _catalog_original_is_photo(original: DeliverableFile) -> bool:
+    """Use Telegram's inline photo path only for supported, bounded image files."""
+
+    return (
+        original.content_type.lower().startswith("image/")
+        and Path(original.filename).suffix.lower() in {".jpg", ".jpeg", ".png"}
+        and 0 < original.path.stat().st_size <= 10 * 1024 * 1024
+    )
+
+
 async def _try_catalog_source_delivery(
     message: Message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -543,14 +554,23 @@ async def _try_catalog_source_delivery(
             actor_telegram_user_id,
             file_id=source.file_id,
             occurrence_id=source.occurrence_id,
+            allow_standalone=True,
         )
         with original.path.open("rb") as stream:
-            await message.reply_document(
-                document=stream,
-                filename=original.filename,
-                read_timeout=60,
-                write_timeout=60,
-            )
+            if _catalog_original_is_photo(original):
+                await message.reply_photo(
+                    photo=stream,
+                    caption=f"📷 {original.filename}",
+                    read_timeout=60,
+                    write_timeout=60,
+                )
+            else:
+                await message.reply_document(
+                    document=stream,
+                    filename=original.filename,
+                    read_timeout=60,
+                    write_timeout=60,
+                )
     except (
         AuthorizationDenied,
         FileDeliveryError,
@@ -1339,7 +1359,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_catalog_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Download the original PDF for a recent, actor-bound visual source match."""
+    """Deliver the original image or parent document for an actor-bound visual source."""
 
     if not _is_private(update):
         return
@@ -1372,15 +1392,25 @@ async def handle_catalog_source_button(update: Update, context: ContextTypes.DEF
             identity.telegram_user_id,
             file_id=source.file_id,
             occurrence_id=source.occurrence_id,
+            allow_standalone=True,
         )
         with original.path.open("rb") as stream:
-            await context.bot.send_document(
-                chat_id=identity.telegram_user_id,
-                document=stream,
-                filename=original.filename,
-                read_timeout=60,
-                write_timeout=60,
-            )
+            if _catalog_original_is_photo(original):
+                await context.bot.send_photo(
+                    chat_id=identity.telegram_user_id,
+                    photo=stream,
+                    caption=f"📷 {original.filename}",
+                    read_timeout=60,
+                    write_timeout=60,
+                )
+            else:
+                await context.bot.send_document(
+                    chat_id=identity.telegram_user_id,
+                    document=stream,
+                    filename=original.filename,
+                    read_timeout=60,
+                    write_timeout=60,
+                )
     except (
         AuthorizationDenied,
         FileDeliveryError,
