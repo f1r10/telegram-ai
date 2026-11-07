@@ -19,6 +19,9 @@ from office_assistant.infrastructure.database.models import (
     ImageAsset,
     ImageAssetOccurrence,
     ImageAssetOrigin,
+    IngestionSessionItem,
+    PhotoGroup,
+    PhotoGroupImage,
 )
 from office_assistant.processing.catalog_visual_candidates import (
     SEMANTIC_ALTERNATIVE_MARGIN,
@@ -77,10 +80,20 @@ async def active_document_images(
                 ImageAssetOccurrence.locator,
                 ImageAsset.storage_key,
                 ImageAsset.content_sha256,
+                PhotoGroup.metadata_text,
             )
             .select_from(ImageAssetOccurrence)
             .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
             .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
+            .outerjoin(
+                IngestionSessionItem,
+                IngestionSessionItem.file_object_id == ImageAssetOccurrence.source_file_id,
+            )
+            .outerjoin(
+                PhotoGroupImage,
+                PhotoGroupImage.session_item_id == IngestionSessionItem.id,
+            )
+            .outerjoin(PhotoGroup, PhotoGroup.id == PhotoGroupImage.group_id)
             .where(
                 ImageAssetOccurrence.origin_type.in_(DOCUMENT_IMAGE_ORIGINS),
                 FileObject.state == FileObjectState.ACTIVE,
@@ -90,8 +103,19 @@ async def active_document_images(
         )
     ).all()
     sources = [
-        DocumentImageSource(occurrence_id, file_id, filename, origin, locator, key, digest)
-        for occurrence_id, file_id, filename, origin, locator, key, digest in rows[:limit]
+        DocumentImageSource(
+            occurrence_id,
+            file_id,
+            filename,
+            origin,
+            locator,
+            key,
+            digest,
+            metadata_text or "",
+        )
+        for occurrence_id, file_id, filename, origin, locator, key, digest, metadata_text in rows[
+            :limit
+        ]
     ]
     return sources, len(rows) > limit
 
@@ -199,20 +223,29 @@ def document_image_location(source: DocumentImageSource) -> str:
 
 
 def render_document_image_hits(
-    hits: tuple[DocumentImageHit, ...], *, incomplete: bool = False
+    hits: tuple[DocumentImageHit, ...],
+    *,
+    incomplete: bool = False,
+    query_details: str | None = None,
 ) -> str:
-    """Show source provenance, not product identity or invented PDF page labels."""
+    """Show the user's original search details with source provenance."""
 
     if not hits:
         return ""
-    lines = ["📁 FAYLLARDA ŞƏKİL ÜZRƏ NƏTİCƏ", ""]
+    # Prefer the metadata attached to the query caption; when the same saved
+    # photo is searched later, recover its owner-scoped photo-group metadata.
+    stored_details = next((hit.source.description for hit in hits if hit.source.description), "")
+    raw_details = query_details or stored_details
+    details = " ".join(raw_details.split())[:600] if raw_details else ""
+    lines = ["📁 FAYLLARDA ŞƏKİL ÜZRƏ NƏTİCƏ"]
+    if details:
+        lines.extend(["", "🔎 AXTARIŞ MƏLUMATLARI", details])
+    lines.append("")
     for position, hit in enumerate(hits, start=1):
         filename = " ".join(hit.source.filename.split())[:96]
         kind = hit.source.origin.replace("_EMBEDDED", "")
         lines.append(f"{position}. {filename} ({kind})")
         lines.append(f"   Yer: {document_image_location(hit.source)}")
-        if hit.source.description:
-            lines.append(f"   Məlumat: {hit.source.description[:320]}")
         lines.append(
             "   Uyğunluq: fərqli foto üzrə ehtimal"
             if hit.match_type == "semantic"
@@ -224,6 +257,8 @@ def render_document_image_hits(
         "təsdiqlənməmiş mənbələrdir. Məhsulun dəqiq kodunu, qiymətini "
         "və anbar qalığını təsdiqləmir. Mənbə faylını açıb yoxlayın."
     )
+    if details:
+        lines.extend(["", "Axtarış üçün daxil etdiyiniz məlumatlar:", details])
     if incomplete:
         lines.append("Yoxlama ilk 500 aktiv sənəd şəkli qeydi ilə məhdudlaşıb.")
     return "\n".join(lines)

@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageStat
 
 from office_assistant.infrastructure.database.models import ImageAssetOrigin
 from office_assistant.processing.document_visual_candidates import (
+    DocumentImageHit,
     DocumentImageSource,
     find_document_images,
     render_document_image_hits,
@@ -87,6 +88,25 @@ def test_embedded_sources_from_all_three_file_types_are_searchable(tmp_path: Pat
         assert item.filename in text
         assert "təsdiqlənməmiş" in text
         assert "anbar" in text
+        details = "Ad: Qara mürəkkəb qələm | Kateqoriya: Qələm | Təsvir: Metal"
+        detailed = render_document_image_hits(hits, query_details=details)
+        assert detailed.count("Ad: Qara mürəkkəb qələm") == 2
+        assert detailed.count("Kateqoriya: Qələm") == 2
+        assert detailed.count("Təsvir: Metal") == 2
+        stored = DocumentImageSource(
+            99,
+            199,
+            "saved.jpg",
+            ImageAssetOrigin.STANDALONE_UPLOAD,
+            {},
+            "saved.png",
+            sha256(b"stored").hexdigest(),
+            "Ad: Qara mürəkkəb qələm\\nKateqoriya: Qələm\\nTəsvir: Metal",
+        )
+        stored_text = render_document_image_hits((DocumentImageHit(stored, "near_duplicate"),))
+        assert stored_text.count("Ad: Qara mürəkkəb qələm") == 2
+        assert stored_text.count("Kateqoriya: Qələm") == 2
+        assert stored_text.count("Təsvir: Metal") == 2
     xlsx, _, _ = find_document_images(
         (tmp_path / files[2].storage_key).read_bytes(), files, tmp_path, quick_only=True
     )
