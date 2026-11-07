@@ -373,3 +373,23 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       V1 DINO CPU staging overlay: matching app/worker/Mini App model,
       volume parity, port isolation and no accidental activation of
       the operator-only service.
+
+## Priority-site menu and image-search filter UX — 2026-11-08
+
+- [x] Add a "Prioritet saytlar" Telegram menu section: any ACTIVE user sees the
+      ordered admin-managed domain list; only ACTIVE admins get add/remove
+      controls, which arm a one-shot text entry (TTL; /cancel, navigation and
+      commands clear it) reusing the audited `PrioritySitesService` (max 10,
+      normalized public domains). The same `web_search_priority_domains_v1` list
+      drives `/internet`, `/tamaxtar` and photo reverse-image ranking.
+- [x] Rank Yandex reverse-image hits admin-priority first, then `.az` domains,
+      then the rest, preserving provider order within each group; add read-only
+      `image_web_view` all/priority/other filters over already-ranked hits with no
+      new provider upload.
+- [x] Add Telegram image-result filter buttons (Prioritet / Digər / Hamısı) that
+      re-render page 0 of the chosen view through the actor-bound `pi` callback,
+      and tidy image/source presentation (catalog strings, single footer hint,
+      active-filter header, 📎 Mənbələr section). Offline unit tests cover the menu
+      flow, filter views, ranking and source formatting.
+- [ ] Confirm the menu site flow and image filters on the owner's Kali staging bot
+      with real accounts/photos; GitHub unit tests do not close live UAT.

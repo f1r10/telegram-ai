@@ -1,3 +1,24 @@
+## 2026-11-08 — Priority-site menu section and image-search filter UX
+
+- Add a "Prioritet saytlar" Telegram menu panel: ACTIVE users view the ordered
+  admin-managed domains; ACTIVE admins add/remove via a one-shot, TTL-bound text
+  entry that reuses the audited `PrioritySitesService` (max 10, normalized public
+  domains, no paths/ports/IPs). /cancel, navigation and commands clear the armed
+  entry. The list is the same `web_search_priority_domains_v1` metadata used by
+  `/internet`, `/tamaxtar` and photo reverse-image ranking.
+- Rank Yandex reverse-image results admin-priority first, then `.az`, then other
+  domains (stable within groups). Add read-only `image_web_view` all/priority/other
+  filters and Telegram filter buttons (Prioritet / Digər / Hamısı) that re-render
+  without a new Yandex upload; the actor-bound `pi:...:pg` callback now carries the
+  view mode.
+- Tidy result presentation: move image-result and source-list strings into the
+  Azerbaijani catalog, drop the repeated per-hit instruction line, show an
+  active-filter header and a single 📎 Mənbələr section. Source numbers and the
+  untrusted-evidence disclaimers are unchanged.
+- Offline Linux verification: ruff check/format clean, pyright strict 0 errors,
+  `pytest -m "not integration"` 1087 passed (72 integration deselected). Live Kali
+  staging photo/menu acceptance remains a separate open gate.
+
 ## 2026-11-08 — Reconcile ROADMAP Mini App source-download status
 
 - Mark the authenticated Mini App original-file download ROADMAP item complete.
