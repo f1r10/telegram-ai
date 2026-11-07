@@ -13,7 +13,7 @@ import pytest
 from telegram import Message, Update
 from telegram.ext import ContextTypes
 
-import office_assistant.integrations.telegram.handlers as telegram_handlers
+from office_assistant.integrations.telegram import handlers as telegram_handlers
 
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
