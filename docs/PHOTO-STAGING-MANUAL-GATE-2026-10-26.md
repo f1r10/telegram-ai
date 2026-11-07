@@ -344,3 +344,15 @@ hang a non-interactive run. This avoids relying on local Unix-socket
 authentication. The probes remain read-only; they do not change roles,
 passwords, schema or business data. The deploy script checks the exact
 `0023_photo_groups` revision before rebuilding/recreating app and worker.
+
+### Direct PostgreSQL container probe (2026-11-07)
+
+The operator's direct `docker exec tgstage_postgres` TCP/password-auth check
+succeeded, while the Compose service-exec wrapper still failed in the UAT
+gate. Both the read-only gate and the staging deploy script now execute the
+same bounded, read-only SQL probe against the already-verified
+`tgstage_postgres` container, using loopback TCP and the container's existing
+password. They no longer use `docker compose exec postgres` for schema
+queries. The gate/deploy diagnostic reports the actual Alembic revision
+(or EMPTY/UNEXPECTED) without exposing credentials. No migration is run by
+either script.
