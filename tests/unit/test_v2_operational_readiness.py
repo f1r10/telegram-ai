@@ -83,7 +83,12 @@ def test_expected_on_demand_image_probe_does_not_degrade_readiness() -> None:
     from sqlalchemy.dialects import postgresql
 
     statement = current_deferred_parse_count_query()
-    sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    sql = str(
+        statement.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
     assert "document_parse_runs.parser_name != 'image-probe'" in sql
     assert "document_parse_runs.status = 'DEFERRED'" in sql
 
