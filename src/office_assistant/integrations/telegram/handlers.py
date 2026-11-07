@@ -2866,6 +2866,8 @@ async def _reply_document_catalog_candidates(
     services: TelegramServices,
     actor_telegram_user_id: int,
     image_bytes: bytes,
+    *,
+    query_details: str | None = None,
 ) -> bool:
     """Find evidence in currently active PDF, DOCX and XLSX parent documents.
 
@@ -2916,7 +2918,11 @@ async def _reply_document_catalog_candidates(
         if ticket is not None:
             data[CATALOG_SOURCE_TICKET_KEY] = ticket
     await message.reply_text(
-        render_document_image_hits(hits, incomplete=incomplete or limited),
+        render_document_image_hits(
+            hits,
+            incomplete=incomplete or limited,
+            query_details=query_details,
+        ),
         reply_markup=_catalog_source_keyboard(ticket) if data is not None else _answer_keyboard(),
     )
     return True
@@ -3411,7 +3417,12 @@ async def _handle_exact_photo_lookup(
             )
             return
         if await _reply_document_catalog_candidates(
-            message, context, services, identity.telegram_user_id, picture
+            message,
+            context,
+            services,
+            identity.telegram_user_id,
+            picture,
+            query_details=question if question is not None else message.caption,
         ):
             return
         if semantic_unavailable:
