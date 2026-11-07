@@ -13,8 +13,6 @@ import pytest
 from telegram import Message, Update
 from telegram.ext import ContextTypes
 
-from office_assistant.integrations.telegram import handlers as telegram_handlers
-
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
@@ -153,13 +151,18 @@ def test_standalone_catalog_source_is_returned_as_inline_photo(
         )
     )
     services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
-    monkeypatch.setattr(telegram_handlers, "_is_private", lambda _update: True)
     monkeypatch.setattr(
-        telegram_handlers,
-        "_identity",
+        "office_assistant.integrations.telegram.handlers._is_private",
+        lambda _update: True,
+    )
+    monkeypatch.setattr(
+        "office_assistant.integrations.telegram.handlers._identity",
         lambda _update: SimpleNamespace(telegram_user_id=123),
     )
-    monkeypatch.setattr(telegram_handlers, "_services", lambda _context: services)
+    monkeypatch.setattr(
+        "office_assistant.integrations.telegram.handlers._services",
+        lambda _context: services,
+    )
     asyncio.run(handle_catalog_source_button(update, context))
 
     service.resolve_catalog_original.assert_awaited_once_with(
