@@ -389,6 +389,27 @@ class SemanticVisualSearch:
         finally:
             self._lock.release()
 
+    def warm_model(self) -> bool:
+        """Load the vision weights once so the first real photo query is warm.
+
+        Returns False (never raises) when the encoder has no explicit warm hook or
+        the weights are missing, so the bot still starts and search degrades to the
+        documented fallback per Master Spec provider-failure rules.
+        """
+
+        warm = getattr(self.encoder, "warm", None)
+        if warm is None:
+            return False
+        if not self._lock.acquire(blocking=False):
+            return False
+        try:
+            warm()
+            return True
+        except Exception:  # noqa: BLE001 - a missing model must not block startup
+            return False
+        finally:
+            self._lock.release()
+
     def verify_source(self, storage_key: str, digest: str) -> bool:
         """ANN candidate must still match current source SHA, not just Qdrant metadata."""
         return self._verified_reference(SemanticReference("", storage_key, digest)) is not None

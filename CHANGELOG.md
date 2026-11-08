@@ -1,3 +1,17 @@
+## 2026-11-08 — DINO pre-warm at startup so the primary ANN search works from the first photo
+
+- On the 2-core staging CPU the DINO encoder loaded its weights lazily inside the first
+  `query_vector` (~6.2s cold), which exceeded the 4.0s `VISUAL_QUERY_TIMEOUT_SECONDS`
+  bound. A timed probe confirmed warm search fits (~0.7-1.5s, `top_score=1.0`), so only the
+  very first photo searched after each app restart made the primary DINO ANN abstain and fall
+  back. `main.py` now warms the model once before the first turn is served.
+- `LocalDinoMeanEncoder` factors its lazy load into `_ensure_loaded()` and adds `warm()`;
+  `SemanticVisualSearch.warm_model()` calls it and returns `False` (never raises) when a
+  model has no warm hook or the weights are missing, so startup cannot be blocked and search
+  still degrades to the documented fallback (invariant 8). Photo save on the worker was
+  already DINO-indexed and needs no timeout change. Adds offline tests
+  (`test_visual_model_prewarm.py`); no schema, no Qdrant change, weights stay `local_files_only`.
+
 ## 2026-11-08 — Photo search: run the saved-image fallback before the "unlinked" notice
 
 - In `_handle_exact_photo_lookup`, the document/standalone-image fallback
