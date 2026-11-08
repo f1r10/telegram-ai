@@ -5,6 +5,7 @@ Deterministic offline tests: no PyTorch/model weights, no network, no Telegram.
 
 import ast
 from pathlib import Path
+from unittest import mock
 
 from office_assistant.processing.semantic_visual import SemanticVisualSearch
 from office_assistant.processing.visual_dinov2 import LocalDinoMeanEncoder
@@ -47,15 +48,11 @@ def _search(tmp_path: Path, encoder: object) -> SemanticVisualSearch:
 
 def test_dino_encoder_warm_uses_the_same_model_load_path(tmp_path: Path) -> None:
     encoder = LocalDinoMeanEncoder(tmp_path)
-    loads: list[int] = []
-
-    def fake_ensure() -> tuple[object, object]:
-        loads.append(1)
-        return object(), object()
-
-    encoder._ensure_loaded = fake_ensure  # pyright: ignore[reportPrivateUsage]
-    encoder.warm()
-    assert loads == [1]
+    # warm() must route through the shared lazy loader that embed() also uses; patching
+    # by string name keeps the protected member from being referenced outside the class.
+    with mock.patch.object(LocalDinoMeanEncoder, "_ensure_loaded", autospec=True) as ensure:
+        encoder.warm()
+    ensure.assert_called_once_with(encoder)
 
 
 def test_warm_model_true_when_encoder_supports_warm(tmp_path: Path) -> None:
