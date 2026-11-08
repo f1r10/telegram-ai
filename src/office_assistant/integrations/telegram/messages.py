@@ -172,6 +172,14 @@ PHOTO_ALBUM_INDEX_UNAVAILABLE = (
     "Vizual axtarış indeksi hazırda əlçatan deyil. Məhsulun kimliyini təxmin etmirəm; "
     "dəqiq kodla axtarın və ya «Yadda saxla» ilə şəkilləri bir qrup kimi saxlayın."
 )
+# Automatic photo → source-document reading: the matched file is opened for the user's
+# own question without asking them to press a source button first.
+PHOTO_SOURCE_FACTS_LINE = "📄 {filename} sənədində soruya uyğun tapılan:"
+PHOTO_SOURCE_FACTS_QUOTE = "   • {quote}"
+PHOTO_SOURCE_FACTS_DISCLAIMER = (
+    "Bu sitatlar göstərilən sənədin mətnindən götürülüb; məhsulun dəqiq kodu, "
+    "qiyməti və anbar qalığı avtomatik təsdiqlənmir."
+)
 MENU_STOCK_PROMPT = (
     "🏬 ANBAR QALIĞI\n\nMəhsulun kodunu yazın: KA45\n"
     "Bu sorğu yalnız təsdiqlənmiş anbar hərəkətlərini yoxlayır. "
