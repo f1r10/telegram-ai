@@ -16,13 +16,24 @@ RUN apt-get update \
         poppler-utils tesseract-ocr tesseract-ocr-aze tesseract-ocr-eng tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
+# Create the unprivileged user up front and hand over the (still empty) install
+# roots once. Every later COPY/install then runs as appuser and writes directly
+# into the upper overlay layer. This avoids a final `chown -R appuser /app`,
+# which forces an overlayfs copy-up + fsync of the whole multi-GB Torch tree and
+# stalls on slow/journal-bound disks (jbd2_log_wait_commit) during the build.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app /data/storage /models/cache \
+    && chown appuser:appuser /app /data /data/storage /models /models/cache
+
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
+USER appuser
+
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY src ./src
-COPY README.md ./README.md
-COPY alembic.ini ./alembic.ini
-COPY migrations ./migrations
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser README.md ./README.md
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+COPY --chown=appuser:appuser migrations ./migrations
 RUN uv sync --frozen --no-dev
 
 # The optional model runtime is isolated from the locked base app image.
@@ -32,10 +43,7 @@ RUN uv pip install --python /app/.venv/bin/python \
       torch==2.5.1 torchvision==0.20.1 \
     && uv pip install --python /app/.venv/bin/python transformers==4.49.0
 
-RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /app/var/storage /data/storage /models/cache \
-    && chown -R appuser:appuser /app /data /models
-USER appuser
+RUN mkdir -p /app/var/storage
 
 # --no-sync is required: syncing only the base uv.lock would uninstall the
 # intentionally optional Torch/Transformers runtime.
