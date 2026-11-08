@@ -90,3 +90,15 @@ def test_cpu_dockerfile_leaves_default_installation_untouched() -> None:
     assert "transformers==4.49.0" in optional
     assert '"--no-sync"' in optional
     assert "USER appuser" in optional
+
+
+def test_cpu_dockerfile_pins_v1_compatible_numpy_for_kvm_cpu() -> None:
+    # The deployment KVM CPU lacks x86-64-v2; locked NumPy >=2.3 aborts on import.
+    # The optional CPU image pins the v1-compatible NumPy the base app already
+    # runs, without forcing that pin into the standard base image.
+    original = (ROOT / "Dockerfile").read_text("utf-8")
+    optional = (ROOT / "Dockerfile.visual-cpu").read_text("utf-8")
+    assert "numpy==2.2.6" in optional
+    assert "numpy==2.2.6" not in original
+    # Separate layer after Torch so the cached Torch layer is reused on rebuild.
+    assert optional.index("torch==2.5.1") < optional.index("numpy==2.2.6")
