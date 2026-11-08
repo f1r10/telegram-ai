@@ -1,3 +1,30 @@
+## 2026-11-08 — An internal question with no business record searches the files automatically
+
+- "Konus 75 sm var bizdə?" answered *"Bu məlumat daxili sistemdə tapılmadı"* even though
+  `VKLUX-KATALOQ.pdf` is indexed and its chunk text contains «KONUS 75 SM 2,5KG PLASTİK»,
+  and hybrid retrieval accepted the chunk (top score 0.59 ≥ `internal_rag_min_score` 0.55).
+  Two separate defects hid it, so the fix is in two places.
+- The router only recognised existence wording as fixed substrings
+  (`"var?"`, `"bizde var"`), so the equally natural **"var bizdə"** — and any spelling with
+  the verb first — fell through to the model planner. `_asks_availability()` now matches the
+  existence verbs as *tokens* (`var`, `varmı`, `yox`, `yoxdur`, `yoxmu`) plus any word
+  starting with `stok`/`anbar`/`elde`/`elində`, in any order. Normalization strips the
+  question mark and folds `ə→e`, so the token set is the ASCII-folded forms.
+- The live planner answered the question with `INTERNAL_STRUCTURED, documents=False,
+  tools=[find_product]`. `find_product` returned NOT_FOUND (the approved catalog has one
+  row), and nothing else ran — the file base was never consulted. `document_search_after_empty_structured()`
+  makes that the default: on an internal route that actually ran business tools, when no tool
+  returned `OK` or `CONFLICT`, the service now searches the indexed documents before answering,
+  logs and warns `document_search_after_empty_structured`, and lets the documents carry the
+  answer. A record that *was* found stays authoritative; small talk and general chat keep their
+  routes, so no extra mode is needed from the user.
+- Degradation is asymmetric on purpose: if retrieval raises, the error only becomes
+  `retrieval_error` when the plan itself requested documents. A fallback for a turn whose
+  authoritative source was the database must not turn an index outage into a failed answer.
+- `tests/unit/test_availability_auto_search.py` pins word order both ways, price keeping
+  priority over availability, stock wording keeping document evidence, small talk staying
+  unrouted, and the full truth table of the fallback predicate.
+
 ## 2026-11-08 — Visual candidate buttons now carry the number the user read
 
 - "The search works but pressing the source gives the wrong picture" was a numbering
