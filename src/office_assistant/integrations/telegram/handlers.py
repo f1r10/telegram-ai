@@ -1870,6 +1870,9 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
         services.limiter.clear(identity.telegram_user_id)
         await _send_auth_result(update, context, result)
     except ApplicationError:
+        # Configuration failures (e.g. a missing bootstrap row) must stay visible
+        # in the log; silently swallowing them hides broken access provisioning.
+        logger.exception("Telegram authentication configuration rejected the password turn")
         await message.reply_text(messages.TEMPORARY_ERROR)
     except SQLAlchemyError:
         logger.exception("Telegram authentication database operation failed")
