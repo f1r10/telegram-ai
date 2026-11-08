@@ -1,3 +1,30 @@
+## 2026-11-09 — A photo that matches a document now answers from that document
+
+- The owner's requirement was that sending a picture is enough: «mən şəkli atdığım an
+  onun hansı sənəddə olması … aftomatik olmalıdır. cavabda ona uyğun olmalıdır». The
+  ranked page already prints the matched file and its location, but anything the document
+  *text* said about the asked subject still needed a "Mənbə N" press or a second question.
+- `InternalEvidenceService.photo_source_facts(question, file_ids)` reads the retrieved
+  text of exactly the files the visual search matched (one bounded `file_id`-scoped
+  hybrid search per distinct file, `DocumentRelevancePolicy` unchanged). A file whose
+  index read fails is skipped; the other matched files still contribute.
+- `render_photo_source_facts()` is a pure, fail-closed quoting rule: only a segment whose
+  folded text overlaps the subject tokens or the strong identifier in the question is
+  quoted, at most 2 quotes per file and 2 files, each truncated to 300 characters,
+  followed by the standing disclaimer that a quote is document text, not a confirmed
+  code, price or stock state. Nothing that overlaps is paraphrased and a document with
+  no matching line adds no block at all — retrieved text stays untrusted DATA.
+- Both photo paths use it: `_send_indexed_visual_page` (primary DINO ANN, single photo,
+  album and paging callbacks) and `_reply_document_catalog_candidates` (second system).
+  The block is appended only when the combined text still fits Telegram's limit, and a
+  6-second budget (`PHOTO_SOURCE_FACT_TIMEOUT_SECONDS`) means a slow or dead index
+  changes the reply not at all (invariant 8).
+- `tests/unit/test_photo_source_document_facts.py` pins the subject-overlap rule, the
+  bounds, truncation, the per-file scoping and de-duplication, the unreadable-file and
+  timeout degradations, and that no question, no service or no matched file means no
+  retrieval call. Q45 records the remaining gaps (Mini App and the explicit
+  "PDF kataloq şəkli axtar" path are not covered yet).
+
 ## 2026-11-08 — An internal question with no business record searches the files automatically
 
 - "Konus 75 sm var bizdə?" answered *"Bu məlumat daxili sistemdə tapılmadı"* even though

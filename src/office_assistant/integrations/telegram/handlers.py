@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 import secrets
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from hashlib import sha256
@@ -127,6 +127,7 @@ from office_assistant.integrations.telegram.photo_flow import (
     PhotoFlow,
     add_photo,
 )
+from office_assistant.integrations.telegram.photo_source_facts import render_photo_source_facts
 from office_assistant.integrations.telegram.reminder_format import when_azerbaijani
 from office_assistant.integrations.telegram.state import (
     DeleteConfirmationState,
@@ -3053,12 +3054,20 @@ async def _reply_document_catalog_candidates(
         data.pop(CATALOG_SOURCE_TICKET_KEY, None)
         if ticket is not None:
             data[CATALOG_SOURCE_TICKET_KEY] = ticket
+    text = render_document_image_hits(
+        hits,
+        incomplete=incomplete or limited,
+        query_details=query_details,
+    )
+    note = await _photo_source_document_note(
+        context,
+        query_details,
+        [hit.source.source_file_id for hit in hits if hit.source.source_file_id],
+    )
+    if note is not None and len(text) + len(note) + 2 <= 4000:
+        text = f"{text}\n\n{note}"
     await message.reply_text(
-        render_document_image_hits(
-            hits,
-            incomplete=incomplete or limited,
-            query_details=query_details,
-        ),
+        text,
         reply_markup=_catalog_source_keyboard(ticket) if data is not None else _answer_keyboard(),
     )
     return True
@@ -3209,6 +3218,44 @@ async def _reply_pdf_catalog_candidates(
     return True
 
 
+# Reading the matched source documents must never delay the ranked page the user
+# is waiting for; a slow or dead index simply means no extra block.
+PHOTO_SOURCE_FACT_TIMEOUT_SECONDS = 6.0
+
+
+async def _photo_source_document_note(
+    context: ContextTypes.DEFAULT_TYPE,
+    question: str | None,
+    file_ids: Sequence[int],
+) -> str | None:
+    """What the matched source files themselves say about the question the photo carried.
+
+    Automatic by owner decision: a picture of a catalogue page must answer from that
+    page, not wait for a "Mənbə N" press. Only the files the visual search returned are
+    read, and only the deterministic quoting rules of `render_photo_source_facts` decide
+    what is printed, so an index outage or an irrelevant document changes nothing here.
+    """
+
+    text = " ".join((question or "").split())
+    if len(text) < 3 or not tuple(file_ids):
+        return None
+    services = _services(context)
+    # Reading files is an addition to the photo answer, never a prerequisite for it:
+    # a deployment or test double without the internal service just gets the page.
+    service = getattr(services, "internal_evidence", None)
+    if service is None:
+        return None
+    try:
+        evidences = await asyncio.wait_for(
+            service.photo_source_facts(text, file_ids),
+            timeout=PHOTO_SOURCE_FACT_TIMEOUT_SECONDS,
+        )
+    except (TimeoutError, RuntimeError, SQLAlchemyError) as error:
+        logger.info("Photo source document reading skipped | error_type=%s", type(error).__name__)
+        return None
+    return render_photo_source_facts(text, evidences)
+
+
 async def _send_indexed_visual_page(
     message: Message,
     context: ContextTypes.DEFAULT_TYPE,
@@ -3219,6 +3266,7 @@ async def _send_indexed_visual_page(
     page: int = 0,
     query: CallbackQuery | None = None,
     intro: str | None = None,
+    question: str | None = None,
 ) -> None:
     """Five ranked product/source candidates; expiring file buttons and live paging."""
 
@@ -3287,6 +3335,13 @@ async def _send_indexed_visual_page(
             rows.append(navigation)
     markup = InlineKeyboardMarkup(rows)
     text = f"{intro}\n\n{view.text}" if intro else view.text
+    note = await _photo_source_document_note(
+        context, question, [item.source.source_file_id for item in view.docs]
+    )
+    # Telegram rejects a message over 4096 characters, and the ranked page is the
+    # primary result; the automatic document reading is only appended when it fits.
+    if note is not None and len(text) + len(note) + 2 <= 4000:
+        text = f"{text}\n\n{note}"
     if query is not None:
         await query.edit_message_text(text, reply_markup=markup)
         return
@@ -3453,6 +3508,7 @@ async def _handle_exact_photo_lookup(
                         identity.telegram_user_id,
                         indexed,
                         photo_index=photo_index,
+                        question=question if question is not None else message.caption,
                     )
                     return
             asset_id = await session.scalar(
@@ -3673,6 +3729,7 @@ async def _handle_album_db_lookup(
                 merged,
                 photo_index=0,
                 intro=messages.PHOTO_ALBUM_RESULT_HEADER.format(count=total),
+                question=_album_question(flow),
             )
         return
     flow.indexed_results = None
@@ -4114,6 +4171,11 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                 page=page,
                 query=query,
                 intro=intro,
+                question=(
+                    _album_question(flow)
+                    if flow.indexed_results is not None
+                    else flow.photos[photo_index].question
+                ),
             )
         except (ValueError, RuntimeError, OSError, TelegramError):
             await query.edit_message_text("Nəticə yenilənmədi. Şəkli yenidən axtarın.")

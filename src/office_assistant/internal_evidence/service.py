@@ -481,6 +481,38 @@ class InternalEvidenceService:
                 )
             )
 
+    async def photo_source_facts(
+        self, question: str, file_ids: Sequence[int], *, limit: int = 3
+    ) -> list[DocumentEvidence]:
+        """Read the files a photo matched for the question that photo was sent with.
+
+        Scoped to exactly those source files, so a picture of a catalogue page answers
+        from that catalogue instead of making the user press a source button first. The
+        index or a single unreadable file yields no evidence rather than an error: the
+        ranked visual page already sent is still a valid answer.
+        """
+
+        facts: list[DocumentEvidence] = []
+        seen: set[str] = set()
+        for file_id in dict.fromkeys(item for item in file_ids if item > 0):
+            try:
+                found = await self.document_search.search(
+                    DocumentSearchInput(query=question, limit=limit, file_id=file_id)
+                )
+            except Exception as error:
+                logger.warning(
+                    "Photo source document search skipped | error_type=%s file_id=%s",
+                    type(error).__name__,
+                    file_id,
+                )
+                continue
+            for item in found:
+                if item.chunk_id in seen:
+                    continue
+                seen.add(item.chunk_id)
+                facts.append(item)
+        return facts
+
     async def _save_usage(self, user_id: int, request_type: str, response: ModelResponse) -> None:
         async with self.session_factory.begin() as session:
             conversation = await session.scalar(
