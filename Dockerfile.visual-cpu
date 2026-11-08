@@ -43,6 +43,15 @@ RUN uv pip install --python /app/.venv/bin/python \
       torch==2.5.1 torchvision==0.20.1 \
     && uv pip install --python /app/.venv/bin/python transformers==4.49.0
 
+# The locked transitive NumPy (>=2.3) ships wheels whose baseline requires
+# x86-64-v2 (SSE4.2/POPCNT/SSSE3). The target deployment KVM CPU exposes only the
+# x86-64 (v1) baseline, so importing that NumPy aborts with
+# "NumPy was built with baseline optimizations: (X86_V2) but your machine doesn't
+# support: (X86_V2)" and Torch cannot load. Pin the v1-compatible NumPy that the
+# running base app already uses. Kept as a separate layer so the cached Torch
+# layer above is reused; the base lock/app image stay untouched.
+RUN uv pip install --python /app/.venv/bin/python numpy==2.2.6
+
 RUN mkdir -p /app/var/storage
 
 # --no-sync is required: syncing only the base uv.lock would uninstall the

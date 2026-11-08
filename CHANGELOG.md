@@ -1,3 +1,19 @@
+## 2026-11-08 — DINO CPU image: pin v1-compatible NumPy for the deployment KVM CPU
+
+- The optional `Dockerfile.visual-cpu` now pins `numpy==2.2.6` in a separate layer
+  after the cached Torch install. The locked transitive NumPy (2.5.3) ships wheels
+  whose baseline requires x86-64-v2 (SSE4.2/POPCNT/SSSE3), but the staging VM's
+  "Common KVM processor" exposes only the x86-64 (v1) baseline, so importing it
+  aborted and Torch could not load. NumPy 2.2.6 is the v1-compatible version the
+  running base app already uses; importing torch 2.5.1+cpu / transformers 4.49.0 /
+  numpy 2.2.6 was verified on the target CPU.
+- The base lock and standard `Dockerfile` are unchanged. The separate layer keeps
+  the cached Torch layer reusable on rebuild. A contract test asserts the pin is
+  present only in the optional image and ordered after Torch.
+- Discovered latent issue recorded as Q38: a fresh base-image rebuild from the
+  committed lock (NumPy 2.5.3) would fail on this v1 CPU; constraining NumPy `<2.3`
+  in the lock is a separate library decision (ADR) left open.
+
 ## 2026-11-08 — Album = one product (combined photo lookup)
 
 - Photos arriving in one Telegram media album are now treated as a single product
