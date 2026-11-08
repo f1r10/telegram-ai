@@ -3534,6 +3534,22 @@ async def _handle_exact_photo_lookup(
                 message, context, services, identity.telegram_user_id, picture
             ):
                 return
+        # Source evidence must run before the "saved but not linked to a code" notice.
+        # A photo saved with the "Yadda saxla" button plus only an `Ad:` description has
+        # no USER_EXPLICIT product relation, so it can be rediscovered only through the
+        # document/standalone-image fallback. Emitting the notice first short-circuited
+        # that fallback and made "saved but never found" permanent. Mirrors the Mini App
+        # ordering (document scan before the unconfirmed branch) and is the "second"
+        # search system the owner requires whenever the primary DINO ANN is unavailable.
+        if await _reply_document_catalog_candidates(
+            message,
+            context,
+            services,
+            identity.telegram_user_id,
+            picture,
+            query_details=question if question is not None else message.caption,
+        ):
+            return
         if asset_id is not None:
             await message.reply_text(
                 "Şəkil faylı yadda saxlanılıb, amma heç bir aktiv məhsul koduna "
@@ -3544,15 +3560,6 @@ async def _handle_exact_photo_lookup(
                 "Sonra «Yadda saxla» düyməsini seçin. "
                 "İstinad yoxdursa, fərqli bucaqdan dəqiq tanınma mümkün olmaya bilər."
             )
-            return
-        if await _reply_document_catalog_candidates(
-            message,
-            context,
-            services,
-            identity.telegram_user_id,
-            picture,
-            query_details=question if question is not None else message.caption,
-        ):
             return
         if semantic_unavailable:
             await message.reply_text(

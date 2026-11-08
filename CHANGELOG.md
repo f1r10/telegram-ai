@@ -1,3 +1,21 @@
+## 2026-11-08 — Photo search: run the saved-image fallback before the "unlinked" notice
+
+- In `_handle_exact_photo_lookup`, the document/standalone-image fallback
+  (`_reply_document_catalog_candidates`) now runs **before** the `asset_id is not None`
+  branch that replies "Şəkil faylı yadda saxlanılıb, amma heç bir aktiv məhsul koduna
+  bağlanmayıb". Previously that notice short-circuited the only fallback that can find a
+  photo saved with the "Yadda saxla" button plus an `Ad:` description but no product code,
+  producing the reported "saved but never found". A saved photo is a `STANDALONE_UPLOAD`
+  image occurrence whose description is stored on `PhotoGroup.metadata_text`, and the
+  fallback matches it near-duplicate first, then by DINO semantic across angles — the
+  "second" search system that must engage whenever the primary DINO ANN is unavailable.
+- Ordering mirrors the Mini App lookup (document scan before the unconfirmed branch).
+  No schema change, no synthetic `Product`/`ProductImageRelation`, and the existing
+  access model is untouched (same source-evidence scan with an actor-bound download
+  ticket). Adds an AST regression test locking the fallback before the notice.
+- Known remaining gap: the whole-album lookup `_handle_album_db_lookup` still ends with
+  the index-unavailable notice with no document fallback; tracked in OPEN-QUESTIONS.
+
 ## 2026-11-08 — DINO CPU image: pin v1-compatible NumPy for the deployment KVM CPU
 
 - The optional `Dockerfile.visual-cpu` now pins `numpy==2.2.6` in a separate layer
