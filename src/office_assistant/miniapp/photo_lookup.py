@@ -20,6 +20,7 @@ from office_assistant.infrastructure.database.models import (
     ProductImageRelationConfirmation,
 )
 from office_assistant.processing.document_visual_candidates import (
+    DOCUMENT_FALLBACK_MIN_SCORE,
     DocumentImageHit,
     active_document_images,
     document_image_location,
@@ -172,27 +173,23 @@ class MiniAppPhotoLookup:
 
         if self.indexed is not None:
             indexed = await self.indexed.search(photo)
-            if not indexed.unavailable:
-                if indexed.products or indexed.documents:
-                    hits = tuple(
-                        DocumentImageHit(item.source, "semantic", item.score)
-                        for item in indexed.documents[:40]
-                    )
-                    return PhotoLookupResult(
-                        "candidates" if indexed.products else "source_candidates",
-                        tuple(item.code for item in indexed.products[:3]),
-                        "dino_qdrant_all_active",
-                        False,
-                        _WARNING,
-                        hits,
-                        ranked_ann_candidates(indexed),
-                    )
+            # A warm primary ANN that yields no strong candidate must fall through
+            # to the near-duplicate, cross-angle and document scans below: the owner
+            # requires the second search system to run whenever the primary finds
+            # nothing. Only a non-empty ANN result short-circuits the fallback.
+            if not indexed.unavailable and (indexed.products or indexed.documents):
+                hits = tuple(
+                    DocumentImageHit(item.source, "semantic", item.score)
+                    for item in indexed.documents[:40]
+                )
                 return PhotoLookupResult(
-                    "not_found",
-                    (),
-                    "dino_qdrant_no_candidate",
+                    "candidates" if indexed.products else "source_candidates",
+                    tuple(item.code for item in indexed.products[:3]),
+                    "dino_qdrant_all_active",
                     False,
-                    "Bütün aktiv vizual indeks üzrə güclü namizəd tapılmadı.",
+                    _WARNING,
+                    hits,
+                    ranked_ann_candidates(indexed),
                 )
 
         async with self.session_factory() as session:
@@ -275,6 +272,7 @@ class MiniAppPhotoLookup:
                         documents,
                         self.storage_root,
                         semantic=self.semantic,
+                        semantic_min_score=DOCUMENT_FALLBACK_MIN_SCORE,
                     ),
                     timeout=5.0,
                 )

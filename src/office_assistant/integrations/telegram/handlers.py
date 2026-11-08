@@ -159,6 +159,7 @@ from office_assistant.processing.catalog_visual_candidates import (
     semantic_pdf_image_candidates,
 )
 from office_assistant.processing.document_visual_candidates import (
+    DOCUMENT_FALLBACK_MIN_SCORE,
     active_document_images,
     document_image_location,
     find_document_images,
@@ -3019,6 +3020,7 @@ async def _reply_document_catalog_candidates(
                 sources,
                 services.storage.root,
                 semantic=services.semantic_visual,
+                semantic_min_score=DOCUMENT_FALLBACK_MIN_SCORE,
             ),
             timeout=8.0,
         )
@@ -3440,7 +3442,12 @@ async def _handle_exact_photo_lookup(
             # All ANN hits are revalidated against ACTIVE PostgreSQL and source SHA.
             if services.indexed_visual is not None:
                 indexed = await services.indexed_visual.search(picture)
-                if not indexed.unavailable:
+                # A warm primary ANN that yields no strong candidate must not
+                # dead-end at "0 candidates": the owner requires the second
+                # (document/semantic) search system to run whenever the primary
+                # near-duplicate path finds nothing. Only a non-empty ANN result
+                # is authoritative enough to short-circuit the fallback.
+                if not indexed.unavailable and (indexed.products or indexed.documents):
                     await _send_indexed_visual_page(
                         message,
                         context,
