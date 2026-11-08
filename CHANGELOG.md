@@ -1,3 +1,25 @@
+## 2026-11-08 — Visual candidate buttons now carry the number the user read
+
+- "The search works but pressing the source gives the wrong picture" was a numbering
+  split, not a matching failure: `indexed_page` prints products and document pictures
+  in ONE overall rank (`1. 📦 KA45`, `3. 🖼 Mənbə: catalog.pdf`), while the file buttons
+  renumbered themselves — `issue_catalog_ticket` numbered only the document rows and
+  de-duplicated by parent file, and the `🖼 Şəkil N-ə bax` previews numbered the raw
+  document list. Row 3 could therefore be offered as "Mənbə 1" and resolve to row 4's
+  occurrence.
+- `RankedPage.doc_positions` now publishes the printed rank of every document row, and
+  `issue_ranked_catalog_ticket` binds that exact rank to that exact
+  `ImageAssetOccurrence` (bounded to three buttons, duplicates and invalid references
+  skipped). `_send_indexed_visual_page` builds BOTH button families from that one
+  ticket, so `📎 Mənbə N` and `🖼 Şəkil N-ə bax` can only ever address row N.
+- `resolve_catalog_source` keeps the spoken flow ("birinci mənbəni göndər") usable with
+  rank labels: an exact printed number wins, otherwise the request is read as the Nth
+  offered source. Expiry and actor binding are rechecked on the fallback path too.
+- `tests/unit/test_photo_source_button_numbering.py` pins the printed ranks against the
+  button labels and callbacks across pages, the rank→occurrence resolution, the
+  three-button bound and the expiry/cross-user guards. The Mini App was already
+  occurrence-keyed and needed no change.
+
 ## 2026-11-08 — Photo search: the second system now runs when the primary DINO ANN finds nothing
 
 - An image that exists inside a PDF/DOCX/XLSX was reported "saved but never found":

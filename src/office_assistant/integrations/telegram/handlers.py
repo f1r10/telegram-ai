@@ -115,6 +115,8 @@ from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
     issue_catalog_ticket,
+    issue_ranked_catalog_ticket,
+    resolve_catalog_source,
     resolve_catalog_ticket,
 )
 from office_assistant.integrations.telegram.formatting import split_telegram_text
@@ -548,7 +550,9 @@ async def _try_catalog_source_delivery(
     if requested is None and len(state.sources) > 1:
         await message.reply_text(messages.SOURCE_FILE_AMBIGUOUS)
         return True
-    source = resolve_catalog_ticket(state, actor_telegram_user_id, number)
+    # Ranked visual tickets keep the printed candidate number, which is not a
+    # 1..3 ordinal, so a spoken "birinci mənbə" must also resolve by position.
+    source = resolve_catalog_source(state, actor_telegram_user_id, number)
     if source is None:
         await message.reply_text(messages.MENU_SOURCE_BUTTON_EXPIRED)
         return True
@@ -3220,17 +3224,13 @@ async def _send_indexed_visual_page(
 
     view = indexed_page(result, page)
     data = getattr(context, "user_data", None)
-    ticket = issue_catalog_ticket(
+    # Both button families come from one ticket built on the rank printed in the
+    # text, so "Mənbə 4" and "Şəkil 4" can only ever resolve row 4's occurrence.
+    ticket = issue_ranked_catalog_ticket(
         actor_id,
         tuple(
-            PdfPageCandidate(
-                item.source.filename,
-                0,
-                0,
-                source_file_id=item.source.source_file_id,
-                occurrence_id=item.source.occurrence_id,
-            )
-            for item in view.docs
+            (position, item.source.source_file_id, item.source.occurrence_id)
+            for position, item in zip(view.doc_positions, view.docs, strict=True)
         ),
     )
     if data is not None:
@@ -3257,14 +3257,13 @@ async def _send_indexed_visual_page(
                         )
                     ]
                 )
-        for number, item in enumerate(view.docs[:3], start=1):
+        for source in ticket.sources if ticket is not None else ():
             rows.append(
                 [
                     InlineKeyboardButton(
-                        f"🖼 Şəkil {number}-ə bax",
+                        f"🖼 Şəkil {source.number}-ə bax",
                         callback_data=(
-                            f"pi:{state.token}:dbimg:{photo_index}:{page}:"
-                            f"{item.source.occurrence_id}"
+                            f"pi:{state.token}:dbimg:{photo_index}:{page}:{source.occurrence_id}"
                         ),
                     )
                 ]

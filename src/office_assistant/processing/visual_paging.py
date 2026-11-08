@@ -25,6 +25,10 @@ class RankedPage:
     pages: int
     has_previous: bool
     has_next: bool
+    doc_positions: tuple[int, ...]
+    # Products and documents share one ranking, so a document on this page is not
+    # necessarily doc index + 1. Buttons must reuse these numbers or they offer the
+    # candidate above or below the row the user actually read.
 
 
 def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) -> RankedPage:
@@ -46,6 +50,7 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
         "",
     ]
     docs: list[IndexedDocument] = []
+    doc_positions: list[int] = []
     product_choices: list[tuple[int, IndexedProduct]] = []
     for position, (kind, score, item) in enumerate(selected, start=page * size + 1):
         if kind == "product" and isinstance(item, IndexedProduct):
@@ -59,6 +64,7 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
             )
         elif isinstance(item, IndexedDocument):
             docs.append(item)
+            doc_positions.append(position)
             filename = " ".join(item.source.filename.split())[:100]
             lines.extend(
                 [
@@ -89,6 +95,7 @@ def indexed_page(result: IndexedResults, page: int, *, size: int = PAGE_SIZE) ->
         pages,
         page > 0,
         page < pages - 1,
+        tuple(doc_positions),
     )
 
 
