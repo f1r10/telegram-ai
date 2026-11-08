@@ -420,20 +420,29 @@ class SemanticVisualSearch:
         references: list[SemanticReference],
         *,
         limit: int = 3,
+        min_score: float | None = None,
     ) -> SemanticSearchResult:
         if not 1 <= limit <= 10:
             raise ValueError("Invalid semantic candidate limit")
+        if min_score is not None and not (0.0 <= min_score <= 1.0 and math.isfinite(min_score)):
+            raise ValueError("Invalid semantic candidate display threshold")
         # A busy image model is not allowed to stall unrelated Telegram turns.
         if not self._lock.acquire(blocking=False):
             return SemanticSearchResult((), 0, bool(references), unavailable=True)
         try:
-            return self._search_locked(image_bytes, references, limit=limit)
+            return self._search_locked(image_bytes, references, limit=limit, min_score=min_score)
         finally:
             self._lock.release()
 
     def _search_locked(
-        self, image_bytes: bytes, references: list[SemanticReference], *, limit: int
+        self,
+        image_bytes: bytes,
+        references: list[SemanticReference],
+        *,
+        limit: int,
+        min_score: float | None = None,
     ) -> SemanticSearchResult:
+        threshold = self.min_score if min_score is None else min_score
         if len(image_bytes) > MAX_IMAGE_BYTES:
             return SemanticSearchResult((), 0, False)
         selected = balanced_references(references, limit=self.max_references)
@@ -455,7 +464,7 @@ class SemanticVisualSearch:
                     continue
                 inspected += 1
                 score = sum(a * b for a, b in zip(query, vector, strict=True))
-                if not math.isfinite(score) or score < self.min_score:
+                if not math.isfinite(score) or score < threshold:
                     continue
                 scored[reference.product_code] = max(
                     scored.get(reference.product_code, -1.0), min(1.0, score)

@@ -1,3 +1,21 @@
+## 2026-11-08 — Photo search: the second system now runs when the primary DINO ANN finds nothing
+
+- An image that exists inside a PDF/DOCX/XLSX was reported "saved but never found":
+  once the primary DINO ANN became always-warm (#167), an **empty** ANN result
+  short-circuited the owner-required second search system, so a query returned
+  "0 namizəd" and never reached the near-duplicate / cross-angle / document scan.
+  Both `_handle_exact_photo_lookup` (Telegram) and `MiniAppPhotoLookup.lookup` now
+  only return the ANN page when it produced a candidate; an empty ANN falls through.
+- The document scan runs at a distinct, lower, clearly-unverified band
+  `DOCUMENT_FALLBACK_MIN_SCORE = 0.55` (threaded through
+  `find_document_images(semantic_min_score=…)` → `SemanticVisualSearch.search(min_score=…)`),
+  while the primary ANN keeps its strict `MIN_CANDIDATE_SCORE = 0.82`. The value is an
+  ASSUMPTION pending calibration against the owner's full-resolution photos (Q42).
+- `active_document_images` now uses `DISTINCT ON (occurrence.id)` so ingestion-session
+  join fan-out no longer counts the same sighting twice against the bounded 500-image scan.
+- Offline gates in `tests/unit/test_photo_second_system_fallback.py` pin the fall-through,
+  the band threading, the de-duplication and the `min_score` override behaviour.
+
 ## 2026-11-08 — Second Telegram user can request access again (bootstrap flag repair)
 
 - A second user's `/start` → password turn always ended in "Müvəqqəti texniki xəta":

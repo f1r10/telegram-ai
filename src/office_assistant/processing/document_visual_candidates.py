@@ -39,6 +39,14 @@ DOCUMENT_IMAGE_ORIGINS = (
 )
 MAX_DOCUMENT_IMAGES = 500
 
+# ASSUMPTION: the second (document/semantic) search system surfaces cross-render
+# matches a real phone photo shares with a clean PDF/DOCX/XLSX image. The primary
+# DINO near-duplicate ANN keeps its strict 0.82 gate; this lower, clearly-labelled
+# unverified band is what makes an image that exists inside a document findable at
+# all. It needs final calibration against the owner's full-resolution photos on
+# staging (docs/OPEN-QUESTIONS.md Q42) and is intentionally a single reversible value.
+DOCUMENT_FALLBACK_MIN_SCORE = 0.55
+
 
 @dataclass(frozen=True, slots=True)
 class DocumentImageSource:
@@ -82,6 +90,7 @@ async def active_document_images(
                 ImageAsset.content_sha256,
                 PhotoGroup.metadata_text,
             )
+            .distinct(ImageAssetOccurrence.id)
             .select_from(ImageAssetOccurrence)
             .join(ImageAsset, ImageAsset.id == ImageAssetOccurrence.image_asset_id)
             .join(FileObject, FileObject.id == ImageAssetOccurrence.source_file_id)
@@ -128,6 +137,7 @@ def find_document_images(
     semantic: SemanticVisualSearch | None = None,
     limit: int = 3,
     quick_only: bool = False,
+    semantic_min_score: float | None = None,
 ) -> tuple[tuple[DocumentImageHit, ...], bool, bool]:
     """Near duplicate first, opt-in cross-angle semantic next, always source-only."""
 
@@ -185,7 +195,7 @@ def find_document_images(
         SemanticReference(str(item.occurrence_id), item.storage_key, item.content_sha256)
         for item in candidates
     ]
-    result = semantic.search(image, refs, limit=limit)
+    result = semantic.search(image, refs, limit=limit, min_score=semantic_min_score)
     best = result.candidates[0].score if result.candidates else None
     hits = tuple(
         DocumentImageHit(indexed[candidate.product_code], "semantic", candidate.score)
