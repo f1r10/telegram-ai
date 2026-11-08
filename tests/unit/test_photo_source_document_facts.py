@@ -19,12 +19,14 @@ from telegram.ext import ContextTypes
 
 from office_assistant.integrations.telegram import handlers, messages
 from office_assistant.integrations.telegram.photo_source_facts import (
+    _NON_SUBJECT_TOKENS,
     MAX_QUOTES_PER_FILE,
     MAX_SOURCE_FILES,
     render_photo_source_facts,
 )
 from office_assistant.internal_evidence.document_search import DocumentSearchInput
 from office_assistant.internal_evidence.models import DocumentEvidence
+from office_assistant.internal_evidence.query_normalization import normalize_user_query
 from office_assistant.internal_evidence.service import InternalEvidenceService
 
 CATALOGUE_TEXT = (
@@ -79,7 +81,49 @@ def test_a_document_without_the_subject_produces_no_block() -> None:
 
 
 def test_a_question_without_a_subject_produces_no_block() -> None:
+    text = "KONUS 75 SM 2,5KG PLASTİK\nTİRLAR ÜÇÜN DİVAR QORUYUCU"
     assert render_photo_source_facts("Bu nədir?", [_evidence("c1", 6, "A.pdf")]) is None
+    assert render_photo_source_facts("Var bizdə?", [_evidence("c1", 6, "A.pdf", text=text)]) is None
+    assert (
+        render_photo_source_facts(
+            "Bu sənədə uyğun məhsul varmı?", [_evidence("c1", 6, "A.pdf", text=text)]
+        )
+        is None
+    )
+
+
+def test_a_routing_word_never_quotes_an_unrelated_line() -> None:
+    """Staging probe, 2026-11-09: «var bizdə?» matched «DİVAR QORUYUCU» as a substring."""
+
+    text = "TRAMPLIN SERT SARI 35*25*5 SM\nTİRLAR ÜÇÜN DİVAR QORUYUCU\nDELİNATOR PLASTİK 45 SM"
+    note = render_photo_source_facts(
+        "Delinator 75 sm var bizdə?",
+        [_evidence("c1", 6, "VKLUX-KATALOQ.pdf", text=text)],
+    )
+    assert note is not None
+    assert "DELİNATOR PLASTİK 45 SM" in note
+    assert "DİVAR QORUYUCU" not in note
+    assert "TRAMPLIN" not in note
+
+
+def test_the_subject_is_matched_across_agglutinated_word_forms() -> None:
+    """«Konusların ölçüləri» is the same subject as the catalogue's «KONUS 50 SM» line."""
+
+    text = "KONUS 50 SM 1,5KG PLASTİK\nTİRLAR ÜÇÜN DİVAR QORUYUCU"
+    note = render_photo_source_facts(
+        "Konusların ölçüləri necədir?",
+        [_evidence("c1", 6, "A.pdf", text=text)],
+    )
+    assert note is not None
+    assert "KONUS 50 SM" in note
+    assert "DİVAR QORUYUCU" not in note
+
+
+def test_non_subject_words_are_written_in_the_folded_alphabet() -> None:
+    """A stop word written with a real "ə" would never match and would silently widen quoting."""
+
+    assert all(token == normalize_user_query(token) for token in _NON_SUBJECT_TOKENS)
+    assert {"var", "bizde", "yoxmu", "mehsul", "ucin"} <= _NON_SUBJECT_TOKENS
 
 
 def test_quotes_stay_bounded_per_file_and_across_files() -> None:
