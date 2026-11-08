@@ -30,6 +30,36 @@ def test_ordinary_photo_search_checks_embedded_documents_after_sku_lookup() -> N
     )
 
 
+def test_saved_photo_fallback_runs_before_the_unlinked_notice() -> None:
+    """A photo saved without a product code must reach the document fallback.
+
+    Regression for "saved but never found": the `asset_id is not None` branch used to
+    return the "saved but not linked to a code" notice before the document/standalone
+    scan, so a code-less saved photo could never be rediscovered. The fallback call must
+    precede that early return, matching the Mini App ordering.
+    """
+
+    lookup = _function("_handle_exact_photo_lookup")
+    doc_calls = [
+        call
+        for call in ast.walk(lookup)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_reply_document_catalog_candidates"
+    ]
+    assert len(doc_calls) == 1
+    notice_lines = [
+        node.lineno
+        for node in ast.walk(lookup)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "asset_id"
+    ]
+    assert notice_lines, "unlinked-photo branch not found"
+    assert doc_calls[0].lineno < min(notice_lines)
+
+
 def test_embedded_source_lookup_is_bounded_with_semantic_candidates() -> None:
     fallback = _function("_reply_document_catalog_candidates")
     source = ast.get_source_segment(HANDLERS.read_text(encoding="utf-8"), fallback)
