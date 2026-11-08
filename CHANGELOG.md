@@ -1,3 +1,23 @@
+## 2026-11-09 — The automatic document quote names the asked subject, not a word containing it
+
+- The first staging probe of #173 quoted the wrong product: «Delinator 75 sm var bizdə?»
+  printed «TİRLAR UCUN DİVAR QORUYUCU», because the folded substring "var" — one of the
+  existence verbs `router._asks_availability` recognizes — is also inside «DİVAR».
+- Subject overlap now compares *words*, not characters: a line qualifies when one of its
+  tokens and one of the question's subject tokens are prefixes of each other (down to 3
+  characters), which keeps the Azerbaijani agglutination match («konusların» ↔ «KONUS 50 SM»)
+  and kills the mid-word match. The code hyphen is dropped on both sides, so «KA-45» still
+  answers to `KA45` and to the strong identifier `QAKA45`.
+- `_NON_SUBJECT_TOKENS` removes the bot's own routing and interaction vocabulary — the
+  existence verbs, `necə/dir/hansı/uyğun/sual/sənəd/məhsul/şəkil` and the connectives — from
+  the subject set, so a question that names no product quotes nothing at all instead of
+  pasting every line that happens to contain "var". A unit test asserts every entry is
+  already written in `normalize_user_query`'s folded alphabet, because a stop word spelled
+  with a real "ə" would silently widen quoting.
+- Four new cases in `tests/unit/test_photo_source_document_facts.py`: the «DİVAR» regression,
+  subject-less questions («Var bizdə?», «Bu sənədə uyğun məhsul varmı?»), the agglutinated
+  word-form match, and the folded-alphabet guard.
+
 ## 2026-11-09 — A photo that matches a document now answers from that document
 
 - The owner's requirement was that sending a picture is enough: «mən şəkli atdığım an

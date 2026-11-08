@@ -5,8 +5,9 @@ without first pressing a "Mənbə N" button. This module is deliberately free of
 and database types so the quoting rules are testable offline.
 
 Only text already accepted by ``DocumentRelevancePolicy`` for this question is quoted, a
-segment must literally overlap the asked subject, and nothing is paraphrased or inferred:
-a document whose lines do not mention the subject produces no block at all. Retrieved
+segment must name one of the asked subjects as a word (routing words such as "var" and
+"bizdə" are never a subject), and nothing is paraphrased or inferred: a document whose
+lines do not mention the subject produces no block at all. Retrieved
 document text stays UNTRUSTED DATA (AGENTS.md invariant 1) — it is presented as a quote
 and never as an instruction, a price, or stock state.
 """
@@ -30,20 +31,104 @@ _MIN_TERM_CHARS = 3
 _MIN_SEGMENT_CHARS = 8
 _SEGMENT = re.compile(r"[^\n.;:|]+")
 
+# The bot's own routing and interaction vocabulary. These words name the question, not
+# the goods, so they may never make a line quotable: «var bizdə?» is not a subject, and
+# an unfiltered "var" also matches inside «DİVAR QORUYUCU» (staging probe, 2026-11-09).
+# Every entry is written in the folded alphabet `normalize_user_query` produces.
+_NON_SUBJECT_TOKENS = frozenset(
+    {
+        "ancaq",
+        "avtomatik",
+        "baza",
+        "beli",
+        "bizde",
+        "cavab",
+        "cavabi",
+        "daxil",
+        "daxilde",
+        "deyil",
+        "dir",
+        "elde",
+        "elinde",
+        "gore",
+        "hansi",
+        "harada",
+        "hatta",
+        "hele",
+        "hetta",
+        "ila",
+        "ki",
+        "lakin",
+        "mehsul",
+        "mehsulu",
+        "mehsullar",
+        "nece",
+        "necedir",
+        "neceyedir",
+        "necadir",
+        "nedir",
+        "olan",
+        "ola",
+        "olsun",
+        "olub",
+        "olur",
+        "qeder",
+        "sened",
+        "senede",
+        "senedi",
+        "sey",
+        "shekil",
+        "seklini",
+        "sistem",
+        "sual",
+        "suali",
+        "suallar",
+        "ucin",
+        "uygun",
+        "var",
+        "varmi",
+        "ve",
+        "yani",
+        "yox",
+        "yoxdur",
+        "yoxmu",
+    }
+)
+
+
+def _folded_tokens(value: str) -> list[str]:
+    """Comparable word forms: normalized text with the code hyphen dropped."""
+
+    return [token.replace("-", "") for token in normalize_user_query(value).split()]
+
 
 def _subject_terms(question: str) -> set[str]:
     """Folded tokens and strong identifiers the question actually asks about."""
 
     terms = {
-        term for term in normalize_user_query(question).split() if len(term) >= _MIN_TERM_CHARS
+        token
+        for token in _folded_tokens(question)
+        if len(token) >= _MIN_TERM_CHARS and token not in _NON_SUBJECT_TOKENS
     }
     terms.update(identifier.casefold() for identifier in strong_identifiers(question))
     return terms
 
 
 def _overlaps(segment: str, terms: set[str]) -> bool:
-    folded = normalize_user_query(segment)
-    return any(term in folded for term in terms)
+    """Does this line name one of the subjects, at a word boundary in both directions?
+
+    Azerbaijani folds case and plural endings into the word, so the question «konusların»
+    and the catalogue line «KONUS 50 SM» are the same subject; a plain substring test would
+    also read the routing word "var" inside «DİVAR QORUYUCU», so words, not characters, are
+    compared, and only short words down to ``_MIN_TERM_CHARS`` count.
+    """
+
+    for token in _folded_tokens(segment):
+        if len(token) < _MIN_TERM_CHARS:
+            continue
+        if any(token.startswith(term) or term.startswith(token) for term in terms):
+            return True
+    return False
 
 
 def _quote(segment: str, limit: int) -> str:
