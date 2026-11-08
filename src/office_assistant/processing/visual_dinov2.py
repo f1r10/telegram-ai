@@ -76,7 +76,7 @@ class LocalDinoMeanEncoder:
         self._processor: _Processor | None = None
         self._model: _Model | None = None
 
-    def embed(self, paths: list[Path]) -> list[list[float]]:
+    def _ensure_loaded(self) -> tuple[_Processor, _Model]:
         # Heavy imports happen only when an operator explicitly enables this
         # encoder. local_files_only prevents network access for missing weights.
         torch = cast(_Torch, import_module("torch"))
@@ -96,7 +96,21 @@ class LocalDinoMeanEncoder:
                 .eval()
                 .to("cpu")
             )
-        processor, model = self._processor, self._model
+        return self._processor, self._model
+
+    def warm(self) -> None:
+        """Load the encoder once at startup so the first photo query is not cold.
+
+        Without this the lazy load happens inside the first bounded search turn
+        and can exceed the per-turn visual timeout, which would make the primary
+        DINO ANN abstain on the very first photo after each restart.
+        """
+
+        self._ensure_loaded()
+
+    def embed(self, paths: list[Path]) -> list[list[float]]:
+        torch = cast(_Torch, import_module("torch"))
+        processor, model = self._ensure_loaded()
         vectors: list[list[float]] = []
         for path in paths:
             with Image.open(path) as source:

@@ -227,6 +227,12 @@ def main() -> None:
             if visual_index is not None and semantic_visual is not None
             else None
         )
+        if semantic_visual is not None:
+            # Load the vision weights before the first turn is served so the
+            # primary DINO ANN search does not cold-abort on the first photo.
+            logging.getLogger(__name__).info(
+                "Visual model pre-warm | ready=%s", semantic_visual.warm_model()
+            )
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
