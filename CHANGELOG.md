@@ -1,3 +1,19 @@
+## 2026-11-08 — Second Telegram user can request access again (bootstrap flag repair)
+
+- A second user's `/start` → password turn always ended in "Müvəqqəti texniki xəta":
+  `system_metadata` on the staging database had no `bootstrap.admin.initialized` row
+  (the admin had been provisioned without it; audit shows no `ADMIN_BOOTSTRAPPED`),
+  so `AuthenticationService._locked_bootstrap_row` raised
+  `AuthenticationConfigurationError` on every password attempt.
+- Migration `0024_bootstrap_flag_repair` restores the row additively and idempotently
+  (`INSERT … ON CONFLICT (key) DO NOTHING`), deriving the value from existing admins
+  (`'true'` when an ADMIN exists) so a drifted database can never create a second
+  bootstrap admin. Healthy databases are untouched; downgrade is a no-op because
+  removing bootstrap state would break login again.
+- The password handler's `except ApplicationError` branch now logs the exception
+  instead of swallowing it silently, so future provisioning failures are diagnosable.
+  Adds offline tests for the migration guards and the logged degradation path.
+
 ## 2026-11-08 — DINO pre-warm at startup so the primary ANN search works from the first photo
 
 - On the 2-core staging CPU the DINO encoder loaded its weights lazily inside the first

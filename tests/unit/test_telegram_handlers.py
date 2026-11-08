@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from office_assistant.ai.service import InProcessRateGuard, RetrievalUnavailable
 from office_assistant.application.authentication import AuthenticationService
+from office_assistant.application.errors import AuthenticationConfigurationError
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram.app import create_telegram_application
@@ -36,6 +38,7 @@ from office_assistant.integrations.telegram.messages import (
     COMBINED_INTERNAL_UNAVAILABLE,
     HELP_TEXT,
     QDRANT_UNAVAILABLE,
+    TEMPORARY_ERROR,
     USERS_LINE,
     USERS_NO_NAME,
     USERS_NO_USERNAME,
@@ -459,3 +462,28 @@ def test_source_lists_use_catalog_header_and_keep_citation_numbers() -> None:
     web_rendered = _format_web(web)
     assert messages.SOURCES_HEADER in web_rendered
     assert "[1] İnternet — example.az — Başlıq — https://example.az/a" in web_rendered
+
+
+def test_password_configuration_failure_is_logged_and_degrades(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A missing bootstrap row must not hide behind an unlogged temporary error."""
+    services = _services(FakeUsers(None))
+    services.password_state.request(123)
+    services.authentication = cast(
+        AuthenticationService,
+        SimpleNamespace(
+            authenticate=AsyncMock(
+                side_effect=AuthenticationConfigurationError("Bootstrap migration is not applied")
+            )
+        ),
+    )
+    message = _plain_message("access-password", delete=AsyncMock())
+    update = FakeUpdate(TelegramUser(123, "Test", False), FakeChat(), cast(FakeMessage, message))
+    context = SimpleNamespace(bot_data={"phase2_services": services}, user_data={})
+    with caplog.at_level(logging.ERROR, logger="office_assistant.integrations.telegram.handlers"):
+        asyncio.run(
+            handle_password_text(cast(Update, update), cast(ContextTypes.DEFAULT_TYPE, context))
+        )
+    message.reply_text.assert_awaited_once_with(TEMPORARY_ERROR)
+    assert any("authentication configuration" in record.message for record in caplog.records)
