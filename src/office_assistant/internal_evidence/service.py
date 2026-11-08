@@ -181,7 +181,17 @@ class InternalEvidenceService:
         documents: list[DocumentEvidence] = []
         warnings: list[str] = []
         retrieval_error: Exception | None = None
-        if plan.use_document_search:
+        search_documents = plan.use_document_search or document_search_after_empty_structured(
+            plan, structured
+        )
+        if search_documents:
+            if not plan.use_document_search:
+                # The planner picked a structured-only route and every tool came back
+                # without a record. The owner's catalogues, price lists and saved notes
+                # can still answer that question, so searching them is the default, not
+                # an extra mode the user has to ask for.
+                logger.info("Structured evidence empty; searched the document base")
+                warnings.append("document_search_after_empty_structured")
             try:
                 documents = await self.document_search.search(
                     DocumentSearchInput(
@@ -196,11 +206,17 @@ class InternalEvidenceService:
                     )
                 )
             except Exception as error:
-                retrieval_error = error
                 logger.error(
-                    "Internal document retrieval failed | error_type=%s", type(error).__name__
+                    "Internal document retrieval failed | error_type=%s planned=%s",
+                    type(error).__name__,
+                    plan.use_document_search,
                 )
                 warnings.append("document_search_unavailable")
+                if plan.use_document_search:
+                    # The files were the requested evidence. A fallback that only
+                    # widened the search must not turn an index outage into an error
+                    # for a turn whose authoritative source was the database.
+                    retrieval_error = error
         logger.info(
             "Internal evidence collected | structured=%d documents=%d images=%d errors=%d",
             len(structured),
@@ -488,6 +504,28 @@ class InternalEvidenceService:
                     response_id=response.response_id,
                 )
             )
+
+
+def document_search_after_empty_structured(
+    plan: EvidencePlan, structured: Sequence[StructuredEvidence]
+) -> bool:
+    """True when an internal turn found no business record and must still read the files.
+
+    A model planner that leaves ``use_document_search`` false turns "Konus 75 sm var
+    bizdə?" into "not found" even when an indexed catalogue lists the product. Only an
+    internal route that actually ran tools qualifies, and a successful or conflicting
+    record stays authoritative on its own.
+    """
+
+    if plan.use_document_search or not structured:
+        return False
+    if plan.category not in {
+        RoutingCategory.INTERNAL_STRUCTURED,
+        RoutingCategory.INTERNAL_HYBRID,
+        RoutingCategory.INTERNAL_DOCUMENT,
+    }:
+        return False
+    return not any(item.status in {"OK", "CONFLICT"} for item in structured)
 
 
 def _structured_evidence(tool_name: str, output: BaseModel) -> StructuredEvidence:

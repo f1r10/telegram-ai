@@ -25,6 +25,9 @@ knowledge. Include document search for source wording, contracts, warranties,
 proposal terms, provenance, or potentially differing document prices. Return only
 concise structured planning metadata, never chain-of-thought."""
 
+# Normalized (ASCII-folded, lower-case) forms of the Azerbaijani existence verbs.
+_AVAILABILITY_TOKENS = frozenset({"var", "varmi", "yox", "yoxdur", "yoxmu"})
+
 
 @dataclass(frozen=True, slots=True)
 class PlanDecision:
@@ -103,6 +106,7 @@ def attached_image_plan(
 def deterministic_plan(question: str, *, force_internal: bool = False) -> EvidencePlan | None:
     text = normalize_user_query(question)
     product = _product_code(question)
+    availability = _asks_availability(text)
     # A printed label in an indexed image is document evidence even when its SKU
     # has no approved Product row. Do not let a model planner silently skip Qdrant.
     if (
@@ -130,9 +134,7 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
         )
     # A catalog match proves the product exists in the approved catalog, not in stock.
     # Resolve the exact code first; documents are supporting evidence only.
-    if product and any(
-        phrase in text for phrase in ("varmi", "var?", "bizde var", "bizde yox", "stok", "elde var")
-    ):
+    if product and availability:
         return EvidencePlan(
             category=RoutingCategory.INTERNAL_HYBRID,
             intent="PRODUCT_LOOKUP",
@@ -141,6 +143,10 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             business_tool_calls=[_tool_call("find_product", {"code_or_alias": product})],
             reason_code="exact_catalog_identity_before_documents",
         )
+    # A catalogue name with no machine code ("Təkər altlığı var bizdə?") has no Product row
+    # to resolve, so the planner alone cannot answer it. InternalEvidenceService searches the
+    # indexed documents whenever a structured-only plan found nothing; do not widen this
+    # branch to free text, because small talk also contains the verb "var".
     if product and any(word in text for word in ("zemanet", "sert", "sened", "muqavile")):
         return EvidencePlan(
             category=RoutingCategory.INTERNAL_DOCUMENT,
@@ -241,6 +247,19 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             reason_code="obvious_general_fast_path",
         )
     return None
+
+
+def _asks_availability(normalized: str) -> bool:
+    """Existence wording in any word order ("var bizdə", "bizdə var", "stokda varmı").
+
+    A substring test for "bizde var" misses the equally common "var bizdə", and the
+    question mark is removed by normalization, so the verb is matched as a token.
+    """
+
+    tokens = set(normalized.split())
+    if tokens & _AVAILABILITY_TOKENS:
+        return True
+    return any(token.startswith(("stok", "anbar", "elde", "elinde")) for token in tokens)
 
 
 def _asks_packaging_facts(normalized: str) -> bool:
