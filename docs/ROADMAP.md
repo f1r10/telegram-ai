@@ -470,3 +470,71 @@ Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §2/§6, reconciled in
       server-side probe above do not close live UAT.
 - [ ] Owner decision on OPEN-QUESTIONS Q46: the rollout baseline and whether
       `document_search` should also gate free-text internal answers.
+
+## V2 Milestone 2 — Orders domain, workflow and schedule — 2026-11-10
+
+Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §3.1–§3.4, documented in
+`docs/ORDERS-WORKFLOW.md`. This slice is the domain, the storage and the application
+service; the Telegram UI and the delivery engine are separate slices below.
+
+- [x] Independent `office_assistant/orders/` package that imports no session, no Telegram
+      type and no inventory model: the state table (`workflow.py`) and the exact schedule
+      (`schedule.py`) are testable without a database or a clock.
+- [x] §3.2 sequential intake stored as the order row itself — deadline, lead time, warning
+      count, requester, description, optional notes — each answer validated and committed
+      in its own transaction, so a restarted service resumes the same draft
+      (`current_draft`, `next_field`) and a refused value never reaches the record.
+- [x] One open draft per account enforced by the partial unique index
+      `uq_orders_one_open_draft`, not by conversation state; `created_by_user_id` and the
+      free-text `requested_by` are separate columns, as the contract names them.
+- [x] §3.3 schedule `I = L / N` with the first warning at `D - L` and the last one interval
+      before the deadline; the owner's 48 h / 5 example is pinned to 9 h 36 m, and a
+      deadline handed over in `Asia/Baku` produces the identical plan because the formula
+      normalises to UTC.
+- [x] Durable ledger: one `order_reminders` row per instant, `uq_order_reminder_instant`
+      plus a per-order-and-instant idempotency key, so a replayed confirmation, a retry or
+      a concurrent claim cannot duplicate a warning. Confirmation is idempotent and keeps
+      the intake token so a retried tap is a no-op.
+- [x] No stale burst: an instant already past when the plan is made is stored `SKIPPED`
+      and counted in the order view instead of being queued; freezing cancels pending
+      entries, resuming reopens only what is still ahead of now, and completing,
+      cancelling, deleting or freezing stop deliveries. Rescheduling supersedes the old
+      plan as history and never rewrites a `SENT` warning.
+- [x] §3.4 lifecycle with constrained states (`PENDING_CONFIRMATION`, `ACTIVE`, `FROZEN`,
+      `COMPLETED`, `CANCELLED`, `DELETED`) and `OVERDUE` derived at read time so a clock
+      change cannot make a row claim a state it was not given; `Sil` is a soft delete that
+      keeps the row, materials and ledger, and disappears from every list view.
+- [x] Materials keep provenance: `order_attachments` references a stored `file_object` and
+      records `added_by_user_id` and the `telegram_message_id` it arrived in; extraction
+      stays a suggestion until the explicit confirmation, and the service never reads or
+      writes inventory.
+- [x] Migration `0026_orders` creates the three tables, the CHECK constraints, the claim
+      index and the partial unique draft index, and drops cleanly again; `alembic upgrade
+      head` from an empty database reaches `0026_orders` on real PostgreSQL 17.
+- [x] Required orders tests: 31 offline cases (`tests/unit/test_order_schedule.py`,
+      `tests/unit/test_order_workflow.py`) and 15 real-PostgreSQL cases
+      (`tests/integration/test_orders_db.py`) covering restart-safe intake, the exact
+      five-row plan, idempotent confirmation, `SKIPPED` stale warnings, freeze/resume with
+      forty hours passing, complete and soft delete, per-user isolation, a disabled
+      capability refused at the service boundary, invalid answers never persisting,
+      reschedule supersession, attachment provenance, creator versus requester, and
+      cascade on account removal. Gates green on Linux: `ruff check`, `ruff format
+      --check`, `pyright` (0 errors), `pytest -m "not integration"` (1212 passed) and
+      `pytest -m integration` (95 passed / 1 skipped) on disposable PostgreSQL 17 + Qdrant.
+- [ ] Fix found while testing this slice, not carried over: `workflow.is_complete` AND-ed
+      the optionality test into every field, so a draft was confirmable only when *all*
+      six answers existed — `notes` was never actually optional and no order could ever be
+      confirmed. It now checks only the five required answers, and
+      `next_open_field` still lists `notes` last as the question to ask; the unit case
+      `test_notes_may_stay_empty_because_only_it_is_optional` pins the difference.
+- [ ] Telegram UI slice: `Sifarişlərim` menu row behind `FeatureKey.ORDERS`, the six
+      questions over the durable draft with review buttons (Təsdiqlə / Düzəliş et /
+      Ləğv et), list filters and detail with warning history, Bitir / Dondur /
+      Davam etdir / Sil, and every Azerbaijani string in `messages.py`.
+- [ ] Milestone 3 — delivery engine: claim/lease the `order_reminders` rows through the
+      existing outbox pattern, refuse to send unless the order is `ACTIVE`, bounded
+      retry/backoff, restart-safe, visible in `Sistem vəziyyəti`; the ledger vocabulary
+      (`CLAIMED`, `SENDING`, `RETRY_PENDING`, `SENT`, `FAILED`) is already declared.
+- [ ] Owner decisions in OPEN-QUESTIONS Q47: the one-year lead-time ceiling, refusing a
+      past deadline outright, rescheduling while frozen, and whether an administrator
+      "all orders" view lists other users' orders.

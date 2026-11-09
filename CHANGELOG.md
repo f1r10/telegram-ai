@@ -1,3 +1,58 @@
+## 2026-11-10 — Milestone 2 slice A: the Orders domain, its storage and its service
+
+- Owner contract V2 §3.1–§3.4 asked for an independent Orders module whose guided intake
+  survives a restart and whose reminders follow an exact formula. That is now the
+  `office_assistant/orders/` package — `workflow.py` (states, allowed actions, intake
+  order, derived overdue) and `schedule.py` (`I = L / N`, first warning at `D - L`, last
+  one interval before the deadline, idempotency key) — with no session, Telegram or
+  inventory type imported, so the contract is testable on its own.
+- `application/orders.py` is the only place a draft becomes a record. The draft **is** the
+  `orders` row: each of the six answers is validated and committed in its own transaction,
+  so a restarted service resumes the same conversation (`current_draft`, `next_field`) and
+  a refused value never reaches the record. One open draft per account is the partial
+  unique index `uq_orders_one_open_draft`, not conversation state, and
+  `created_by_user_id` stays separate from the free-text `requested_by` the contract names.
+- Confirmation is idempotent and writes the ledger once: one `order_reminders` row per
+  instant, guarded by `uq_order_reminder_instant` and a per-order-plus-instant key, so a
+  double tap, a worker replay or two concurrent claims cannot add a second warning for the
+  same moment. An instant already past when the plan is made is stored `SKIPPED` and
+  counted in the order view instead of queued, which is §3.3's "no burst of stale
+  warnings". Freezing cancels pending entries, resuming reopens only what is still ahead of
+  now, completing/cancelling/deleting stop deliveries, and rescheduling supersedes the old
+  plan as history without rewriting a `SENT` warning.
+- §3.4 lifecycle ships with the six constrained states and `OVERDUE` derived at read time,
+  so a clock change cannot make a row claim a state it was not given; `Sil` is a soft
+  delete that keeps the order, its materials and its ledger while vanishing from every
+  list. Materials are referenced, not copied — `order_attachments` points at a stored
+  `file_object` and records `added_by_user_id` and the `telegram_message_id` it arrived in.
+- Migration `0026_orders` creates the three tables with their CHECK constraints, the claim
+  index and the partial unique draft index, and reverses cleanly.
+- Defects found while proving this slice, fixed at the cause rather than by weakening an
+  assertion: `workflow.is_complete` had AND-ed the optionality test into every field, so a
+  draft was confirmable only when all six answers existed — `notes` was never optional and
+  no order could ever be confirmed at all. It now checks only the five required answers
+  while `next_open_field` still lists `notes` last as the question to ask, and the unit
+  case that pins the difference failed first and passes now. `schedule.review_instants`
+  also refused a deadline that arrived in the order's own zone; it normalises to UTC
+  instead, so `Asia/Baku` and UTC now produce the identical plan, which is what §3.3 asks
+  for and what the earlier draft had mistaken for an invalid schedule.
+- Evidence: 31 offline cases (`tests/unit/test_order_schedule.py`,
+  `tests/unit/test_order_workflow.py`) and 15 real-PostgreSQL cases
+  (`tests/integration/test_orders_db.py`) covering the owner's 48 h / 5 → 9 h 36 m example,
+  restart-safe intake, idempotent confirmation, `SKIPPED` stale warnings, freeze/resume
+  across forty passing hours, complete and soft delete, per-user isolation, a disabled
+  capability refused at the service boundary, reschedule supersession, attachment
+  provenance, creator versus requester and cascade on account removal. Green on Linux:
+  `ruff check`, `ruff format --check`, `pyright` (0 errors), `pytest -m "not integration"`
+  (1212 passed) and `pytest -m integration` (95 passed, 1 skipped) against a disposable
+  PostgreSQL 17 plus Qdrant.
+- Deliberately not in this slice: the Telegram `Sifarişlərim` UI and the delivery engine
+  (Milestone 3). The ledger vocabulary `CLAIMED`/`SENDING`/`RETRY_PENDING`/`SENT`/`FAILED`
+  is declared and the rows are written and stopped correctly, but nothing sends them yet —
+  which is why `orders` stays disabled in the rollout baseline until a user can actually
+  reach the workflow. Bounds decided as reversible defaults are recorded in
+  OPEN-QUESTIONS Q47.
+
 ## 2026-11-09 — Milestone 1: per-user feature permissions enforced in one policy
 
 - Owner contract V2 §2/§6 asked for administrator-managed binary capability toggles
