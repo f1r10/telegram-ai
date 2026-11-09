@@ -448,8 +448,25 @@ Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §2/§6, reconciled in
       empty database, then 80 passed / 1 skipped) after the schema-head assertion began
       reading the migration graph instead of a stale revision literal and the capability
       fixture started writing the grid the approval path writes.
-- [ ] Apply migration 0025 and verify the toggle flow on the Kali TEST server with two
-      real Telegram accounts (a baseline user, a user with `document_search` off, and
-      an administrator); GitHub unit and CI integration tests do not close live UAT.
+- [x] Migration `0025_user_feature_permissions` applied on the verified Kali TEST server
+      (`/opt/telegram-ai-staging`, project `tgstage_ai_assistand`, database
+      `office_assistant_kali_test`, deployed commit `db9f5a2`) after a custom-format
+      `pg_dump` to `staging-before-0025.dump`; `alembic_version` is
+      `0025_user_feature_permissions`, the rollout backfill wrote 10 rows for each of the
+      2 existing accounts, `tgstage_app`/`tgstage_worker` were rebuilt from the same
+      commit and restarted, and the bot polls (`getMe`, `deleteWebhook`, `getUpdates` all
+      200, DINO pre-warm `ready=True`, no 409 conflict left).
+- [x] Live toggle flow proven through the production services on that server with a
+      disposable account: approval wrote the 10-row grid, `document_search` off raised
+      `FeatureAccessDenied` at the service boundary while `ai_chat` kept working, the
+      stored grid read `False`/`True`, an administrator toggle was refused with
+      `AdministratorFeatureLocked`, a non-admin write with `AuthorizationDenied`, an
+      unknown target with `UnknownFeatureTarget`, and deleting the account cascaded its
+      rows to zero with no orphans.
+- [ ] Ordinary-message Telegram UI check with two approved real accounts (a baseline
+      user, a user with `document_search` off, and an administrator). The staging
+      second account `5414276040` is `REJECTED` (audit `USER_REJECTED` by actor 1 on
+      2026-11-08), so an approved second Telegram account is still needed; CI and the
+      server-side probe above do not close live UAT.
 - [ ] Owner decision on OPEN-QUESTIONS Q46: the rollout baseline and whether
       `document_search` should also gate free-text internal answers.

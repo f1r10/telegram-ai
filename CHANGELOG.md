@@ -44,6 +44,16 @@
   the pending account without rows, which is what the approval test measures. Verified
   against a disposable PostgreSQL 17 plus Qdrant pair: `alembic upgrade head` from empty,
   then 80 integration cases passed, 1 skipped (SearXNG URL not configured).
+- Live test-server acceptance for this milestone: migration `0025` was applied on the
+  verified Kali staging stack after `staging-before-0025.dump`, `db9f5a2` was built and
+  restarted, and a disposable account proved the whole chain through the production
+  services — approval writes the ten-row grid, `document_search` off raises
+  `FeatureAccessDenied` at the boundary while `ai_chat` keeps answering, an
+  administrator cannot be toggled (`AdministratorFeatureLocked`), a non-admin cannot
+  write (`AuthorizationDenied`), and deleting the account cascades the rows. The
+  account was removed afterwards; the audit events it produced are the trace of the run.
+  What is still open is the same flow driven by two approved real Telegram accounts in
+  the ordinary chat, because the staging second account is `REJECTED`.
 
 ## 2026-11-09 — The automatic document quote names the asked subject, not a word containing it
 
