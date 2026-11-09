@@ -27,6 +27,7 @@ from office_assistant.integrations.telegram.handlers import (
     handle_document,
     handle_error,
     handle_extraction_callback,
+    handle_feature_callback,
     handle_menu_callback,
     handle_menu_interruption,
     handle_password_text,
@@ -113,6 +114,7 @@ def create_telegram_application(
     for name, callback in COMMAND_CALLBACKS.items():
         application.add_handler(CommandHandler(name, callback))
     application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^ua:"))
+    application.add_handler(CallbackQueryHandler(handle_feature_callback, pattern=r"^uf:"))
     application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern=r"^om:"))
     application.add_handler(CallbackQueryHandler(handle_answer_navigation, pattern=r"^nav:"))
     application.add_handler(CallbackQueryHandler(handle_source_button, pattern=r"^src:"))

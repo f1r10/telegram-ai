@@ -7,6 +7,7 @@ from pathlib import Path
 from office_assistant.ai.factory import create_language_model
 from office_assistant.ai.service import GroundedAnswerService, InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
+from office_assistant.application.feature_permissions import FeaturePermissionService
 from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.inventory import InventoryLedgerService
 from office_assistant.application.reference_images import ReferenceImageService
@@ -236,6 +237,7 @@ def main() -> None:
         services = TelegramServices(
             authentication=AuthenticationService(session_factory, access_password),
             users=UserManagementService(session_factory),
+            features=FeaturePermissionService(session_factory),
             password_state=PasswordEntryState(),
             limiter=PasswordAttemptLimiter(),
             ingestion=ingestion,

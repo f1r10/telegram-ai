@@ -10,7 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.business_common import ensure_feature
 from office_assistant.application.errors import AuthorizationDenied
+from office_assistant.auth.features import FeatureKey
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
     SalesEntry,
@@ -155,6 +157,7 @@ class SalesLedgerService:
             raise AuthorizationDenied("Inactive or missing sales ledger actor")
         if admin and db_user.role != UserRole.ADMIN:
             raise AuthorizationDenied("Only the company administrator can post sales")
+        await ensure_feature(session, db_user, FeatureKey.SALES_REPORTS)
 
     async def record(self, actor: User, draft: SaleDraft) -> SalesEntry:
         return (await self.record_many(actor, (draft,)))[0]

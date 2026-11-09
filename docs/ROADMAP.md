@@ -412,3 +412,40 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       flow (one `PhotoGroup`, not an authoritative catalog item).
 - [ ] Confirm the combined album prompt, result and save on the owner's Kali
       staging bot with a real 3-4 photo album; GitHub unit tests do not close UAT.
+
+## V2 Milestone 1 — Permissions and navigation — 2026-11-09
+
+Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §2/§6, reconciled in
+`docs/FEATURE-PERMISSIONS.md`.
+
+- [x] One capability policy (`auth/features.py`) over the ten contract keys, with an
+      explicit baseline grid, a declared-key parser, and `ADMIN` never lockable out;
+      `can_use_feature` is the same function the menu and the backend call.
+- [x] Backend authorization at the service boundary: `ensure_feature` /
+      `require_feature` in `application/business_common.py` applied by
+      `sales_ledger`, `inventory`, `ingestion`, `reminders` and `reference_images`
+      inside their own transactions.
+- [x] Telegram adapter re-authorizes every surface — commands, menu taps (including a
+      button printed before the toggle changed), photo, document, upload, save, sales,
+      stock, reminder and source-delivery callbacks — and answers a denial visibly
+      (`FEATURE_DISABLED`) instead of silently doing nothing.
+- [x] Menu generation renders only allowed capabilities; `👤 İstifadəçilər` and
+      `🌐 Prioritet saytlar` are administrator rows.
+- [x] Storage and rollout: `user_feature_permissions` with a declared-key CHECK and
+      cascade, migration `0025_user_feature_permissions` backfilling the baseline for
+      existing users, `approve()` writing the grid in the same transaction, one audited
+      idempotent write per accepted toggle.
+- [x] Administrator grid UI: per-user binary toggles over actor-bound `uf:` callbacks,
+      read-only for an administrator, refusal for a non-admin actor.
+- [x] Required permission tests: 29 offline cases
+      (`tests/unit/test_feature_permissions.py`, menu contract cases in
+      `test_telegram_menu.py`) and 9 real-PostgreSQL cases
+      (`tests/integration/test_feature_permissions_db.py`) covering denial of a
+      disabled capability, admin immunity, stale callback, per-user isolation, audit
+      idempotency, approval write and cascade. `ruff check`, `ruff format --check`,
+      `pyright` and `pytest -m "not integration"` (1181 passed) are green.
+- [ ] Apply migration 0025 and verify the toggle flow on the Kali TEST server with two
+      real Telegram accounts (a baseline user, a user with `document_search` off, and
+      an administrator); GitHub unit and CI integration tests do not close live UAT.
+- [ ] Owner decision on OPEN-QUESTIONS Q46: the rollout baseline and whether
+      `document_search` should also gate free-text internal answers.

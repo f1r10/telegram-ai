@@ -25,7 +25,7 @@ MENU_TITLE = (
 MENU_CHAT_BUTTON = "💬 Sual ver"
 MENU_BAZA_BUTTON = "🏢 Bizim baza"
 MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
-MENU_PHOTO_BUTTON = "📷 Şəkillə axtar"
+MENU_PHOTO_BUTTON = "📷 Image Search"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
@@ -240,6 +240,45 @@ USERS_NONE_REGISTERED = "Qeydiyyatda istifadəçi yoxdur."
 USERS_NO_NAME = "Ad yoxdur"
 USERS_NO_USERNAME = "username yoxdur"
 USERS_LINE = "ID: {telegram_user_id} | {name} | {username} | {status}"
+# Per-user feature access (owner contract V2 §2). Labels are presentation only; the
+# authorization keys live in auth.features.FeatureKey.
+FEATURE_DISABLED = (
+    "Bu imkan sizin üçün deaktiv edilib. Administratorla əlaqə saxlayın və ya /menu ilə "
+    "icazəli olduğunuz bölmələrə qayıdın."
+)
+MENU_USERS_BUTTON = "👥 Users"
+USERS_PANEL_HEADER = (
+    "👥 İSTİFADƏÇİ İCAZƏLƏRİ\n\n"
+    "İstifadəçini seçin, sonra hər imkanı ayrıca Aktiv/Deaktiv edin. "
+    "Deaktiv edilən imkan menyudan gizlədilir və backend tərəfindən də rədd edilir.\n\n"
+    "Administrator həmişə tam girişə malikdir; onun icazələri dəyişdirilə bilməz."
+)
+USERS_PANEL_EMPTY = "Redaktə ediləcək istifadəçi yoxdur."
+USERS_BACK_BUTTON = "⬅️ İstifadəçilər"
+USERS_OPEN_BUTTON = "👤 {name}"
+FEATURE_GRID_HEADER = "👥 {label}\n\nİmkanlar (düymə cari vəziyyəti göstərir, basanda dəyişir):"
+FEATURE_TARGET_MISSING = "Bu istifadəçi və ya imkan tapılmadı. Siyahını yenidən açın."
+FEATURE_GRID_READONLY = "\nAdministrator icazələri dəyişdirilə bilməz."
+FEATURE_GRID_PENDING = (
+    "\nBu istifadəçi hələ təsdiqlənməyib; icazələr təsdiqdən sonra qüvvəyə minir."
+)
+FEATURE_STATE_ON = "✅ Aktiv"
+FEATURE_STATE_OFF = "🚫 Deaktiv"
+FEATURE_TOGGLE_BUTTON = "{state} {label}"
+FEATURE_UPDATED = "✅ {label}: {state}\nDəyişiklik dərhal qüvvədədir və audit jurnalına yazıldı."
+FEATURE_ADMIN_UNTOUCHABLE = "Administratorun girişini toggle ilə bağlamaq olmaz."
+FEATURE_LABELS = {
+    "ai_chat": "💬 Sual ver (AI çat)",
+    "document_search": "🏢 Daxili sənəd axtarışı",
+    "document_ingest": "📄 Sənəd əlavə etmə",
+    "product_search": "📦 Məhsul axtarışı",
+    "image_search": "📷 Image Search",
+    "orders": "🗂 Sifarişlər",
+    "sales_reports": "📊 Satış hesabatı",
+    "external_search": "🌐 İnternet axtarışı",
+    "inventory": "🏬 Anbar qalığı",
+    "reminders": "⏰ Xatırlatmalar",
+}
 CANCELLED = "Parol daxil etmə prosesi ləğv edildi."
 TEMPORARY_ERROR = "Müvəqqəti texniki xəta baş verdi. Zəhmət olmasa sonra yenidən cəhd edin."
 AI_TIMEOUT = (

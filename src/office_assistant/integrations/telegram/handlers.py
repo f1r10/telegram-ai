@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 import secrets
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from hashlib import sha256
@@ -48,6 +48,12 @@ from office_assistant.application.errors import (
     AuthorizationDenied,
     DomainConflict,
 )
+from office_assistant.application.feature_permissions import (
+    AdministratorFeatureLocked,
+    FeaturePermissionService,
+    UnknownFeatureTarget,
+    UserFeatureGrid,
+)
 from office_assistant.application.file_validation import validate_upload
 from office_assistant.application.ingestion import IngestionSessionService, UploadMetadata
 from office_assistant.application.inventory import (
@@ -82,6 +88,7 @@ from office_assistant.application.sales_ledger import (
     parse_sales_request,
 )
 from office_assistant.application.user_management import UserManagementService
+from office_assistant.auth.features import FeatureKey, can_use_feature, parse_feature
 from office_assistant.auth.policy import is_admin
 from office_assistant.business.normalization import normalize_product_code
 from office_assistant.business.product_registration import (
@@ -209,6 +216,21 @@ SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
 SITES_ENTRY_KEY = "office_priority_site_entry"
 SITES_ENTRY_TTL_SECONDS = 600
+# Menu action -> capability. The same keys authorize the backend, so a hidden or stale
+# button can never reach a disabled feature (owner contract V2 §2 and §6).
+MENU_ACTION_FEATURES: dict[str, FeatureKey] = {
+    "om:ask": FeatureKey.AI_CHAT,
+    "om:baza": FeatureKey.DOCUMENT_SEARCH,
+    "om:product": FeatureKey.PRODUCT_SEARCH,
+    "om:photo": FeatureKey.IMAGE_SEARCH,
+    "om:upload": FeatureKey.DOCUMENT_INGEST,
+    "om:save": FeatureKey.DOCUMENT_INGEST,
+    "om:sales": FeatureKey.SALES_REPORTS,
+    "om:stock": FeatureKey.INVENTORY,
+    "om:internet": FeatureKey.EXTERNAL_SEARCH,
+    "om:tamaxtar": FeatureKey.EXTERNAL_SEARCH,
+}
+ADMIN_MENU_ACTIONS = frozenset({"om:users", "om:sites", "om:sites:add", "om:sites:remove"})
 logger = logging.getLogger(__name__)
 
 
@@ -239,6 +261,7 @@ class TelegramServices:
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
     inventory: InventoryLedgerService | None = None
+    features: FeaturePermissionService | None = None
     miniapp_url: str | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
     delete_confirmation_state: DeleteConfirmationState = field(
@@ -341,6 +364,107 @@ def _user_label(user: User) -> str:
         username=username,
         status=user.status,
     )
+
+
+async def _feature_grants(services: TelegramServices, user: User) -> dict[str, bool]:
+    """One shared grant read; without the service the documented baseline applies.
+
+    ``TelegramServices`` always declares the field, so ``getattr`` only covers the
+    deliberately partial service doubles in the offline tests: a double that never
+    exercises permissions must not have to fake one.
+    """
+
+    features = getattr(services, "features", None)
+    if features is None:
+        return {}
+    return await features.grants_for(user)
+
+
+async def _deny(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """Answer on the surface the user actually used — a denial is never silent."""
+
+    query = update.callback_query
+    if query is not None:
+        try:
+            await query.edit_message_text(text)
+            return
+        except TelegramError:
+            # A photo or document message cannot be edited into text; fall through.
+            logger.warning("Denial could not edit the pressed message")
+    message = update.effective_message
+    if message is not None:
+        await message.reply_text(text)
+        return
+    identity = _identity(update)
+    if identity is not None:
+        await context.bot.send_message(chat_id=identity.telegram_user_id, text=text)
+
+
+async def _feature_gate(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, feature: FeatureKey
+) -> tuple[TelegramServices, User] | None:
+    """Re-authorize one capability for this exact update, including a stale callback.
+
+    Hiding a button is presentation; this is the adapter-side half of the same decision
+    the application services enforce through ``require_feature``.
+    """
+
+    if not _is_private(update):
+        return None
+    identity = _identity(update)
+    if identity is None:
+        return None
+    services = _services(context)
+    try:
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if user is None:
+            await _deny(update, context, messages.UNKNOWN_USER)
+            return None
+        if user.status != UserStatus.ACTIVE:
+            await _deny(update, context, _status_message(user))
+            return None
+        if not can_use_feature(user, await _feature_grants(services, user), feature):
+            await _deny(update, context, messages.FEATURE_DISABLED)
+            return None
+    except SQLAlchemyError:
+        logger.exception("Telegram feature authorization lookup failed")
+        await _deny(update, context, messages.TEMPORARY_ERROR)
+        return None
+    return services, user
+
+
+async def _source_delivery_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Original-file delivery stays inside the scopes this actor may still read.
+
+    A visual source ticket can point at a standalone picture or at its parent document,
+    so either granted scope authorizes the delivery. Ownership, the approved storage
+    mapping and the committed bytes are re-checked by the delivery service itself.
+    """
+
+    identity = _identity(update)
+    if identity is None:
+        return False
+    services = _services(context)
+    try:
+        user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        grants = await _feature_grants(services, user) if user is not None else {}
+    except SQLAlchemyError:
+        logger.exception("Source delivery authorization lookup failed")
+        await _deny(update, context, messages.TEMPORARY_ERROR)
+        return False
+    if user is None:
+        await _deny(update, context, messages.UNKNOWN_USER)
+        return False
+    if user.status != UserStatus.ACTIVE:
+        await _deny(update, context, _status_message(user))
+        return False
+    if not (
+        can_use_feature(user, grants, FeatureKey.DOCUMENT_SEARCH)
+        or can_use_feature(user, grants, FeatureKey.IMAGE_SEARCH)
+    ):
+        await _deny(update, context, messages.FEATURE_DISABLED)
+        return False
+    return True
 
 
 async def _reply_long(
@@ -611,33 +735,50 @@ def _user_keyboard(user: User) -> InlineKeyboardMarkup | None:
     return None
 
 
-def _menu_keyboard(miniapp_url: str | None = None) -> InlineKeyboardMarkup:
-    """Native bot stays complete; optional Web App requires its own HTTPS origin."""
+def _menu_keyboard(
+    user: User, grants: Mapping[str, bool], miniapp_url: str | None = None
+) -> InlineKeyboardMarkup:
+    """Render only allowed capabilities; the backend decision stays authoritative.
 
-    rows = [
+    The row layout is unchanged for a baseline user so muscle memory survives. Priority
+    sites and user administration are administrator entries (owner contract V2 §7).
+    """
+
+    layout: list[list[tuple[str, str, FeatureKey | None]]] = [
         [
-            InlineKeyboardButton(messages.MENU_CHAT_BUTTON, callback_data="om:ask"),
-            InlineKeyboardButton(messages.MENU_BAZA_BUTTON, callback_data="om:baza"),
+            (messages.MENU_CHAT_BUTTON, "om:ask", FeatureKey.AI_CHAT),
+            (messages.MENU_BAZA_BUTTON, "om:baza", FeatureKey.DOCUMENT_SEARCH),
         ],
         [
-            InlineKeyboardButton(messages.MENU_PRODUCT_BUTTON, callback_data="om:product"),
-            InlineKeyboardButton(messages.MENU_STOCK_BUTTON, callback_data="om:stock"),
+            (messages.MENU_PRODUCT_BUTTON, "om:product", FeatureKey.PRODUCT_SEARCH),
+            (messages.MENU_STOCK_BUTTON, "om:stock", FeatureKey.INVENTORY),
+        ],
+        [(messages.MENU_PHOTO_BUTTON, "om:photo", FeatureKey.IMAGE_SEARCH)],
+        [
+            (messages.MENU_UPLOAD_BUTTON, "om:upload", FeatureKey.DOCUMENT_INGEST),
+            (messages.MENU_SALES_BUTTON, "om:sales", FeatureKey.SALES_REPORTS),
         ],
         [
-            InlineKeyboardButton(messages.MENU_PHOTO_BUTTON, callback_data="om:photo"),
-        ],
-        [
-            InlineKeyboardButton(messages.MENU_UPLOAD_BUTTON, callback_data="om:upload"),
-            InlineKeyboardButton(messages.MENU_SALES_BUTTON, callback_data="om:sales"),
-        ],
-        [
-            InlineKeyboardButton(messages.MENU_INTERNET_BUTTON, callback_data="om:internet"),
-            InlineKeyboardButton(messages.MENU_HELP_BUTTON, callback_data="om:help"),
-        ],
-        [
-            InlineKeyboardButton(messages.MENU_SITES_BUTTON, callback_data="om:sites"),
+            (messages.MENU_INTERNET_BUTTON, "om:internet", FeatureKey.EXTERNAL_SEARCH),
+            (messages.MENU_HELP_BUTTON, "om:help", None),
         ],
     ]
+    rows = [
+        [
+            InlineKeyboardButton(label, callback_data=action)
+            for label, action, feature in row
+            if feature is None or can_use_feature(user, grants, feature)
+        ]
+        for row in layout
+    ]
+    rows = [row for row in rows if row]
+    if is_admin(user):
+        rows.append(
+            [
+                InlineKeyboardButton(messages.MENU_USERS_BUTTON, callback_data="om:users"),
+                InlineKeyboardButton(messages.MENU_SITES_BUTTON, callback_data="om:sites"),
+            ]
+        )
     if miniapp_url is not None and miniapp_url.startswith("https://"):
         rows.insert(
             0,
@@ -923,6 +1064,9 @@ async def _try_stock_turn(
         return True
     if draft is None and lookup is None:
         return False
+    if not can_use_feature(actor, await _feature_grants(services, actor), FeatureKey.INVENTORY):
+        await update.effective_message.reply_text(messages.FEATURE_DISABLED)
+        return True
     _discard_menu_selection(context)
     if services.inventory is None:
         await update.effective_message.reply_text("Anbar uçotu xidməti hələ aktiv deyil.")
@@ -1001,6 +1145,9 @@ async def handle_stock_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if user is None or user.status != UserStatus.ACTIVE:
         await update.effective_message.reply_text(messages.NO_PERMISSION)
         return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.INVENTORY):
+        await update.effective_message.reply_text(messages.FEATURE_DISABLED)
+        return
     raw = update.effective_message.text or ""
     code = raw.partition(" ")[2].strip()
     if not code:
@@ -1052,6 +1199,9 @@ async def handle_stock_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
         await query.edit_message_text(messages.NO_PERMISSION)
         return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.INVENTORY):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
+        return
     try:
         entry = await services.inventory.record(user, selected[2])
     except InventoryConflict as error:
@@ -1092,6 +1242,11 @@ async def _try_sales_turn(
         await update.effective_message.reply_text(str(error))
         return True
     if draft is not None:
+        if not can_use_feature(
+            user, await _feature_grants(services, user), FeatureKey.SALES_REPORTS
+        ):
+            await update.effective_message.reply_text(messages.FEATURE_DISABLED)
+            return True
         _discard_menu_selection(context)
         if user.role != UserRole.ADMIN:
             await update.effective_message.reply_text(
@@ -1113,6 +1268,9 @@ async def _try_sales_turn(
     request = parse_sales_request(text)
     if request is None:
         return False
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.SALES_REPORTS):
+        await update.effective_message.reply_text(messages.FEATURE_DISABLED)
+        return True
     _discard_menu_selection(context)
     await _render_sales_report(update.effective_message, services, user, request)
     return True
@@ -1164,6 +1322,9 @@ async def _handle_sales_report(
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         await message.reply_text(messages.NO_PERMISSION)
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.SALES_REPORTS):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     request = parse_sales_request(text)
     if request is None:
@@ -1219,6 +1380,9 @@ async def handle_sales_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if user is None or user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
         await query.edit_message_text(messages.NO_PERMISSION)
         return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.SALES_REPORTS):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
+        return
     try:
         entry = await services.sales.record(user, selected_items[2])
     except SaleAlreadyExists as error:
@@ -1255,6 +1419,12 @@ async def handle_menu_interruption(update: Update, context: ContextTypes.DEFAULT
         _discard_menu_selection(context)
 
 
+async def _menu_markup(services: TelegramServices, user: User) -> InlineKeyboardMarkup:
+    """Read the actor's current grants, so a toggle applies on the very next /menu."""
+
+    return _menu_keyboard(user, await _feature_grants(services, user), services.miniapp_url)
+
+
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Offer ordinary-language guidance after verifying a private active account."""
 
@@ -1268,18 +1438,18 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     services = _services(context)
     try:
         user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if user is None:
+            await message.reply_text(messages.UNKNOWN_USER)
+            return
+        if user.status != UserStatus.ACTIVE:
+            await message.reply_text(_status_message(user))
+            return
+        markup = await _menu_markup(services, user)
     except SQLAlchemyError:
         logger.exception("Telegram menu database lookup failed")
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
-    if user is None:
-        await message.reply_text(messages.UNKNOWN_USER)
-    elif user.status != UserStatus.ACTIVE:
-        await message.reply_text(_status_message(user))
-    else:
-        await message.reply_text(
-            messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
-        )
+    await message.reply_text(messages.MENU_TITLE, reply_markup=markup)
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1311,7 +1481,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:sites",
         "om:sites:add",
         "om:sites:remove",
-    }:
+        "om:users",
+    } and not action.startswith("om:user:"):
         return
     # A later tap replaces the earlier scope, including help, upload and access denial.
     # Otherwise a prior internet selection may disclose an unrelated later plain message.
@@ -1325,10 +1496,31 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if user.status != UserStatus.ACTIVE:
             await query.edit_message_text(_status_message(user))
             return
+        # A button printed before a toggle changed is still client-supplied input: the
+        # capability is re-authorized on every press, never trusted from the markup.
+        feature = MENU_ACTION_FEATURES.get(action)
+        if feature is not None and not can_use_feature(
+            user, await _feature_grants(services, user), feature
+        ):
+            await query.edit_message_text(messages.FEATURE_DISABLED)
+            return
+        if (action in ADMIN_MENU_ACTIONS or action.startswith("om:user:")) and not is_admin(user):
+            await query.edit_message_text(messages.NO_PERMISSION)
+            return
         if action == "om:home":
             await query.edit_message_text(
-                messages.MENU_TITLE, reply_markup=_menu_keyboard(services.miniapp_url)
+                messages.MENU_TITLE, reply_markup=await _menu_markup(services, user)
             )
+            return
+        if action == "om:users":
+            await _render_users_panel(query, services, user)
+            return
+        if action.startswith("om:user:"):
+            target = action.partition(":")[2]
+            if not target.isdigit():
+                await query.edit_message_text(messages.TEMPORARY_ERROR)
+                return
+            await _render_feature_grid(query, services, user, int(target))
             return
         if action == "om:help":
             await query.edit_message_text(messages.MENU_QUICK_HELP, reply_markup=_help_keyboard())
@@ -1429,6 +1621,158 @@ async def _render_sites_panel(query: CallbackQuery, services: TelegramServices, 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
 
 
+def _feature_grid_text(grid: UserFeatureGrid) -> str:
+    lines = [messages.FEATURE_GRID_HEADER.format(label=_user_label(grid.user))]
+    for grant in grid.grants:
+        state = messages.FEATURE_STATE_ON if grant.effective else messages.FEATURE_STATE_OFF
+        lines.append(f"{state} — {messages.FEATURE_LABELS[grant.feature_key]}")
+    if not grid.editable:
+        lines.append(messages.FEATURE_GRID_READONLY)
+    elif grid.user.status != UserStatus.ACTIVE:
+        lines.append(messages.FEATURE_GRID_PENDING)
+    return "\n".join(lines)
+
+
+def _feature_grid_keyboard(grid: UserFeatureGrid) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if grid.editable:
+        for grant in grid.grants:
+            state = messages.FEATURE_STATE_ON if grant.enabled else messages.FEATURE_STATE_OFF
+            action = "off" if grant.enabled else "on"
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        messages.FEATURE_TOGGLE_BUTTON.format(
+                            state=state, label=messages.FEATURE_LABELS[grant.feature_key]
+                        ),
+                        callback_data=f"uf:{grid.user.id}:{grant.feature_key}:{action}",
+                    )
+                ]
+            )
+    rows.append(
+        [
+            InlineKeyboardButton(messages.USERS_BACK_BUTTON, callback_data="om:users"),
+            InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="om:home"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+async def _render_users_panel(
+    query: CallbackQuery, services: TelegramServices, actor: User
+) -> None:
+    """Administrator-only user list; each entry opens that user's feature grid."""
+
+    if services.features is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        users = await services.users.list_users_for_actor(actor.telegram_user_id, limit=50)
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except SQLAlchemyError:
+        logger.exception("Feature user list lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    rows: list[list[InlineKeyboardButton]] = []
+    for target in users:
+        name = " ".join(part for part in (target.first_name, target.last_name) if part)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    messages.USERS_OPEN_BUTTON.format(name=(name or messages.USERS_NO_NAME)[:40]),
+                    callback_data=f"om:user:{target.id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(messages.MENU_NAV_HOME, callback_data="om:home")])
+    text = messages.USERS_PANEL_HEADER
+    if not users:
+        text += "\n" + messages.USERS_PANEL_EMPTY
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def _render_feature_grid(
+    query: CallbackQuery, services: TelegramServices, actor: User, target_user_id: int
+) -> None:
+    if services.features is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    try:
+        grid = await services.features.grid_for_actor(actor.telegram_user_id, target_user_id)
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except UnknownFeatureTarget:
+        await query.edit_message_text(messages.FEATURE_TARGET_MISSING)
+        return
+    except SQLAlchemyError:
+        logger.exception("Feature grid lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    await query.edit_message_text(
+        _feature_grid_text(grid), reply_markup=_feature_grid_keyboard(grid)
+    )
+
+
+async def handle_feature_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """One administrator toggle. The pressed button is a request, never an authorization."""
+
+    if not _is_private(update):
+        return
+    query = update.callback_query
+    identity = _identity(update)
+    if query is None or identity is None:
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    if (
+        len(parts) != 4
+        or parts[0] != "uf"
+        or not parts[1].isdigit()
+        or parts[3] not in {"on", "off"}
+    ):
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    services = _services(context)
+    if services.features is None:
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    key = parse_feature(parts[2])
+    if key is None:
+        # A declared key is a precondition for the write, not something the database
+        # CHECK constraint has to discover inside a locked transaction.
+        await query.edit_message_text(messages.FEATURE_TARGET_MISSING)
+        return
+    enabled = parts[3] == "on"
+    try:
+        grid = await services.features.set_for_actor(
+            identity.telegram_user_id, int(parts[1]), key, enabled
+        )
+    except AuthorizationDenied:
+        await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    except AdministratorFeatureLocked:
+        await query.edit_message_text(messages.FEATURE_ADMIN_UNTOUCHABLE)
+        return
+    except UnknownFeatureTarget:
+        await query.edit_message_text(messages.FEATURE_TARGET_MISSING)
+        return
+    except SQLAlchemyError:
+        logger.exception("Feature toggle database operation failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    label = messages.FEATURE_LABELS[key.value]
+    state = messages.FEATURE_STATE_ON if enabled else messages.FEATURE_STATE_OFF
+    await query.edit_message_text(
+        messages.FEATURE_UPDATED.format(label=label, state=state)
+        + "\n\n"
+        + _feature_grid_text(grid),
+        reply_markup=_feature_grid_keyboard(grid),
+    )
+
+
 async def handle_catalog_source_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Deliver the original image or parent document for an actor-bound visual source."""
 
@@ -1441,6 +1785,8 @@ async def handle_catalog_source_button(update: Update, context: ContextTypes.DEF
     await query.answer()
     parts = (query.data or "").split(":")
     if len(parts) != 3 or parts[0] != "cat" or not parts[2].isdigit():
+        return
+    if not await _source_delivery_allowed(update, context):
         return
     data = getattr(context, "user_data", None)
     state: object = data.get(CATALOG_SOURCE_TICKET_KEY) if data is not None else None
@@ -1508,6 +1854,8 @@ async def handle_source_button(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     parts = (query.data or "").split(":")
     if len(parts) != 3 or parts[0] != "src" or not parts[2].isdigit():
+        return
+    if not await _source_delivery_allowed(update, context):
         return
     citation_index = int(parts[2])
     data = getattr(context, "user_data", None)
@@ -1591,6 +1939,17 @@ async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT
             )
             return
         _discard_menu_selection(context)
+        feature = {
+            "nav:baza": FeatureKey.DOCUMENT_SEARCH,
+            "nav:ask": FeatureKey.AI_CHAT,
+        }.get(action)
+        if feature is not None and not can_use_feature(
+            actor, await _feature_grants(services, actor), feature
+        ):
+            await context.bot.send_message(
+                chat_id=identity.telegram_user_id, text=messages.FEATURE_DISABLED
+            )
+            return
         if action == "nav:baza":
             data = getattr(context, "user_data", None)
             if data is None:
@@ -1607,7 +1966,7 @@ async def handle_answer_navigation(update: Update, context: ContextTypes.DEFAULT
             keyboard = _examples_keyboard()
         else:
             content = messages.MENU_TITLE
-            keyboard = _menu_keyboard(services.miniapp_url)
+            keyboard = await _menu_markup(services, actor)
         await context.bot.send_message(
             chat_id=identity.telegram_user_id, text=content, reply_markup=keyboard
         )
@@ -1731,6 +2090,11 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     services = _services(context)
     try:
         user = await services.users.get_by_telegram_id(identity.telegram_user_id)
+        if user is not None and user.status == UserStatus.ACTIVE:
+            await services.users.touch_active_user(identity.telegram_user_id)
+            markup = await _menu_markup(services, user)
+        else:
+            markup = None
     except SQLAlchemyError:
         logger.exception("Telegram start database lookup failed")
         await message.reply_text(messages.TEMPORARY_ERROR)
@@ -1740,11 +2104,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await message.reply_text(messages.AUTH_PROMPT)
         return
     if user.status == UserStatus.ACTIVE:
-        await services.users.touch_active_user(identity.telegram_user_id)
-    if user.status == UserStatus.ACTIVE:
-        await message.reply_text(
-            messages.WELCOME, reply_markup=_menu_keyboard(services.miniapp_url)
-        )
+        await message.reply_text(messages.WELCOME, reply_markup=markup)
     else:
         await message.reply_text(_status_message(user))
 
@@ -1765,16 +2125,28 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
             user = await services.users.get_by_telegram_id(identity.telegram_user_id)
             if user is None:
                 await message.reply_text(messages.UNKNOWN_USER)
-            elif user.status != UserStatus.ACTIVE:
+                return
+            if user.status != UserStatus.ACTIVE:
                 await message.reply_text(_status_message(user))
-            elif await _try_priority_site_entry(update, context, services, user, message.text):
                 return
-            elif await _save_photo_album_description(update, context, user):
+            grants = await _feature_grants(services, user)
+
+            def allowed(feature: FeatureKey) -> bool:
+                return can_use_feature(user, grants, feature)
+
+            if await _try_priority_site_entry(update, context, services, user, message.text):
                 return
-            elif await _try_reminder_edit(message, services, user, identity.telegram_user_id):
+            elif allowed(FeatureKey.DOCUMENT_INGEST) and await _save_photo_album_description(
+                update, context, user
+            ):
+                return
+            elif allowed(FeatureKey.REMINDERS) and await _try_reminder_edit(
+                message, services, user, identity.telegram_user_id
+            ):
                 return
             elif (
-                services.ingestion is not None
+                allowed(FeatureKey.DOCUMENT_INGEST)
+                and services.ingestion is not None
                 and _is_save_intent(message.text)
                 and await services.ingestion.has_open_session(user)
             ):
@@ -1782,14 +2154,21 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     messages.MENU_SAVE_CONFIRM, reply_markup=_upload_keyboard()
                 )
                 return
-            elif await _try_stock_turn(update, context, services, user, message.text):
+            elif allowed(FeatureKey.INVENTORY) and await _try_stock_turn(
+                update, context, services, user, message.text
+            ):
                 return
-            elif await _try_sales_turn(update, context, services, user, message.text):
+            elif allowed(FeatureKey.SALES_REPORTS) and await _try_sales_turn(
+                update, context, services, user, message.text
+            ):
                 return
-            elif await _try_text_note_upload(update, context, services, user, message.text):
+            elif allowed(FeatureKey.DOCUMENT_INGEST) and await _try_text_note_upload(
+                update, context, services, user, message.text
+            ):
                 return
             elif (
-                services.ingestion is not None
+                allowed(FeatureKey.DOCUMENT_INGEST)
+                and services.ingestion is not None
                 and _pending_document_instruction(message.text) is not None
                 and await services.ingestion.has_open_session(user)
             ):
@@ -1807,19 +2186,29 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     messages.INSTRUCTION_ADDED if added else messages.NO_OPEN_SESSION
                 )
                 return
-            elif await _try_catalog_source_delivery(
+            elif (
+                allowed(FeatureKey.DOCUMENT_SEARCH) or allowed(FeatureKey.IMAGE_SEARCH)
+            ) and await _try_catalog_source_delivery(
                 message, context, services, identity.telegram_user_id, message.text
             ):
                 return
-            elif await _try_file_delivery(
+            elif (
+                allowed(FeatureKey.DOCUMENT_SEARCH) or allowed(FeatureKey.IMAGE_SEARCH)
+            ) and await _try_file_delivery(
                 message, services, identity.telegram_user_id, message.text
             ):
                 return
             elif await _try_menu_question(update, context, message.text):
                 return
-            elif await _try_reminder_proposal(message, services, user, message.text):
+            elif allowed(FeatureKey.REMINDERS) and await _try_reminder_proposal(
+                message, services, user, message.text
+            ):
                 return
-            elif services.internal_evidence is not None and services.rate_guard is not None:
+            elif (
+                allowed(FeatureKey.AI_CHAT)
+                and services.internal_evidence is not None
+                and services.rate_guard is not None
+            ):
                 if not services.rate_guard.allow(user.id):
                     await message.reply_text(messages.AI_RATE_LIMITED)
                     return
@@ -1838,7 +2227,11 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                     services.telegram_message_limit,
                     reply_markup=_answer_markup(context, services, result),
                 )
-            elif services.ai is not None and services.rate_guard is not None:
+            elif (
+                allowed(FeatureKey.AI_CHAT)
+                and services.ai is not None
+                and services.rate_guard is not None
+            ):
                 if not services.rate_guard.allow(user.id):
                     await message.reply_text(messages.AI_RATE_LIMITED)
                     return
@@ -1846,6 +2239,8 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 async with asyncio.timeout(services.answer_deadline_seconds):
                     result = await services.ai.answer_general(user.id, message.text)
                 await _reply_long(message, result.answer, services.telegram_message_limit)
+            elif not allowed(FeatureKey.AI_CHAT):
+                await message.reply_text(messages.FEATURE_DISABLED)
             elif services.ai is None:
                 await message.reply_text(messages.AI_NOT_CONFIGURED)
             else:
@@ -1914,7 +2309,7 @@ async def _send_auth_result(
 async def handle_photo_groups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """List only the actor's own saved image groups."""
 
-    resolved = await _active_user(update, context)
+    resolved = await _active_user(update, context, FeatureKey.IMAGE_SEARCH)
     if resolved is None:
         return
     services, user, message = resolved
@@ -1944,7 +2339,7 @@ async def handle_photo_groups(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_photo_group_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Replace group annotation without modifying the originals or catalog."""
 
-    resolved = await _active_user(update, context)
+    resolved = await _active_user(update, context, FeatureKey.IMAGE_SEARCH)
     if resolved is None:
         return
     services, user, message = resolved
@@ -1982,7 +2377,7 @@ async def handle_photo_group_edit(update: Update, context: ContextTypes.DEFAULT_
 async def handle_photo_group_append(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Authorize one short-lived group append session; /saxla performs the write."""
 
-    resolved = await _active_user(update, context)
+    resolved = await _active_user(update, context, FeatureKey.DOCUMENT_INGEST)
     if resolved is None:
         return
     services, user, message = resolved
@@ -2086,6 +2481,9 @@ async def handle_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.DOCUMENT_INGEST):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     # A callback operates on the BOT'S original menu message, not on /saxla input.
     # Never turn arbitrary bot-authored menu guidance into an ingestion instruction.
@@ -2248,9 +2646,13 @@ async def _apply_proposal_action(
 
 
 async def _active_user(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
+    update: Update, context: ContextTypes.DEFAULT_TYPE, feature: FeatureKey | None = None
 ) -> tuple[TelegramServices, User, Message] | None:
-    """Resolve the private-chat caller to an active account, answering otherwise."""
+    """Resolve the private-chat caller to an active account, answering otherwise.
+
+    ``feature`` additionally applies the shared capability policy, so a handler that
+    passes it cannot be reached by a user whose administrator disabled that capability.
+    """
     identity = _identity(update)
     message = update.effective_message
     if identity is None or message is None:
@@ -2268,13 +2670,18 @@ async def _active_user(
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return None
+    if feature is not None and not can_use_feature(
+        user, await _feature_grants(services, user), feature
+    ):
+        await message.reply_text(messages.FEATURE_DISABLED)
+        return None
     return services, user, message
 
 
 async def handle_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update):
         return
-    resolved = await _active_user(update, context)
+    resolved = await _active_user(update, context, FeatureKey.REMINDERS)
     if resolved is None:
         return
     services, user, message = resolved
@@ -2337,6 +2744,9 @@ async def handle_reminder_callback(update: Update, context: ContextTypes.DEFAULT
         return
     if user.status != UserStatus.ACTIVE:
         await query.edit_message_text(_status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.REMINDERS):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
         return
     try:
         if parts[0] == "rp":
@@ -2431,6 +2841,8 @@ async def handle_extraction_callback(update: Update, context: ContextTypes.DEFAU
     if len(parts) != 3 or parts[0] != "xr" or services.extraction_reviews is None:
         await query.edit_message_text(messages.TEMPORARY_ERROR)
         return
+    if await _feature_gate(update, context, FeatureKey.DOCUMENT_INGEST) is None:
+        return
     try:
         run_id = UUID(parts[2])
         if parts[1] == "a":
@@ -2482,6 +2894,9 @@ async def handle_baza(
         return
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.DOCUMENT_SEARCH):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     turn = build_turn_context(
         message,
@@ -2561,6 +2976,14 @@ async def _handle_web_command(
         return
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
+        return
+    grants = await _feature_grants(services, user)
+    # A combined answer reads company documents as well as the web, so both capabilities
+    # must be granted; an internet-only turn never needs the internal scope.
+    if not can_use_feature(user, grants, FeatureKey.EXTERNAL_SEARCH) or (
+        combined and not can_use_feature(user, grants, FeatureKey.DOCUMENT_SEARCH)
+    ):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     turn = build_turn_context(
         message,
@@ -3455,6 +3878,9 @@ async def _handle_exact_photo_lookup(
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
         return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.IMAGE_SEARCH):
+        await message.reply_text(messages.FEATURE_DISABLED)
+        return
     if services.session_factory is None or services.storage is None:
         await message.reply_text(messages.TEMPORARY_ERROR)
         return
@@ -3775,9 +4201,13 @@ async def _present_photo_choices(update: Update, context: ContextTypes.DEFAULT_T
     identity = _identity(update)
     if message is None or identity is None or not message.photo or not _is_private(update):
         return
-    user = await _services(context).users.get_by_telegram_id(identity.telegram_user_id)
+    services = _services(context)
+    user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         await message.reply_text(messages.UNKNOWN_USER if user is None else _status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.IMAGE_SEARCH):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     data = getattr(context, "user_data", None)
     if data is None:
@@ -3941,6 +4371,10 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
     user = await services.users.get_by_telegram_id(identity.telegram_user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         await query.edit_message_text(messages.NO_PERMISSION)
+        return
+    grants = await _feature_grants(services, user)
+    if not can_use_feature(user, grants, FeatureKey.IMAGE_SEARCH):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
         return
     action = parts[2]
     if action == "pg" and len(parts) == 6:
@@ -4183,6 +4617,9 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
     if len(parts) != 3 or action not in {"save", "db", "web"}:
         return
     if action == "save":
+        if not can_use_feature(user, grants, FeatureKey.DOCUMENT_INGEST):
+            await query.edit_message_text(messages.FEATURE_DISABLED)
+            return
         if services.ingestion is None:
             await query.edit_message_text(messages.TEMPORARY_ERROR)
             return
@@ -4247,6 +4684,9 @@ async def handle_photo_choice_callback(update: Update, context: ContextTypes.DEF
                 text=f"Vaxt limiti səbəbi ilə son {unfinished} şəkil yoxlanmadı. "
                 "Həmin şəkilləri ayrıca axtarın; baza nəticəsini tam saymayın.",
             )
+        return
+    if not can_use_feature(user, grants, FeatureKey.EXTERNAL_SEARCH):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
         return
     if services.photo_web is None:
         await query.edit_message_text("İnternet üzrə şəkil axtarışı hazırda quraşdırılmayıb.")
@@ -4531,7 +4971,7 @@ async def handle_revoke_reference(update: Update, context: ContextTypes.DEFAULT_
 
     if not _is_private(update):
         return
-    resolved = await _active_user(update, context)
+    resolved = await _active_user(update, context, FeatureKey.IMAGE_SEARCH)
     if resolved is None:
         return
     services, user, message = resolved
@@ -4654,6 +5094,9 @@ async def _handle_upload(
         return
     if user.status != UserStatus.ACTIVE:
         await message.reply_text(_status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.DOCUMENT_INGEST):
+        await message.reply_text(messages.FEATURE_DISABLED)
         return
     max_bytes = services.ingestion.max_upload_bytes
     try:

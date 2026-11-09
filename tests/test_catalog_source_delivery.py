@@ -14,6 +14,7 @@ from telegram import Message, Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
@@ -151,7 +152,15 @@ def test_standalone_catalog_source_is_returned_as_inline_photo(
             return_value=DeliverableFile(path, "telegram_photo_316.jpg", "image/jpeg", 88)
         )
     )
-    services = cast(TelegramServices, SimpleNamespace(file_delivery=service))
+    # The callback is re-authorized, so the adapter needs the actor's current account.
+    actor = cast(User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE))
+    services = cast(
+        TelegramServices,
+        SimpleNamespace(
+            file_delivery=service,
+            users=SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=actor)),
+        ),
+    )
 
     def fake_is_private(_update: Update) -> bool:
         return True

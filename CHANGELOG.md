@@ -1,3 +1,38 @@
+## 2026-11-09 — Milestone 1: per-user feature permissions enforced in one policy
+
+- Owner contract V2 §2/§6 asked for administrator-managed binary capability toggles
+  that the backend, not the menu, decides. `auth/features.py` is now the single policy
+  (`can_use_feature` / `allowed_features` / `baseline_grants`) over ten keys —
+  `ai_chat`, `document_search`, `document_ingest`, `product_search`, `image_search`,
+  `orders`, `sales_reports`, `external_search`, `inventory`, `reminders` — and both
+  layers call it, so a button can never offer what a service would refuse.
+- Enforcement moved to the service boundary: `application/business_common.py` gained
+  `ensure_feature(session, actor, key)` beside the existing `require_feature`, and
+  `sales_ledger`, `inventory`, `ingestion`, `reminders` and `reference_images` each
+  apply it inside their own transaction. The Telegram adapter re-authorizes every
+  entry point — commands, menu taps including stale ones, photo, document, upload,
+  save, sales, stock, reminder and source-delivery callbacks — before doing work, so
+  a page printed before a toggle changed cannot be used after it.
+- `ADMIN` always passes and `set_for_actor` raises `AdministratorFeatureLocked` before
+  any write, so no toggle can lock the owner out. `delete_personal_data` stays ungated
+  on purpose: a data-subject right is not a feature.
+- Storage: `user_feature_permissions` (composite key, CHECK over the declared keys,
+  cascade on user delete) with migration `0025_user_feature_permissions` backfilling
+  the baseline grid for existing users; `UserManagementService.approve()` writes the
+  same grid in the approval transaction. Every accepted change writes one
+  `USER_FEATURE_ENABLED`/`USER_FEATURE_DISABLED` audit event and a repeat writes
+  nothing.
+- Rollout choice (OPEN-QUESTIONS Q46): everything that already worked stays enabled
+  and only `orders` starts disabled, so no user loses a feature to this change.
+- Administrator surface: `/menu` gains `👤 İstifadəçilər` (with `🌐 Prioritet saytlar`)
+  that lists users and opens a per-user grid of `uf:` toggle buttons; the grid is
+  read-only for an administrator and refuses a non-admin actor at the service boundary.
+- Evidence: `tests/unit/test_feature_permissions.py` (29 cases) and
+  `tests/integration/test_feature_permissions_db.py` (9 real-PostgreSQL cases), plus
+  the menu contract tests. `ruff check`, `ruff format --check`, `pyright` and the
+  offline suite (1181 passed) are green; fixtures that pre-dated the second read of the
+  actor row now carry `role` and the `users` lookup the callbacks require.
+
 ## 2026-11-09 — The automatic document quote names the asked subject, not a word containing it
 
 - The first staging probe of #173 quoted the wrong product: «Delinator 75 sm var bizdə?»

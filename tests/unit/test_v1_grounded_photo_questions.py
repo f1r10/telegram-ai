@@ -11,7 +11,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
-from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import handlers
 from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, add_photo
 
@@ -98,7 +98,7 @@ def test_db_choice_passes_original_photo_question_not_bot_menu_text(
         answer=AsyncMock(),
         edit_message_text=AsyncMock(),
     )
-    user = cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+    user = cast(User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE))
     services = SimpleNamespace(
         users=SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=user))
     )

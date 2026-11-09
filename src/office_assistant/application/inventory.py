@@ -14,7 +14,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.business_common import ensure_feature
 from office_assistant.application.errors import AuthorizationDenied
+from office_assistant.auth.features import FeatureKey
 from office_assistant.business.normalization import normalize_product_alias, normalize_product_code
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
@@ -253,6 +255,7 @@ class InventoryLedgerService:
         )
         if db_user is None or (admin and db_user.role != UserRole.ADMIN):
             raise AuthorizationDenied("Inventory access is restricted to active approved users")
+        await ensure_feature(session, db_user, FeatureKey.INVENTORY)
 
     @staticmethod
     async def _product(session: AsyncSession, code: str) -> Product:

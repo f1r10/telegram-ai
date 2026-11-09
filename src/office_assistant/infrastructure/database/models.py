@@ -89,6 +89,37 @@ class User(Base):
     )
 
 
+class UserFeaturePermission(Base):
+    """One binary feature grant for one user (owner contract V2 §2).
+
+    The key list is repeated here as a database constraint because importing
+    ``auth.features`` into the models module would be circular; a unit test pins the
+    two lists together. A missing row means the documented baseline, not a denial.
+    """
+
+    __tablename__ = "user_feature_permissions"
+    __table_args__ = (
+        CheckConstraint(
+            "feature_key IN ('ai_chat', 'document_search', 'document_ingest', "
+            "'product_search', 'image_search', 'orders', 'sales_reports', "
+            "'external_search', 'inventory', 'reminders')",
+            name="ck_user_feature_permissions_key",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    feature_key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class AuditEvent(Base):
     """Security and future application mutation audit record."""
 
