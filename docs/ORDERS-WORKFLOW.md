@@ -7,8 +7,8 @@ same rules §14–§15.
 
 ## What exists and what does not
 
-Implemented now — the domain rules, the storage, and the application service that an
-adapter can call:
+Implemented now — the domain rules, the storage, the application service, and the
+Telegram conversation that reaches them:
 
 - `office_assistant/orders/workflow.py` — states, allowed actions, intake order, derived
   overdue.
@@ -17,25 +17,36 @@ adapter can call:
   `0026_orders` — `orders`, `order_reminders`, `order_attachments`.
 - `office_assistant/application/orders.py` — durable drafts, confirmation, review,
   lifecycle, rescheduling, list/detail views.
+- `office_assistant/integrations/telegram/orders_format.py`,
+  `office_assistant/orders/intake_parsing.py` and the `om:orders` / `od:` handlers —
+  `Sifarişlərim` asks the six questions over the durable draft, refuses an unreadable
+  answer in Azerbaijani, and shows the review page with the plan a confirmation is about
+  to write before `Təsdiqlə` makes it authoritative.
 
 Not implemented yet, by scope rather than by omission:
 
-- **The Telegram adapter** (the `Sifarişlərim` menu row, the six questions, the review
-  buttons). No user can reach the service from the bot until that slice lands; the
-  `orders` capability therefore stays disabled in the rollout baseline
-  (OPEN-QUESTIONS Q46) so a menu can never offer what the backend cannot show.
+- **The orders browsing UI** — list filters, the detail page with warning history, and
+  the `Bitir` / `Dondur` / `Davam etdir` / `Sil` buttons. The service methods exist
+  (`list`, `detail`, `act`, `reschedule`); nothing in Telegram calls them yet, so a
+  confirmed order has no screen of its own — after `Təsdiqlə` the user sees the plan the
+  order wrote and nothing else until the browsing slice lands.
 - **The delivery engine** (Milestone 3). Confirmation writes the ledger rows and the
   lifecycle stops or reopens them, but nothing claims or sends them yet, so `SENT`,
   `CLAIMED`, `SENDING`, `RETRY_PENDING` and `FAILED` are written only by the delivery
   engine or seeded by a test.
+- **Rolling the capability out.** `orders` stays out of `BASELINE_ENABLED`
+  (OPEN-QUESTIONS Q46), so the menu row is live for an administrator and for any user an
+  administrator grants; whether every existing user should get it is an owner decision,
+  not a code default.
 
 ## Where each decision lives
 
 `orders/` imports no database session, no Telegram type and no inventory model, so the
 contract can be tested on either side of that line. The service owns transactions and
-row locks; the domain modules own the arithmetic and the state table. The adapter, when
-it arrives, will only turn buttons into typed calls — it must not re-implement any rule
-below.
+row locks; the domain modules own the arithmetic and the state table. The Telegram
+adapter only turns buttons and typed replies into those calls — it re-implements no rule
+below, and the one place it reads text (`orders/intake_parsing.py`) returns a number or
+`None` and never guesses.
 
 ## States
 
@@ -102,6 +113,43 @@ arrived in (§3.1 provenance). Extraction, when it runs, produces suggestions fo
 review page — the authoritative record exists only after the explicit confirmation, and
 `confirm()` is idempotent because a retried tap finds the same row by its intake token,
 sees a state past `PENDING_CONFIRMATION` and returns it untouched.
+
+### The same six questions on screen
+
+`Sifarişlərim` (`om:orders`) is the only entry point, and the capability is re-authorized
+on every press rather than trusted from the printed button: an account without the
+`orders` grant gets `FEATURE_DISABLED` and no draft row is created. A tap then calls
+`start()` — which resumes the saved draft when there is one, saying so in Azerbaijani —
+and asks only the field `next_field()` reports as open.
+
+The wizard arms itself for one ordinary text turn at a time
+(`ORDER_INTAKE_KEY`, `ORDER_INTAKE_TTL_SECONDS = 600`). Nothing about the conversation is
+authoritative: the answers are already in PostgreSQL, so a reload, a `/menu` tap or an
+expired window only loses the question, never the draft. A later `/menu` tap disarms the
+pending question and leaves the row untouched.
+
+How one typed line becomes a stored value, and what happens when it cannot:
+
+| Question | Text in | Value stored | When the text is unreadable |
+| --- | --- | --- | --- |
+| `deadline` | any reminder expression: `sabah saat 10-da`, `15.11.2026 14:00`, `15 noyabr`, `cümə axşamı`, `3 gün sonra` | `parse_reminder_time(...).due_at_utc` in the user's zone | asks again with the parser's own reason; nothing is stored |
+| `lead_time` | `48 saat`, `2 gün`, `1 gün 12 saat`, `90 dəqiqə`, or a bare `48` | total minutes | asks again |
+| `warnings` | `5`, `beş` | the first number in the reply | asks again; the 1…10 range stays the service's check |
+| `requester`, `description` | free text | the trimmed text | a blank reply is not an answer, so the question repeats |
+| `notes` | free text, or `keç` / `yoxdur` to leave it empty | the trimmed text | — |
+
+A bare number answers the question that was just asked (Q48); an explicit unit always
+wins. `keç` only skips the optional question — on any other field it reads as text.
+
+When the service itself refuses a value (`InvalidBusinessValue`) the adapter asks the same
+question again rather than moving on, and when the draft turns out to be incomplete while
+the user asks for the review page (`OrderIntakeError.field`) the adapter asks exactly the
+missing field. The review page shows every answer plus the plan `confirm()` is about to
+write: the instants come from `schedule.review_instants`, i.e. the same domain formula the
+service plans with, read against the service's own clock (`OrderService.now_utc()`), with
+any instant already past counted out loud. `Düzəliş et` opens a
+picker of the six fields; choosing one re-arms exactly that question, so the correction
+lands where the user pointed instead of restarting the wizard.
 
 ## The reminder schedule
 
@@ -203,10 +251,21 @@ whose toggle is off cannot drive the workflow by replaying a callback.
   soft delete, per-user isolation, a disabled capability refused at the boundary, invalid
   answers never reaching the record, reschedule superseding while a delivered row survives,
   attachment provenance, creator versus requester, cascade on account removal.
+- Adapter unit (`tests/unit/test_orders_telegram.py`, 30 cases) — the menu tap asks the
+  first open question and arms the wizard; a saved draft says it is resuming; six answers
+  are stored in order and the last opens the review page; an unreadable deadline, a
+  service refusal and a blank reply each repeat their own question with the draft
+  unchanged; an expired window and a later `/menu` tap touch nothing; the review page
+  offers `Təsdiqlə` / `Düzəliş et` / `Ləğv et`, shows the plan, and confirms once; a
+  second tap is refused by the state machine; the picker re-arms exactly the chosen field;
+  an unknown or foreign callback payload is ignored; and the whole wizard is unreachable
+  for an account without the grant, from the button and from a typed answer.
 
 ## Assumptions recorded
 
-`MAX_LEAD_MINUTES` (one year) is OPEN-QUESTIONS Q47. The remaining open points — the
+`MAX_LEAD_MINUTES` (one year) is OPEN-QUESTIONS Q47. The conversation bounds — the
+bare-number reading, the ten-minute window, the skip words and the calendar forms the
+deadline question accepts — are Q48. The remaining open points — the
 semantics of rescheduling a frozen order, which file types and how many an order may
 carry, whether `requested_by` should resolve to an account, and how long a soft-deleted
 order survives before purge — are listed in Q47 and in

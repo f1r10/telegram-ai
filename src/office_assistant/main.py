@@ -10,6 +10,7 @@ from office_assistant.application.authentication import AuthenticationService
 from office_assistant.application.feature_permissions import FeaturePermissionService
 from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.inventory import InventoryLedgerService
+from office_assistant.application.orders import OrderService
 from office_assistant.application.reference_images import ReferenceImageService
 from office_assistant.application.reminders import ReminderService
 from office_assistant.application.sales_ledger import SalesLedgerService
@@ -264,6 +265,7 @@ def main() -> None:
             reference_images=ReferenceImageService(session_factory, storage),
             sales=SalesLedgerService(session_factory),
             inventory=InventoryLedgerService(session_factory),
+            orders=OrderService(session_factory, clock=SystemClock()),
             miniapp_url=(
                 settings.miniapp_public_origin
                 if settings.miniapp_enabled and settings.miniapp_public_origin

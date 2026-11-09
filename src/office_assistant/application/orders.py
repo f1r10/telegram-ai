@@ -36,6 +36,7 @@ from office_assistant.infrastructure.database.models import (
     User,
 )
 from office_assistant.orders import schedule, workflow
+from office_assistant.reminders.time_parsing import ReminderTimeResult, parse_reminder_time
 from office_assistant.repositories.audit import AuditRepository
 
 MAX_TEXT_LENGTH = 4000
@@ -129,6 +130,11 @@ class OrderService:
         self._session_factory = session_factory
         self._clock = clock
 
+    def now_utc(self) -> datetime:
+        """The instant the service itself plans against, so a page can show the same clock."""
+
+        return self._clock.now_utc()
+
     async def start(self, user: User) -> Order:
         """Open a draft, or return the one this user is already answering.
 
@@ -174,6 +180,16 @@ class OrderService:
             if missing is None:
                 raise InvalidStateTransition("the draft is complete, review it instead")
             return missing
+
+    def deadline_from_text(self, user: User, text: str) -> ReminderTimeResult:
+        """Resolve a deadline answer with the same deterministic rule reminders use.
+
+        Nothing is stored here: an ambiguous reading comes back as
+        ``needs_clarification`` so the adapter asks again instead of writing a guess
+        that would later decide the warning instants on its own.
+        """
+
+        return parse_reminder_time(text, clock=self._clock, timezone_name=user.timezone)
 
     async def answer(self, user: User, token: str, field: str, value: object) -> Order:
         """Record one intake answer. It lives in PostgreSQL before the next question."""

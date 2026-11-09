@@ -527,10 +527,20 @@ service; the Telegram UI and the delivery engine are separate slices below.
       confirmed. It now checks only the five required answers, and
       `next_open_field` still lists `notes` last as the question to ask; the unit case
       `test_notes_may_stay_empty_because_only_it_is_optional` pins the difference.
-- [ ] Telegram UI slice: `Sifarişlərim` menu row behind `FeatureKey.ORDERS`, the six
-      questions over the durable draft with review buttons (Təsdiqlə / Düzəliş et /
-      Ləğv et), list filters and detail with warning history, Bitir / Dondur /
-      Davam etdir / Sil, and every Azerbaijani string in `messages.py`.
+- [x] Telegram intake slice (B1): the `Sifarişlərim` row behind `FeatureKey.ORDERS`,
+      re-authorized on every press, asks the six §3.2 questions over the durable draft —
+      deadline through the shared reminder parser, `48 saat` / `2 gün` / `1 gün 12 saat` /
+      `90 dəqiqə` / a bare number for the window, the first number for the count, free
+      text for requester and description, `keç` for the optional notes. An unreadable
+      answer repeats its own question and leaves the draft untouched; the review page
+      shows every answer with the plan `confirm()` is about to write and the three
+      buttons (Təsdiqlə / Düzəliş et / Ləğv et); `Düzəliş et` re-arms exactly the field
+      the user picks. 30 adapter cases (`tests/unit/test_orders_telegram.py`); gates
+      green on Linux: `ruff check`, `ruff format --check`, `pyright` (0 errors),
+      `pytest -m "not integration"` (1242 passed).
+- [ ] Orders browsing slice: list filters, detail with warning history, and
+      Bitir / Dondur / Davam etdir / Sil over the service methods that already exist
+      (`list`, `detail`, `act`, `reschedule`), plus the order-materials attachment flow.
 - [ ] Milestone 3 — delivery engine: claim/lease the `order_reminders` rows through the
       existing outbox pattern, refuse to send unless the order is `ACTIVE`, bounded
       retry/backoff, restart-safe, visible in `Sistem vəziyyəti`; the ledger vocabulary

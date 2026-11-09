@@ -1,3 +1,51 @@
+## 2026-11-10 — Milestone 2 slice B1: the Sifarişlərim intake conversation in Telegram
+
+- Slice A put the orders service behind a table row; nothing in the bot could reach it.
+  `Sifarişlərim` (`om:orders`) now starts or resumes the durable draft and asks only the
+  field `OrderService.next_field` reports as open, so an interrupted intake continues where
+  the user left off and says so (`ORDERS_INTAKE_RESUMED`). The capability is re-authorized
+  on every press and on every typed answer instead of trusted from the printed button, and
+  `orders` stays out of the rollout baseline (Q46), so an account without the grant gets
+  `FEATURE_DISABLED` and no draft row is created.
+- The conversation itself holds no state that matters. One pending question lives in
+  `user_data` for 600 seconds (`ORDER_INTAKE_KEY`, `ORDER_INTAKE_TTL_SECONDS`), always
+  paired with the intake token; the answers are PostgreSQL rows, so an expiry, a reload or
+  a later `/menu` tap loses only the question (`ORDERS_INTAKE_EXPIRED`, "heç nə dəyişmədi")
+  and never the draft. A stale or foreign `od:` payload is ignored rather than guessed at.
+- `orders/intake_parsing.py` reads the two numeric questions deterministically — every
+  quantity in the reply adds up so «1 gün 12 saat» is 2 160 minutes, an explicit unit
+  always beats a bare number, and a bare `48` answers the question that was just asked
+  (ASSUMPTION, Q48). The deadline question goes through `OrderService.deadline_from_text`
+  to the reminder parser, so it accepts the same Azerbaijani expressions and nothing else;
+  an ambiguous or unparseable reply repeats its own question with the parser's reason and
+  leaves the stored value untouched (invariant 3 — no number comes from a model).
+- `reminders/time_parsing.py` gained the written calendar dates the deadline prompt
+  advertises: `15.11.2026`, `15.11.2026 14:00`, `15 noyabr [2026]`. A dotted date keeps its
+  year so `15.11` stays the clock time 15:11, a year-less date means the next occurrence
+  that is not in the past, and only the bare nominative month name resolves — the inflected
+  «noyabrın 15-i» is still refused. `_WORD_NUM`/`WORD_NUMBERS` and `_normalize` became
+  public so the two parsers cannot drift into two different Azerbaijani number vocabularies.
+- `integrations/telegram/orders_format.py` renders the questions with their progress
+  («Sifariş sualı 4/6 — Tələb edən»), the review page, and the plan a confirmation is about
+  to write, computed by `schedule.review_instants` and read against `OrderService.now_utc()`
+  so the page shows the same clock the service planned with, including how many instants
+  already fell behind. Every new user-facing string is in `messages.py`.
+- `Təsdiqlə` confirms and prints the issued order with its plan; `Ləğv et` abandons the
+  draft; `Düzəliş et` opens the six-field picker and re-arms exactly the field chosen, so a
+  correction lands where the user pointed. A second tap on `Təsdiqlə` is refused by the
+  state machine (`InvalidStateTransition`), which the adapter answers by re-asking the
+  deadline rather than inventing a "already confirmed" path.
+- Tests: 30 adapter cases in `tests/unit/test_orders_telegram.py` (menu tap, resume,
+  ordered answers to review, refused/unreadable/blank answers, expiry, disarm, review
+  buttons and plan, confirm once, correction picker, cancel, ignored payloads, the grant
+  check from both the button and a typed reply, the five lead-time forms). The pinned
+  handler census in `tests/unit/test_telegram_handlers.py` went 41 → 42 for the new `od:`
+  callback. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
+  (0 errors), `pytest -m "not integration"` (1242 passed, 96 deselected).
+- Still open by scope: list filters, detail with warning history, the `Bitir` / `Dondur` /
+  `Davam etdir` / `Sil` buttons and order-material attachment (the service methods already
+  exist), and the Milestone 3 delivery engine that claims the `order_reminders` rows.
+
 ## 2026-11-10 — Milestone 2 slice A: the Orders domain, its storage and its service
 
 - Owner contract V2 §3.1–§3.4 asked for an independent Orders module whose guided intake

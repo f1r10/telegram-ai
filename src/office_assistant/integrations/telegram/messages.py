@@ -505,3 +505,59 @@ REFERENCE_REVOKE_CANCELLED = "Şəkil təsdiqinin ləğvi dayandırıldı. Heç 
 REFERENCE_REVOKE_NO_REQUEST = (
     "Ləğv təsdiqi gözlənilmir. Zəhmət olmasa /leqv_et əmrini məhsul kodu ilə yenidən göndərin."
 )
+
+MENU_ORDERS_BUTTON = "🗂 Sifarişlərim"
+
+ORDERS_FIELD_DEADLINE = "Son tarix"
+ORDERS_FIELD_LEAD_TIME = "Xəbərdarlıq pəncərəsi"
+ORDERS_FIELD_WARNINGS = "Xəbərdarlıq sayı"
+ORDERS_FIELD_REQUESTER = "Tələb edən"
+ORDERS_FIELD_DESCRIPTION = "Sifarişin məzmunu"
+ORDERS_FIELD_NOTES = "Qeydlər"
+
+ORDERS_INTAKE_TITLE = "Sifariş sualı {index}/{total} — {field}"
+ORDERS_DEADLINE_PROMPT = (
+    "Sifarişin son tarixi nə vaxtdır? Məsələn: sabah saat 10-da, 15.11.2026 14:00, "
+    "cümə axşamı və ya 3 gün sonra."
+)
+ORDERS_LEAD_PROMPT = (
+    "Xəbərdarlıqlar son tarixdən neçə vaxt əvvəl başlasın? Məsələn: 48 saat, 2 gün, "
+    "1 gün 12 saat, 90 dəqiqə."
+)
+ORDERS_WARNINGS_PROMPT = (
+    "Həmin pəncərədə neçə dəfə xəbərdar edim? 1 ilə 10 arasında bir ədəd yazın, məsələn: 5."
+)
+ORDERS_REQUESTER_PROMPT = "Sifarişi kim istəyir? Ad və vəzifə yazın."
+ORDERS_DESCRIPTION_PROMPT = "Sifarişin məzmunu nədir? Məhsul, miqdar və digər əsas detallar."
+ORDERS_NOTES_PROMPT = "Əlavə qeyd var? Qeyd yoxdursa «keç» yazın."
+
+ORDERS_INTAKE_RESUMED = "Yarımçıq qalmış sifariş layihəniz davam etdirilir."
+ORDERS_INTAKE_EXPIRED = (
+    "Sifariş suallarının cavab gözləmə vaxtı bitdi. Heç nə dəyişmədi; menyu yenidən açıla bilər."
+)
+ORDERS_INTAKE_INVALID = "Bu sifariş layihəsi artıq etibarlı deyil. Yeni sifariş başlayın."
+ORDERS_ANSWER_REJECTED = "«{field}» cavabı qəbul edilmədi."
+ORDERS_SERVICE_UNAVAILABLE = "Sifariş xidməti hazırda konfiqurasiya edilməyib."
+
+ORDERS_REVIEW_TITLE = "Sifarişi yoxlayın:"
+ORDERS_REVIEW_LINE = "{field}: {value}"
+ORDERS_UNKNOWN_VALUE = "bildirilməyib"
+ORDERS_UNKNOWN_ZONE = "UTC"
+ORDERS_NONE_VALUE = "yoxdur"
+
+ORDERS_PLAN_PENDING = "Xəbərdarlıq planı təsdiqdən sonra hesablanır."
+ORDERS_PLAN_INVALID = "Xəbərdarlıq planı hazırlana bilmir: {reason}"
+ORDERS_PLAN_SUMMARY = (
+    "Xəbərdarlıq planı: {count} xəbərdarlıq, son tarixdən {lead} əvvəl başlayır və hər "
+    "{interval} bir təkrarlanır.\nSon tarix: {deadline}"
+)
+ORDERS_PLAN_FIRST_LAST = "Göndərilməyə planlaşan say: {planned}\nBirinci: {first}\nSonuncu: {last}"
+ORDERS_PLAN_STALE = "{count} xəbərdarlıq anı artıq keçmişdə qaldığı üçün göndərilməyəcək."
+
+ORDERS_CONFIRM_BUTTON = "Təsdiqlə"
+ORDERS_EDIT_BUTTON = "Düzəliş et"
+ORDERS_CANCEL_BUTTON = "Ləğv et"
+ORDERS_EDIT_PICKER_TITLE = "Hansı sualı dəyişmək istəyirsiniz?"
+ORDERS_CONFIRMED = "Sifariş təsdiqləndi. Nömrə: {id}\nXəbərdarlıqlar planlaşdırıldı."
+ORDERS_DRAFT_CANCELLED = "Sifariş layihəsi ləğv edildi. Heç nə yadda saxlanılmadı."
+ORDERS_REVIEW_UNAVAILABLE = "Bu layihə indi yoxlanıla bilmir. Yeni sifariş başlayın."

@@ -89,9 +89,7 @@ def is_complete(values: Mapping[str, object]) -> bool:
     """
 
     return all(
-        _filled(values.get(field))
-        for field in INTAKE_ORDER
-        if field not in OPTIONAL_INTAKE_FIELDS
+        _filled(values.get(field)) for field in INTAKE_ORDER if field not in OPTIONAL_INTAKE_FIELDS
     )
 
 

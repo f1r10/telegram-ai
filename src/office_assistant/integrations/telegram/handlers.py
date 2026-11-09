@@ -11,7 +11,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from time import monotonic
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -47,6 +47,10 @@ from office_assistant.application.errors import (
     ApplicationError,
     AuthorizationDenied,
     DomainConflict,
+    EntityNotFound,
+    FeatureAccessDenied,
+    InvalidBusinessValue,
+    InvalidStateTransition,
 )
 from office_assistant.application.feature_permissions import (
     AdministratorFeatureLocked,
@@ -65,6 +69,7 @@ from office_assistant.application.inventory import (
     parse_stock_draft,
     parse_stock_request,
 )
+from office_assistant.application.orders import OrderIntakeError, OrderService
 from office_assistant.application.photo_groups import PhotoGroupService
 from office_assistant.application.products import ProductService
 from office_assistant.application.reference_images import (
@@ -117,7 +122,7 @@ from office_assistant.infrastructure.database.models import (
     UserStatus,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage, StorageError
-from office_assistant.integrations.telegram import messages
+from office_assistant.integrations.telegram import messages, orders_format
 from office_assistant.integrations.telegram.catalog_source_tickets import (
     CATALOG_SOURCE_TICKET_KEY,
     CatalogSourceTicket,
@@ -159,6 +164,12 @@ from office_assistant.internal_evidence.delivery import (
 from office_assistant.internal_evidence.models import ImageReading, InternalAnswer
 from office_assistant.internal_evidence.service import InternalEvidenceService
 from office_assistant.knowledge.retrieval import KnowledgeRetrievalService
+from office_assistant.orders import workflow
+from office_assistant.orders.intake_parsing import (
+    is_skip_answer,
+    parse_lead_time_minutes,
+    parse_warning_count,
+)
 from office_assistant.processing.catalog_category_verifier import local_category_verifier
 from office_assistant.processing.catalog_visual_candidates import (
     MAX_PDF_REFERENCES,
@@ -216,6 +227,8 @@ SALES_IMPORT_TTL_SECONDS = 600
 SALES_CONFIRM_TTL_SECONDS = 600
 SITES_ENTRY_KEY = "office_priority_site_entry"
 SITES_ENTRY_TTL_SECONDS = 600
+ORDER_INTAKE_KEY = "office_order_intake"
+ORDER_INTAKE_TTL_SECONDS = 600
 # Menu action -> capability. The same keys authorize the backend, so a hidden or stale
 # button can never reach a disabled feature (owner contract V2 §2 and §6).
 MENU_ACTION_FEATURES: dict[str, FeatureKey] = {
@@ -223,6 +236,7 @@ MENU_ACTION_FEATURES: dict[str, FeatureKey] = {
     "om:baza": FeatureKey.DOCUMENT_SEARCH,
     "om:product": FeatureKey.PRODUCT_SEARCH,
     "om:photo": FeatureKey.IMAGE_SEARCH,
+    "om:orders": FeatureKey.ORDERS,
     "om:upload": FeatureKey.DOCUMENT_INGEST,
     "om:save": FeatureKey.DOCUMENT_INGEST,
     "om:sales": FeatureKey.SALES_REPORTS,
@@ -261,6 +275,7 @@ class TelegramServices:
     reference_images: ReferenceImageService | None = None
     sales: SalesLedgerService | None = None
     inventory: InventoryLedgerService | None = None
+    orders: OrderService | None = None
     features: FeaturePermissionService | None = None
     miniapp_url: str | None = None
     reminder_edit_state: ReminderEditState = field(default_factory=ReminderEditState)
@@ -754,6 +769,7 @@ def _menu_keyboard(
             (messages.MENU_STOCK_BUTTON, "om:stock", FeatureKey.INVENTORY),
         ],
         [(messages.MENU_PHOTO_BUTTON, "om:photo", FeatureKey.IMAGE_SEARCH)],
+        [(messages.MENU_ORDERS_BUTTON, "om:orders", FeatureKey.ORDERS)],
         [
             (messages.MENU_UPLOAD_BUTTON, "om:upload", FeatureKey.DOCUMENT_INGEST),
             (messages.MENU_SALES_BUTTON, "om:sales", FeatureKey.SALES_REPORTS),
@@ -1410,6 +1426,9 @@ def _discard_menu_selection(context: ContextTypes.DEFAULT_TYPE) -> None:
     if data is not None:
         data.pop(MENU_SELECTION_KEY, None)
         data.pop(SITES_ENTRY_KEY, None)
+        # The order draft itself stays in PostgreSQL; only this one-shot question is
+        # dropped, so any later tap of Sifarişlərim resumes where the user left off.
+        data.pop(ORDER_INTAKE_KEY, None)
 
 
 async def handle_menu_interruption(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1467,6 +1486,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "om:ask",
         "om:product",
         "om:photo",
+        "om:orders",
         "om:sales",
         "om:stock",
         "om:home",
@@ -1541,6 +1561,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         if action == "om:photo":
             await query.edit_message_text(messages.MENU_PHOTO_PROMPT)
+            return
+        if action == "om:orders":
+            await _render_order_intake(query, context, services, user)
             return
         if action == "om:ask":
             await query.edit_message_text(messages.MENU_CHAT_PROMPT)
@@ -2080,6 +2103,326 @@ async def _try_priority_site_entry(
     return True
 
 
+class _OrderAnswer(NamedTuple):
+    """One parsed intake answer: the value to store, or the reason it was refused."""
+
+    value: object | None
+    reason: str | None
+
+
+def _arm_order_intake(context: ContextTypes.DEFAULT_TYPE, token: str, field: str | None) -> None:
+    """Ask the wizard on the next ordinary text message, for as long as the menu entry does.
+
+    ``field`` is ``None`` while the wizard follows the draft in order; the correction
+    path pins it so an answer lands on the question the user chose.
+    """
+
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data[ORDER_INTAKE_KEY] = (token, monotonic() + ORDER_INTAKE_TTL_SECONDS, field)
+
+
+def _pending_order_intake(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> tuple[str, float, str | None] | None:
+    """Consume the armed wizard exactly once, and never trust a stale payload."""
+
+    data = getattr(context, "user_data", None)
+    if data is None:
+        return None
+    pending: object = data.pop(ORDER_INTAKE_KEY, None)
+    if not isinstance(pending, tuple):
+        return None
+    entry = cast(tuple[object, ...], pending)
+    if len(entry) != 3:
+        return None
+    token, expires_at, field = entry
+    if not isinstance(token, str) or not isinstance(expires_at, (int, float)):
+        return None
+    if field is not None and not isinstance(field, str):
+        return None
+    return token, float(expires_at), field
+
+
+def _order_failure(error: Exception) -> str:
+    """Map an application refusal onto the Azerbaijani sentence the user gets."""
+
+    if isinstance(error, FeatureAccessDenied):
+        return messages.FEATURE_DISABLED
+    if isinstance(error, (EntityNotFound, AuthorizationDenied, InvalidStateTransition)):
+        return messages.ORDERS_INTAKE_INVALID
+    return messages.TEMPORARY_ERROR
+
+
+def _order_review_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    messages.ORDERS_CONFIRM_BUTTON, callback_data=f"od:ok:{token}"
+                ),
+                InlineKeyboardButton(messages.ORDERS_EDIT_BUTTON, callback_data=f"od:fix:{token}"),
+                InlineKeyboardButton(messages.ORDERS_CANCEL_BUTTON, callback_data=f"od:no:{token}"),
+            ]
+        ]
+    )
+
+
+def _order_fields_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Six field buttons in two per row; each one re-arms exactly that question."""
+
+    fields = list(workflow.INTAKE_ORDER)
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    orders_format.label(field), callback_data=f"od:f:{token}:{field}"
+                )
+                for field in fields[start : start + 2]
+            ]
+            for start in range(0, len(fields), 2)
+        ]
+    )
+
+
+async def _show_order_review(
+    target: CallbackQuery | Message,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    token: str,
+) -> None:
+    """The complete draft plus the schedule it would write, before anything is authoritative."""
+
+    orders = services.orders
+    assert orders is not None
+    try:
+        view = await orders.review(user, token)
+    except OrderIntakeError as error:
+        _arm_order_intake(context, token, error.field)
+        await _reply_order_text(target, services, orders_format.question(error.field))
+        return
+    except SQLAlchemyError:
+        logger.exception("Order review could not be read")
+        await _reply_order_text(target, services, messages.TEMPORARY_ERROR)
+        return
+    except ApplicationError as error:
+        await _reply_order_text(target, services, _order_failure(error))
+        return
+    text = (
+        f"{orders_format.review_text(view)}\n\n"
+        f"{orders_format.plan_text(view, now_utc=orders.now_utc())}"
+    )
+    await _reply_order_text(target, services, text, markup=_order_review_keyboard(token))
+
+
+async def _reply_order_text(
+    target: CallbackQuery | Message,
+    services: TelegramServices,
+    text: str,
+    *,
+    markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Answer on the surface the user used: a pressed button edits, a typed turn replies."""
+
+    if isinstance(target, CallbackQuery):
+        await target.edit_message_text(text, reply_markup=markup)
+        return
+    await _reply_long(target, text, services.telegram_message_limit, reply_markup=markup)
+
+
+def _parse_order_answer(orders: OrderService, user: User, field: str, text: str) -> _OrderAnswer:
+    """Turn one typed answer into the typed value the service stores."""
+
+    if field == "deadline":
+        parsed = orders.deadline_from_text(user, text)
+        instant = parsed.due_at_utc or parsed.suggested_due_at_utc
+        if instant is None:
+            return _OrderAnswer(None, parsed.clarification_reason)
+        return _OrderAnswer(instant, None)
+    if field == "lead_time":
+        return _OrderAnswer(parse_lead_time_minutes(text), None)
+    if field == "warnings":
+        return _OrderAnswer(parse_warning_count(text), None)
+    answer = text.strip()
+    return _OrderAnswer(answer or None, None)
+
+
+async def _render_order_intake(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+) -> None:
+    """Start, or resume, the durable draft and ask only the question that is still open."""
+
+    orders = services.orders
+    if orders is None:
+        await query.edit_message_text(messages.ORDERS_SERVICE_UNAVAILABLE)
+        return
+    try:
+        resumed = await orders.current_draft(user) is not None
+        order = await orders.start(user)
+        token = order.intake_token or ""
+        try:
+            field = await orders.next_field(user, token)
+        except InvalidStateTransition:
+            await _show_order_review(query, context, services, user, token)
+            return
+    except SQLAlchemyError:
+        logger.exception("Order intake could not start")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    except ApplicationError as error:
+        await query.edit_message_text(_order_failure(error))
+        return
+    prefix = f"{messages.ORDERS_INTAKE_RESUMED}\n\n" if resumed else ""
+    _arm_order_intake(context, token, None)
+    await query.edit_message_text(prefix + orders_format.question(field))
+
+
+async def _try_order_answer(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    services: TelegramServices,
+    user: User,
+    text: str,
+) -> bool:
+    """Consume one ordinary text turn as the answer to the armed order question."""
+
+    pending = _pending_order_intake(context)
+    if pending is None:
+        return False
+    message = update.effective_message
+    if message is None:
+        return True
+    token, expires_at, forced_field = pending
+    orders = services.orders
+    if orders is None:
+        await message.reply_text(messages.ORDERS_SERVICE_UNAVAILABLE)
+        return True
+    if monotonic() > expires_at:
+        await message.reply_text(messages.ORDERS_INTAKE_EXPIRED)
+        return True
+    try:
+        if forced_field is None:
+            field = await orders.next_field(user, token)
+        else:
+            field = forced_field
+    except InvalidStateTransition:
+        await _show_order_review(message, context, services, user, token)
+        return True
+    except SQLAlchemyError:
+        logger.exception("Order intake could not read the draft")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return True
+    except ApplicationError as error:
+        await message.reply_text(_order_failure(error))
+        return True
+    if field == "notes" and is_skip_answer(text):
+        await _show_order_review(message, context, services, user, token)
+        return True
+    parsed = _parse_order_answer(orders, user, field, text)
+    if parsed.value is None:
+        _arm_order_intake(context, token, field)
+        await message.reply_text(orders_format.reask(field, parsed.reason))
+        return True
+    try:
+        await orders.answer(user, token, field, parsed.value)
+        following = await orders.next_field(user, token)
+    except InvalidBusinessValue:
+        _arm_order_intake(context, token, field)
+        await message.reply_text(orders_format.reask(field))
+        return True
+    except InvalidStateTransition:
+        await _show_order_review(message, context, services, user, token)
+        return True
+    except SQLAlchemyError:
+        logger.exception("Order intake answer could not be stored")
+        await message.reply_text(messages.TEMPORARY_ERROR)
+        return True
+    except ApplicationError as error:
+        await message.reply_text(_order_failure(error))
+        return True
+    _arm_order_intake(context, token, None)
+    await message.reply_text(orders_format.question(following))
+    return True
+
+
+async def handle_order_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Təsdiqlə / Düzəliş et / Ləğv et, then the field the user chooses to change."""
+
+    query = update.callback_query
+    actor = update.effective_user
+    if query is None or actor is None or not _is_private(update):
+        return
+    await query.answer()
+    services = _services(context)
+    orders = services.orders
+    if orders is None:
+        await query.edit_message_text(messages.ORDERS_SERVICE_UNAVAILABLE)
+        return
+    parts = (query.data or "").split(":")
+    if len(parts) < 3 or parts[0] != "od" or parts[1] not in {"ok", "no", "fix", "f"}:
+        return
+    action, token = parts[1], parts[2]
+    try:
+        user = await services.users.get_by_telegram_id(actor.id)
+    except SQLAlchemyError:
+        logger.exception("Order callback user lookup failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+        return
+    if user is None:
+        await query.edit_message_text(messages.UNKNOWN_USER)
+        return
+    if user.status != UserStatus.ACTIVE:
+        await query.edit_message_text(_status_message(user))
+        return
+    if not can_use_feature(user, await _feature_grants(services, user), FeatureKey.ORDERS):
+        await query.edit_message_text(messages.FEATURE_DISABLED)
+        return
+    if action == "f":
+        field = parts[3] if len(parts) > 3 and parts[3] in workflow.INTAKE_ORDER else None
+        if field is None:
+            await query.edit_message_text(messages.ORDERS_INTAKE_INVALID)
+            return
+        _arm_order_intake(context, token, field)
+        await query.edit_message_text(orders_format.question(field))
+        return
+    if action == "fix":
+        await query.edit_message_text(
+            messages.ORDERS_EDIT_PICKER_TITLE, reply_markup=_order_fields_keyboard(token)
+        )
+        return
+    data = getattr(context, "user_data", None)
+    if data is not None:
+        data.pop(ORDER_INTAKE_KEY, None)
+    try:
+        if action == "no":
+            await orders.abandon(user, token)
+            await query.edit_message_text(messages.ORDERS_DRAFT_CANCELLED)
+            return
+        order = await orders.confirm(user, token)
+        view = await orders.detail(user, int(order.id))
+        await query.edit_message_text(
+            f"{messages.ORDERS_CONFIRMED.format(id=order.id)}\n\n"
+            f"{orders_format.plan_text(view, now_utc=orders.now_utc())}"
+        )
+    except OrderIntakeError as error:
+        _arm_order_intake(context, token, error.field)
+        await query.edit_message_text(orders_format.question(error.field))
+    except (InvalidBusinessValue, InvalidStateTransition):
+        _arm_order_intake(context, token, "deadline")
+        await query.edit_message_text(orders_format.question("deadline"))
+    except workflow.InvalidTransition:
+        await query.edit_message_text(messages.ORDERS_REVIEW_UNAVAILABLE)
+    except SQLAlchemyError:
+        logger.exception("Order confirmation failed")
+        await query.edit_message_text(messages.TEMPORARY_ERROR)
+    except ApplicationError as error:
+        await query.edit_message_text(_order_failure(error))
+
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_private(update):
         return
@@ -2135,6 +2478,10 @@ async def handle_password_text(update: Update, context: ContextTypes.DEFAULT_TYP
                 return can_use_feature(user, grants, feature)
 
             if await _try_priority_site_entry(update, context, services, user, message.text):
+                return
+            elif allowed(FeatureKey.ORDERS) and await _try_order_answer(
+                update, context, services, user, message.text
+            ):
                 return
             elif allowed(FeatureKey.DOCUMENT_INGEST) and await _save_photo_album_description(
                 update, context, user
