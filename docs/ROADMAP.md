@@ -443,7 +443,11 @@ Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §2/§6, reconciled in
       (`tests/integration/test_feature_permissions_db.py`) covering denial of a
       disabled capability, admin immunity, stale callback, per-user isolation, audit
       idempotency, approval write and cascade. `ruff check`, `ruff format --check`,
-      `pyright` and `pytest -m "not integration"` (1181 passed) are green.
+      `pyright` and `pytest -m "not integration"` (1181 passed) are green, and the
+      integration job is green on a real PostgreSQL 17 (`alembic upgrade head` from an
+      empty database, then 80 passed / 1 skipped) after the schema-head assertion began
+      reading the migration graph instead of a stale revision literal and the capability
+      fixture started writing the grid the approval path writes.
 - [ ] Apply migration 0025 and verify the toggle flow on the Kali TEST server with two
       real Telegram accounts (a baseline user, a user with `document_search` off, and
       an administrator); GitHub unit and CI integration tests do not close live UAT.

@@ -1,6 +1,8 @@
 import asyncio
+from pathlib import Path
 
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import delete, text
 
 from office_assistant.core.settings import Settings, load_settings
@@ -27,6 +29,20 @@ def _settings_or_skip() -> Settings:
     ):
         pytest.skip("PostgreSQL integration settings are not configured")
     return settings
+
+
+def _migration_graph_head() -> str:
+    """The revision a deployed schema must match, read from the migration files.
+
+    A hardcoded revision was the earlier contract and turned a correctly migrated database
+    red the moment the next migration landed. The graph is the only self-updating answer,
+    and more than one head means a branch that `alembic upgrade head` could not reach.
+    """
+
+    root = Path(__file__).resolve().parents[2]
+    heads = ScriptDirectory(str(root / "migrations")).get_heads()
+    assert len(heads) == 1, f"the migration graph must have one head, found {heads}"
+    return str(heads[0])
 
 
 def test_database_connection_and_health() -> None:
@@ -88,13 +104,14 @@ def test_transaction_commit_and_rollback() -> None:
 
 def test_alembic_schema_is_at_head() -> None:
     settings = _settings_or_skip()
+    expected = _migration_graph_head()
 
     async def scenario() -> None:
         engine = create_database_engine(settings)
         try:
             async with engine.connect() as connection:
                 version = await connection.execute(text("SELECT version_num FROM alembic_version"))
-                assert version.scalar_one() == "0024_bootstrap_flag_repair"
+                assert version.scalar_one() == expected
                 table = await connection.execute(
                     text(
                         """

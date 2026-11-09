@@ -32,6 +32,18 @@
   the menu contract tests. `ruff check`, `ruff format --check`, `pyright` and the
   offline suite (1181 passed) are green; fixtures that pre-dated the second read of the
   actor row now carry `role` and the `users` lookup the callbacks require.
+- Two defects this milestone's own migrations and fixtures exposed, both fixed at the
+  cause rather than by relaxing an assertion: `tests/integration/test_database.py`
+  compared `alembic_version` to a hardcoded revision literal, so adding `0025` turned a
+  correctly migrated database red — it now reads the single head from the migration
+  graph itself, which also fails if the graph ever forks. And the PostgreSQL capability
+  fixture inserted `User` rows directly, a state production cannot reach (an active
+  account has either the `0025` rollout backfill or the approval grid), so three cases
+  asserted against an empty grid; the fixture now writes the baseline through the same
+  `FeaturePermissionRepository.insert_baseline` the approval path uses and leaves only
+  the pending account without rows, which is what the approval test measures. Verified
+  against a disposable PostgreSQL 17 plus Qdrant pair: `alembic upgrade head` from empty,
+  then 80 integration cases passed, 1 skipped (SearXNG URL not configured).
 
 ## 2026-11-09 — The automatic document quote names the asked subject, not a word containing it
 

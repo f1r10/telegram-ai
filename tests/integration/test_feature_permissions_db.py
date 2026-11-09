@@ -30,6 +30,7 @@ from office_assistant.infrastructure.database.models import (
     UserStatus,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
+from office_assistant.repositories.feature_permissions import FeaturePermissionRepository
 
 pytestmark = pytest.mark.integration
 ADMIN_TG = 99998121
@@ -63,30 +64,37 @@ def _scenario(function: Scenario) -> None:
 
     async def seeded() -> None:
         async with factory.begin() as session:
-            session.add_all(
-                [
-                    User(
-                        telegram_user_id=ADMIN_TG,
-                        role=UserRole.ADMIN,
-                        status=UserStatus.ACTIVE,
-                    ),
-                    User(
-                        telegram_user_id=STAFF_TG,
-                        role=UserRole.USER,
-                        status=UserStatus.ACTIVE,
-                    ),
-                    User(
-                        telegram_user_id=OTHER_TG,
-                        role=UserRole.USER,
-                        status=UserStatus.ACTIVE,
-                    ),
-                    User(
-                        telegram_user_id=PENDING_TG,
-                        role=UserRole.USER,
-                        status=UserStatus.PENDING,
-                    ),
-                ]
-            )
+            users = [
+                User(
+                    telegram_user_id=ADMIN_TG,
+                    role=UserRole.ADMIN,
+                    status=UserStatus.ACTIVE,
+                ),
+                User(
+                    telegram_user_id=STAFF_TG,
+                    role=UserRole.USER,
+                    status=UserStatus.ACTIVE,
+                ),
+                User(
+                    telegram_user_id=OTHER_TG,
+                    role=UserRole.USER,
+                    status=UserStatus.ACTIVE,
+                ),
+                User(
+                    telegram_user_id=PENDING_TG,
+                    role=UserRole.USER,
+                    status=UserStatus.PENDING,
+                ),
+            ]
+            session.add_all(users)
+            await session.flush()
+            # An active account only exists in production after the 0025 rollout backfill
+            # or an approval, and both write a complete grid. The pending account is left
+            # without rows on purpose so the approval test can measure the write.
+            repository = FeaturePermissionRepository(session)
+            for user in users:
+                if user.status == UserStatus.ACTIVE:
+                    await repository.insert_baseline(int(user.id), baseline_grants())
 
     async def runner() -> None:
         await cleanup()
