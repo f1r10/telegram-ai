@@ -8,11 +8,14 @@ import asyncio
 import json
 import shutil
 import subprocess
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import httpx
 from sqlalchemy import exists, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
 from office_assistant.core.settings import Settings, load_settings
@@ -27,6 +30,12 @@ from office_assistant.infrastructure.database.models import (
     KnowledgeIndexRecord,
     KnowledgeIndexRecordStatus,
     OcrReplayJob,
+    Order,
+    OrderReminder,
+    OrderReminderStatus,
+    OrderState,
+    OutboxEvent,
+    OutboxEventStatus,
 )
 from office_assistant.infrastructure.database.session import create_session_factory
 from office_assistant.processing.pdf_ocr import PdfOcrConfig
@@ -124,6 +133,102 @@ def replay_progress_health(
     return Check("historical_pdf_ocr_replay", status, detail)
 
 
+def order_reminder_delivery_health(
+    *,
+    ledger_counts: Mapping[str, int],
+    outbox_counts: Mapping[str, int],
+    ledger_stale_sending: int,
+    outbox_stale_sending: int,
+    ledger_unknown: int,
+    outbox_unknown: int,
+    oldest_due_pending: datetime | None,
+    now: datetime,
+) -> Check:
+    """Report fixed aggregate labels only; plans and retries alone are not failures."""
+
+    ledger = " ".join(f"{status}={ledger_counts.get(status, 0)}" for status in OrderReminderStatus)
+    outbox = " ".join(f"{status}={outbox_counts.get(status, 0)}" for status in OutboxEventStatus)
+    lag = max(0, int((now - oldest_due_pending).total_seconds())) if oldest_due_pending else 0
+    warning = (
+        ledger_counts.get(OrderReminderStatus.FAILED, 0)
+        or outbox_counts.get(OutboxEventStatus.FAILED, 0)
+        or ledger_stale_sending
+        or outbox_stale_sending
+        or ledger_unknown
+        or outbox_unknown
+    )
+    return Check(
+        "order_reminder_delivery",
+        "WARN" if warning else "OK",
+        f"ledger[{ledger}] outbox[{outbox}] "
+        f"ledger_stale_SENDING={ledger_stale_sending} "
+        f"outbox_stale_SENDING={outbox_stale_sending} "
+        f"ledger_DELIVERY_UNKNOWN={ledger_unknown} outbox_DELIVERY_UNKNOWN={outbox_unknown} "
+        f"active_due_PENDING_oldest_lag_seconds={lag}",
+    )
+
+
+async def order_reminder_delivery_check(
+    session: AsyncSession, *, now: datetime, lease_seconds: int
+) -> Check:
+    """Read aggregate delivery state, without fetching payloads or provider errors."""
+
+    cutoff = now - timedelta(seconds=lease_seconds)
+    ledger = (
+        await session.execute(
+            select(
+                OrderReminder.status,
+                func.count(),
+                func.count().filter(OrderReminder.last_error == "DELIVERY_UNKNOWN"),
+                func.count().filter(
+                    OrderReminder.status == OrderReminderStatus.SENDING,
+                    OrderReminder.claimed_at < cutoff,
+                ),
+                func.min(OrderReminder.scheduled_for).filter(
+                    OrderReminder.status == OrderReminderStatus.PENDING,
+                    OrderReminder.scheduled_for <= now,
+                    Order.state == OrderState.ACTIVE,
+                ),
+            )
+            .join(Order, Order.id == OrderReminder.order_id)
+            .group_by(OrderReminder.status)
+        )
+    ).all()
+    # Outbox rows have no claim timestamp. Match the durable ledger even if its
+    # status has since changed (for example, cancellation during an interrupted send).
+    stale_claim = exists(
+        select(OrderReminder.id).where(
+            OrderReminder.id == OutboxEvent.payload["reminder_id"].as_integer(),
+            OrderReminder.claimed_at < cutoff,
+        )
+    )
+    outbox = (
+        await session.execute(
+            select(
+                OutboxEvent.status,
+                func.count(),
+                func.count().filter(OutboxEvent.last_error == "DELIVERY_UNKNOWN"),
+                func.count().filter(OutboxEvent.status == OutboxEventStatus.SENDING, stale_claim),
+            )
+            .where(OutboxEvent.event_type == "ORDER_REMINDER_DUE")
+            .group_by(OutboxEvent.status)
+        )
+    ).all()
+    # Status totals include historical/inactive plans, but only ACTIVE orders have
+    # due delivery work. Never present frozen/cancelled plans as pending delivery lag.
+    oldest = min((row[4] for row in ledger if row[4] is not None), default=None)
+    return order_reminder_delivery_health(
+        ledger_counts={row[0]: int(row[1]) for row in ledger},
+        outbox_counts={row[0]: int(row[1]) for row in outbox},
+        ledger_stale_sending=sum(int(row[3]) for row in ledger),
+        outbox_stale_sending=sum(int(row[3]) for row in outbox),
+        ledger_unknown=sum(int(row[2]) for row in ledger),
+        outbox_unknown=sum(int(row[2]) for row in outbox),
+        oldest_due_pending=oldest,
+        now=now,
+    )
+
+
 def current_deferred_parse_count_query() -> Select[tuple[int]]:
     """Count unresolved text parses, excluding on-demand standalone image probes.
 
@@ -212,6 +317,9 @@ async def _database() -> list[Check]:
                     )
                 )
             )
+            order_delivery = await order_reminder_delivery_check(
+                session, now=datetime.now(UTC), lease_seconds=settings.worker_lease_seconds
+            )
         checks = [Check("postgresql", "OK", "SELECT and job-table queries passed")]
         zero = int(indexed or 0)
         checks.append(
@@ -244,6 +352,7 @@ async def _database() -> list[Check]:
                 indexed=int(replay_indexed or 0),
             )
         )
+        checks.append(order_delivery)
         return checks
     finally:
         await engine.dispose()

@@ -176,7 +176,9 @@ class DocumentProcessingStatus(StrEnum):
 
 class OutboxEventStatus(StrEnum):
     PENDING = "PENDING"
+    SENDING = "SENDING"
     SENT = "SENT"
+    CANCELLED = "CANCELLED"
     FAILED = "FAILED"
 
 

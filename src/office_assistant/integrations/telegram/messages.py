@@ -554,6 +554,16 @@ ORDERS_PLAN_SUMMARY = (
 ORDERS_PLAN_FIRST_LAST = "Göndərilməyə planlaşan say: {planned}\nBirinci: {first}\nSonuncu: {last}"
 ORDERS_PLAN_STALE = "{count} xəbərdarlıq anı artıq keçmişdə qaldığı üçün göndərilməyəcək."
 
+# One delivered review reminder (owner contract §15.2). The order number, the deadline and
+# the remaining time are read from the record at send time by ``orders_format.reminder_text``;
+# nothing in this block computes a number.
+ORDERS_REMINDER_SUBJECT = "⏰ Sifariş #{order_id} — xəbərdarlıq {index}/{total}"
+ORDERS_FIELD_REMAINING = "Qalan vaxt"
+ORDERS_REMINDER_PAST_DEADLINE = "Son tarix {over} əvvəl keçib."
+ORDERS_REMINDER_DUE_NOW = "Son tarix indi çatdı."
+ORDERS_LESS_THAN_MINUTE = "1 dəqiqədən az"
+ORDERS_TRUNCATED_VALUE = "{value}..."
+
 ORDERS_CONFIRM_BUTTON = "Təsdiqlə"
 ORDERS_EDIT_BUTTON = "Düzəliş et"
 ORDERS_CANCEL_BUTTON = "Ləğv et"

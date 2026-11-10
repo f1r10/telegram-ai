@@ -1,6 +1,7 @@
 """Operational readiness is read-only and never confuses healthz with real search."""
 
 import subprocess
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -10,10 +11,16 @@ from office_assistant.scripts.check_readiness import (
     Check,
     current_deferred_parse_count_query,
     ocr_runtime_health,
+    order_reminder_delivery_health,
     overall,
     replay_progress_health,
     search_health,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
 
 
 def test_live_search_requires_actual_results_not_http_success() -> None:
@@ -99,3 +106,80 @@ def test_replay_progress_requires_nonempty_indexed_vectors() -> None:
     assert replay_progress_health(pending=2, failed=0, awaiting_index=0, indexed=0).status == "WARN"
     detail = replay_progress_health(pending=2, failed=1, awaiting_index=3, indexed=4).detail
     assert detail == "pending_or_running=2 failed=1 awaiting_index=3 indexed=4"
+
+
+@pytest.mark.parametrize(
+    (
+        "ledger_failed",
+        "outbox_failed",
+        "ledger_stale",
+        "outbox_stale",
+        "ledger_unknown",
+        "outbox_unknown",
+    ),
+    [
+        (1, 0, 0, 0, 0, 0),
+        (0, 1, 0, 0, 0, 0),
+        (0, 0, 1, 0, 0, 0),
+        (0, 0, 0, 1, 0, 0),
+        (0, 0, 0, 0, 1, 0),
+        (0, 0, 0, 0, 0, 1),
+        (0, 0, 0, 0, 0, 0),
+    ],
+)
+def test_order_delivery_warns_only_for_failed_unknown_or_stale(
+    ledger_failed: int,
+    outbox_failed: int,
+    ledger_stale: int,
+    outbox_stale: int,
+    ledger_unknown: int,
+    outbox_unknown: int,
+) -> None:
+    now = datetime(2026, 10, 7, tzinfo=UTC)
+    check = order_reminder_delivery_health(
+        ledger_counts={"FAILED": ledger_failed, "PENDING": 10, "RETRY_PENDING": 3, "SENDING": 2},
+        outbox_counts={"FAILED": outbox_failed, "PENDING": 5, "SENDING": 2},
+        ledger_stale_sending=ledger_stale,
+        outbox_stale_sending=outbox_stale,
+        ledger_unknown=ledger_unknown,
+        outbox_unknown=outbox_unknown,
+        oldest_due_pending=now - timedelta(days=2),
+        now=now,
+    )
+    warning = any(
+        (ledger_failed, outbox_failed, ledger_stale, outbox_stale, ledger_unknown, outbox_unknown)
+    )
+    assert check.name == "order_reminder_delivery"
+    assert check.status == ("WARN" if warning else "OK")
+    assert overall([check]) == ("DEGRADED" if warning else "READY")
+    assert "active_due_PENDING_oldest_lag_seconds=172800" in check.detail
+
+
+@pytest.mark.parametrize("pending_age", [None, -1.0, 0.0, 90.9])
+def test_order_delivery_count_output_is_fixed_and_lag_is_nonnegative(
+    pending_age: float | None,
+) -> None:
+    now = datetime(2026, 10, 7, tzinfo=UTC)
+    check = order_reminder_delivery_health(
+        ledger_counts={"SENT": 12, "SKIPPED": 2, "untrusted-ledger-status": 999},
+        outbox_counts={"SENT": 12, "untrusted-outbox-status": 999},
+        ledger_stale_sending=0,
+        outbox_stale_sending=0,
+        ledger_unknown=0,
+        outbox_unknown=0,
+        oldest_due_pending=now - timedelta(seconds=pending_age)
+        if pending_age is not None
+        else None,
+        now=now,
+    )
+    lag = max(0, int(pending_age or 0))
+    assert check == Check(
+        "order_reminder_delivery",
+        "OK",
+        "ledger[PENDING=0 CLAIMED=0 SENDING=0 SENT=12 RETRY_PENDING=0 FAILED=0 "
+        "SUPERSEDED=0 SKIPPED=2 CANCELLED=0] "
+        "outbox[PENDING=0 SENDING=0 SENT=12 CANCELLED=0 FAILED=0] "
+        "ledger_stale_SENDING=0 outbox_stale_SENDING=0 "
+        "ledger_DELIVERY_UNKNOWN=0 outbox_DELIVERY_UNKNOWN=0 "
+        f"active_due_PENDING_oldest_lag_seconds={lag}",
+    )

@@ -477,9 +477,11 @@ Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §3.1–§3.4, documen
 `docs/ORDERS-WORKFLOW.md`. This slice is the domain, the storage and the application
 service; the Telegram UI and the delivery engine are separate slices below.
 
-- [x] Independent `office_assistant/orders/` package that imports no session, no Telegram
-      type and no inventory model: the state table (`workflow.py`) and the exact schedule
-      (`schedule.py`) are testable without a database or a clock.
+- [x] The pure domain modules in `office_assistant/orders/` (`workflow.py`, `schedule.py`)
+      import no session, no Telegram type and no inventory model: the state table and the
+      exact schedule are testable without a database or a clock. (The worker-side
+      `dispatch.py` added in Milestone 3 takes a session because claiming is a transaction,
+      but imports no Telegram type.)
 - [x] §3.2 sequential intake stored as the order row itself — deadline, lead time, warning
       count, requester, description, optional notes — each answer validated and committed
       in its own transaction, so a restarted service resumes the same draft
@@ -554,13 +556,45 @@ service; the Telegram UI and the delivery engine are separate slices below.
       ceiling is accepted at one year and rejected one minute later against real
       PostgreSQL. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
       (0 errors), `pytest -m "not integration"` (1301 collected and passing).
+- [x] `cce649b` (the merged PR #172, Milestone 1 + orders slices A and B1) deployed on the
+      verified Kali TEST server after `staging-before-172.dump` was taken and listed back
+      (`PGDMP` magic, 98 table entries through `pg_restore -l` inside `tgstage_postgres`).
+      `alembic upgrade head` moved the staging database from
+      `0025_user_feature_permissions` to `0026_orders`; the read-only probe inside
+      `tgstage_app` then reported `orders`, `order_reminders`, `order_attachments`, the
+      claim index and both unique constraints (`uq_order_reminder_instant`,
+      `uq_order_reminder_idempotency`), an empty ledger and no orders. `tgstage_app` and
+      `tgstage_worker` were rebuilt from the same commit — four changed source files carry
+      the same md5 in the host checkout and inside the image — and both restarted clean:
+      `Application started`, DINO pre-warm `ready=True`, no error or 409 line since. The
+      same probe proves the service boundary on live data: the administrator reaches
+      `orders.list`, an active ordinary account is refused because the `orders` baseline is
+      off (Q46), which is exactly the `FEATURE_DISABLED` case to show in manual UAT.
 - [ ] Orders browsing slice: list filters, detail with warning history, and
       Bitir / Dondur / Davam etdir / Sil over the service methods that already exist
       (`list`, `detail`, `act`, `reschedule`), plus the order-materials attachment flow.
-- [ ] Milestone 3 — delivery engine: claim/lease the `order_reminders` rows through the
-      existing outbox pattern, refuse to send unless the order is `ACTIVE`, bounded
-      retry/backoff, restart-safe, visible in `Sistem vəziyyəti`; the ledger vocabulary
-      (`CLAIMED`, `SENDING`, `RETRY_PENDING`, `SENT`, `FAILED`) is already declared.
+- [x] Milestone 3 — delivery engine (2026-11-11): `orders/dispatch.py` claims due
+      `PENDING` rows with `FOR UPDATE SKIP LOCKED` (order → ledger) and enqueues exactly one
+      `ORDER_REMINDER_DUE` outbox event per instant; the order branch of
+      `integrations/telegram/outbox.py` calls `order_delivery.reserve_order_send`, which
+      commits `SENDING` plus an `ORDER_REMINDER_STARTED` audit record before the network
+      call, then `deliver_reserved_order` re-checks the order is `ACTIVE` and the creator
+      `ACTIVE` under the order lock and sends to the creator only (§15.2). Bounded retry
+      (`MAX_ORDER_SEND_ATTEMPTS = 3`, backoff `5 × 2^(attempt-1)`, `RetryAfter` honoured);
+      `BadRequest`/`Forbidden` terminal, `NetworkError`/`TimedOut` terminal
+      `DELIVERY_UNKNOWN` (no replay — Telegram has no client idempotency key, Q49);
+      `reclaim_stale` (300 s lease) closes crashed `SENDING`/`CLAIMED` rows honestly without
+      requeuing; every transition appends a redacted `AuditEvent`; migration
+      `0027_order_reminder_delivery` widens the outbox status set and round-trips; visible
+      in `Sistem vəziyyəti` via `check_readiness.order_reminder_delivery_check` (counts,
+      stale `SENDING`, `DELIVERY_UNKNOWN`, oldest active due-`PENDING` lag; no content/ids).
+      Gates green on Linux: `ruff check`, `ruff format --check`, `pyright` (0 errors),
+      `pytest -m "not integration"` (1341 passing) and `pytest -m integration`
+      (125 passed / 1 skipped) on disposable PostgreSQL 17 + Qdrant; the Orders module is
+      45 cases including two consumers racing one reserved event, a stop between reserve
+      and send, terminal/uncertain outcomes never replayed, `RetryAfter` delay + attempt
+      history, and a post-send transaction crash leaving `SENDING` for recovery. Deployment
+      to the Kali test server and manual UAT of a real delivered warning follow the merge.
 - [ ] Owner decisions in OPEN-QUESTIONS Q47: the one-year lead-time ceiling, refusing a
       past deadline outright, rescheduling while frozen, and whether an administrator
       "all orders" view lists other users' orders.
