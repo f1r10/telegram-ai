@@ -352,8 +352,9 @@ class OrderService:
     ) -> tuple[int, int]:
         """Change the plan without losing the warnings that already happened.
 
-        Pending entries of the old plan are superseded, never deleted, and the new plan
-        is computed against the new deadline. Returns ``(scheduled, skipped)``.
+        Unsent entries of the old plan are superseded, never deleted, and the new plan
+        is computed against the new deadline. Frozen plans stay cancelled until resume.
+        Returns ``(scheduled, skipped)``.
         """
 
         now = self._clock.now_utc()
@@ -370,7 +371,7 @@ class OrderService:
             assert order.deadline_utc is not None
             if order.deadline_utc <= now:
                 raise InvalidBusinessValue("the order deadline is already in the past")
-            superseded = await self._supersede_pending(session, int(order.id), now)
+            superseded = await self._supersede_pending(session, int(order.id))
             scheduled, skipped = await self._plan(session, order, now)
             AuditRepository(session).add(
                 actor_user_id=user.id,
@@ -537,8 +538,9 @@ class OrderService:
         concurrent claim cannot add a second warning for the same instant. An instant
         already in the past is stored as ``SKIPPED`` instead of queued, which is what the
         order view discloses rather than sending a stale burst. Under ``restore`` (resuming
-        a frozen order) the entries freezing cancelled are reopened only while they are
-        still ahead of now, so resuming never replays a reminder.
+        a frozen order), cancelled entries are reopened; rescheduling instead reuses
+        superseded entries. Only future instants can reopen, and a frozen order keeps
+        its new plan cancelled until resume. Delivered, failed and skipped history stays.
         """
 
         if (
@@ -554,6 +556,14 @@ class OrderService:
         )
         scheduled = 0
         skipped = 0
+        planned_status = (
+            OrderReminderStatus.CANCELLED.value
+            if order.state == OrderState.FROZEN.value
+            else OrderReminderStatus.PENDING.value
+        )
+        reopen_status = (
+            OrderReminderStatus.CANCELLED.value if restore else OrderReminderStatus.SUPERSEDED.value
+        )
         for ordinal, instant in enumerate(instants):
             key = schedule.idempotency_key(order_id=int(order.id), scheduled_for=instant)
             existing = await session.scalar(
@@ -578,13 +588,13 @@ class OrderService:
                         order_id=int(order.id),
                         ordinal=ordinal,
                         scheduled_for=instant,
-                        status=OrderReminderStatus.PENDING.value,
+                        status=planned_status,
                         idempotency_key=key,
                     )
                 )
                 scheduled += 1
-            elif restore and existing.status == OrderReminderStatus.CANCELLED.value:
-                existing.status = OrderReminderStatus.PENDING.value
+            elif existing.status == reopen_status:
+                existing.status = planned_status
                 existing.ordinal = ordinal
                 existing.claimed_at = None
                 scheduled += 1
@@ -592,7 +602,11 @@ class OrderService:
         return scheduled, skipped
 
     async def _stop_pending(self, session: AsyncSession, order_id: int) -> int:
-        """Freeze, finish, cancel or delete: stop everything not yet delivered."""
+        """Freeze, finish, cancel or delete: stop every live, unsent entry.
+
+        The order is already locked. Wait for ledger locks rather than leaving queued
+        claims live; the consumer cancels their events without us locking the outbox.
+        """
 
         rows = (
             (
@@ -601,10 +615,15 @@ class OrderService:
                     .where(
                         OrderReminder.order_id == order_id,
                         OrderReminder.status.in_(
-                            [OrderReminderStatus.PENDING.value, OrderReminderStatus.RETRY_PENDING]
+                            [
+                                OrderReminderStatus.PENDING.value,
+                                OrderReminderStatus.CLAIMED.value,
+                                OrderReminderStatus.SENDING.value,
+                                OrderReminderStatus.RETRY_PENDING.value,
+                            ]
                         ),
                     )
-                    .with_for_update(skip_locked=True)
+                    .with_for_update()
                 )
             )
             .scalars()
@@ -614,17 +633,26 @@ class OrderService:
             entry.status = OrderReminderStatus.CANCELLED.value
         return len(rows)
 
-    async def _supersede_pending(self, session: AsyncSession, order_id: int, now: datetime) -> int:
+    async def _supersede_pending(self, session: AsyncSession, order_id: int) -> int:
+        """Replace unsent old entries, including due claims, retries and frozen plans."""
+
         rows = (
             (
                 await session.execute(
                     select(OrderReminder)
                     .where(
                         OrderReminder.order_id == order_id,
-                        OrderReminder.status == OrderReminderStatus.PENDING.value,
-                        OrderReminder.scheduled_for > now,
+                        OrderReminder.status.in_(
+                            [
+                                OrderReminderStatus.PENDING.value,
+                                OrderReminderStatus.CLAIMED.value,
+                                OrderReminderStatus.SENDING.value,
+                                OrderReminderStatus.RETRY_PENDING.value,
+                                OrderReminderStatus.CANCELLED.value,
+                            ]
+                        ),
                     )
-                    .with_for_update(skip_locked=True)
+                    .with_for_update()
                 )
             )
             .scalars()

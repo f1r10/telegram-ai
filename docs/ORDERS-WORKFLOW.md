@@ -1,14 +1,14 @@
 # Orders workflow and reminder schedule (owner contract V2 §3)
 
-Reconciled 2026-11-10. This describes what is implemented on
-`feature/v2-owner-requirements-2026-11-08`, not a target state. The contract text is
+Reconciled 2026-11-11. This describes what is implemented on
+`feature/orders-reminder-engine-2026-11-10`, not a target state. The contract text is
 `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §3.1–§3.4; the private Master Spec numbers the
 same rules §14–§15.
 
 ## What exists and what does not
 
-Implemented now — the domain rules, the storage, the application service, and the
-Telegram conversation that reaches them:
+Implemented now — the domain rules, the storage, the application service, the
+Telegram conversation that reaches them, and the durable delivery engine:
 
 - `office_assistant/orders/workflow.py` — states, allowed actions, intake order, derived
   overdue.
@@ -22,6 +22,13 @@ Telegram conversation that reaches them:
   `Sifarişlərim` asks the six questions over the durable draft, refuses an unreadable
   answer in Azerbaijani, and shows the review page with the plan a confirmation is about
   to write before `Təsdiqlə` makes it authoritative.
+- `office_assistant/orders/dispatch.py` (claim + stale-lease recovery),
+  `office_assistant/integrations/telegram/order_delivery.py` (two-phase send) and the
+  order branch of `office_assistant/integrations/telegram/outbox.py`, plus migration
+  `0027_order_reminder_delivery` — a due `PENDING` row becomes exactly one queued
+  `ORDER_REMINDER_DUE` event, the consumer reserves `SENDING` before the Telegram call
+  and records the outcome durably, and a crash or transport failure is closed honestly
+  without replaying an uncertain send (see "The delivery engine" below).
 
 Not implemented yet, by scope rather than by omission:
 
@@ -29,11 +36,9 @@ Not implemented yet, by scope rather than by omission:
   the `Bitir` / `Dondur` / `Davam etdir` / `Sil` buttons. The service methods exist
   (`list`, `detail`, `act`, `reschedule`); nothing in Telegram calls them yet, so a
   confirmed order has no screen of its own — after `Təsdiqlə` the user sees the plan the
-  order wrote and nothing else until the browsing slice lands.
-- **The delivery engine** (Milestone 3). Confirmation writes the ledger rows and the
-  lifecycle stops or reopens them, but nothing claims or sends them yet, so `SENT`,
-  `CLAIMED`, `SENDING`, `RETRY_PENDING` and `FAILED` are written only by the delivery
-  engine or seeded by a test.
+  order wrote and nothing else until the browsing slice lands. The delivery engine still
+  runs against confirmed orders without that screen: warnings arrive, and the lifecycle
+  methods are reachable from the service even though no button calls them yet.
 - **Rolling the capability out.** `orders` stays out of `BASELINE_ENABLED`
   (OPEN-QUESTIONS Q46), so the menu row is live for an administrator and for any user an
   administrator grants; whether every existing user should get it is an owner decision,
@@ -41,12 +46,14 @@ Not implemented yet, by scope rather than by omission:
 
 ## Where each decision lives
 
-`orders/` imports no database session, no Telegram type and no inventory model, so the
-contract can be tested on either side of that line. The service owns transactions and
-row locks; the domain modules own the arithmetic and the state table. The Telegram
-adapter only turns buttons and typed replies into those calls — it re-implements no rule
-below, and the one place it reads text (`orders/intake_parsing.py`) returns a number or
-`None` and never guesses.
+The pure domain modules (`orders/workflow.py`, `orders/schedule.py`) import no database
+session, no Telegram type and no inventory model, so the contract's arithmetic and state
+table can be tested on either side of that line. The service owns transactions and row
+locks; the worker-side `orders/dispatch.py` also takes a session because claiming is a
+transaction, but it imports no Telegram type — the send itself lives in the Telegram
+adapter. The Telegram adapter only turns buttons and typed replies into service calls —
+it re-implements no rule below, and the one place it reads text
+(`orders/intake_parsing.py`) returns a number or `None` and never guesses.
 
 ## States
 
@@ -193,7 +200,11 @@ claiming at once cannot add a second warning for the same moment.
 | --- | --- | --- |
 | `PENDING` | future instant, waiting | `_plan` on confirm / resume / reschedule |
 | `SKIPPED` | the instant was already past when the plan was made | `_plan` (disclosed, never sent) |
-| `CLAIMED`, `SENDING`, `RETRY_PENDING`, `SENT`, `FAILED` | delivery vocabulary | Milestone 3 engine |
+| `CLAIMED` | a due row reserved by exactly one worker | `dispatch.claim_due` |
+| `SENDING` | send intent committed before the Telegram call | `order_delivery.reserve_order_send` |
+| `RETRY_PENDING` | a definite rejection waiting out its backoff | `order_delivery.deliver_reserved_order` |
+| `SENT` | the message arrived | `order_delivery.deliver_reserved_order` |
+| `FAILED` | terminal rejection, attempt limit, or `DELIVERY_UNKNOWN` | `order_delivery` / `dispatch.reclaim_stale` |
 | `CANCELLED` | stopped before it happened | freeze, complete, cancel, delete |
 | `SUPERSEDED` | replaced by a newer plan | reschedule |
 
@@ -212,6 +223,65 @@ cannot send anything.
 Rescheduling supersedes the pending entries of the old plan instead of deleting them,
 writes the new plan, and leaves a warning that already arrived (`SENT`) untouched: the
 history of what happened stays readable next to the new plan.
+
+## The delivery engine
+
+Master Spec §15.3–§15.5: a confirmed plan must reach the creator exactly once per instant,
+survive retries, concurrent workers and restarts without duplicating, stop when the order
+is no longer live, and show its failures honestly. Three pieces cooperate, all against
+PostgreSQL as the system of record (no Redis, no Celery):
+
+1. **Claim** — `orders/dispatch.py::OrderReminderDispatchService.claim_due` selects due
+   `PENDING` rows (`scheduled_for <= now`) and, in one transaction, moves each to `CLAIMED`
+   and inserts one `ORDER_REMINDER_DUE` outbox event addressed to the creator. It locks the
+   `Order` first with `FOR UPDATE SKIP LOCKED`, then the ledger rows, so two workers never
+   claim the same instant and a busy order never deadlocks a lifecycle mutation. A row
+   whose order is not `ACTIVE` or whose creator is not `ACTIVE` is stopped (`CANCELLED`),
+   not queued. Only `PENDING` is claimed: a retry reuses the *same* event, so re-claiming a
+   `RETRY_PENDING` row here would queue a second message for one instant.
+2. **Send** — the order branch of `integrations/telegram/outbox.py::_send_one` calls
+   `order_delivery.reserve_order_send`, which commits `SENDING` on the event and the ledger
+   plus an `ORDER_REMINDER_STARTED` audit record, and the caller commits that transaction
+   *before* any network call. `deliver_reserved_order` then opens a second transaction,
+   re-checks eligibility under the order lock, renders `orders_format.reminder_text` from
+   the row against the send-time clock, and calls `bot.send_message` with bounded timeouts.
+   Holding the order lock across the call serializes delivery with freeze/reschedule: a
+   stop acknowledged first prevents the send.
+3. **Recover** — `dispatch.reclaim_stale` (lease 300 s) closes rows a crash left `CLAIMED`
+   or `SENDING`. It reads candidate ids without locks, then takes the sender's
+   event → order → ledger order with `skip_locked`. A `SENDING` event whose ledger was
+   cancelled/superseded becomes `CANCELLED`; any other interrupted `SENDING` becomes
+   `DELIVERY_UNKNOWN` (`FAILED`), because Telegram cannot reconcile an interrupted send by
+   client key and replaying it would be the burst §15.4 forbids. A claimed row with no
+   event is failed; one whose event already `SENT`/`CANCELLED`/`FAILED` is reconciled to
+   that truth. Nothing is requeued from recovery.
+
+**Error classification and retry** (`order_delivery.retry_policy`): `BadRequest` and
+`Forbidden` are terminal (no retry); `NetworkError`/`TimedOut` are terminal
+`DELIVERY_UNKNOWN` (the message may already have arrived); `RetryAfter` and other definite
+`TelegramError`s retry up to `MAX_ORDER_SEND_ATTEMPTS = 3` with backoff `5 × 2^(attempt-1)`
+seconds, honouring a larger `RetryAfter.retry_after`. The persisted `last_error` is the
+exception class name only — never raw provider text, which could carry secrets or input
+(invariant 6). Every transition appends a redacted `AuditEvent`
+(`ORDER_REMINDER_STARTED/SENT/FAILED/UNKNOWN/CANCELLED`) with the reminder/event ids,
+attempt number, outcome, error code and, on success, the Telegram message id; this is the
+same owner-visible history `detail()` reads, so no new table was needed.
+
+**The message** (`orders_format.reminder_text`) names the order by number and says which
+warning of how many it is, states the deadline in the order's own zone with an Azerbaijani
+weekday, and computes the remaining time as a deterministic difference against the
+send-time clock — never a number carried in the queue or guessed by a model (invariant 3).
+A retry or delay therefore still states the truth the database holds. Each free-text field
+is truncated to 1,400 UTF-16 units so the deadline block always fits one 4,096-unit Telegram
+message; under a minute reads `1 dəqiqədən az`, an exact-deadline send reads `Son tarix indi
+çatdı.`, and a late send states the overrun (Q49).
+
+**Visibility** — `scripts/check_readiness.py` aggregates ledger/outbox status counts, stale
+`SENDING` past the lease, `DELIVERY_UNKNOWN` counts and the oldest active-order due
+`PENDING` lag, warning only on failed/unknown/stale rows and exposing no content, ids or
+provider messages. The bounds above — the no-duplicates policy for ambiguous sends, the
+retry ceiling and backoff, the lease, the field truncation and the sub-minute wording — are
+the reversible assumptions recorded in OPEN-QUESTIONS Q49.
 
 ## Lifecycle actions
 
@@ -245,14 +315,35 @@ whose toggle is off cannot drive the workflow by replaying a callback.
   the worked example, non-dividing intervals, a localised deadline producing the same
   plan, every refusal reason, the state table, the soft-delete reachability, derived
   overdue.
-- Integration (`tests/integration/test_orders_db.py`, real PostgreSQL 17, 16 cases) —
+- Integration (`tests/integration/test_orders_db.py`, real PostgreSQL 17, 45 cases) —
   restart-safe intake and one-draft-per-account, the exact five-row plan, idempotent
   confirmation, stale warnings stored `SKIPPED`, freeze/resume with forty hours passing,
   complete and soft delete, per-user isolation, a disabled capability refused at the
   boundary, invalid answers never reaching the record (including one minute past the
   one-year lead-time ceiling, whose boundary itself is accepted and stored), reschedule
   superseding while a delivered row survives, attachment provenance, creator versus
-  requester, cascade on account removal.
+  requester, cascade on account removal. The delivery cases run the real claim → reserve →
+  send path against a fake bot and a fake clock: a due row sends once to the creator;
+  freeze/complete/cancel/delete between reserve and send suppresses the message; reschedule
+  supersedes claimed, sending and retrying rows while terminal history survives; two
+  consumers cannot send one reserved event twice; a stop between the durable reservation
+  and the network call prevents the send; `BadRequest`/`Forbidden`/`TimedOut` are terminal
+  and never replayed; `RetryAfter` honours its delay and a later success preserves both
+  attempts; and a crash in the post-send transaction leaves `SENDING` durable for
+  `DELIVERY_UNKNOWN` recovery rather than a duplicate.
+- Delivery format unit (`tests/unit/test_order_delivery_format.py`) — the subject names the
+  order and its warning index, the deadline renders in the order's zone with an Azerbaijani
+  weekday, the remaining time is the difference to the caller's clock, a late send states
+  the overrun, an exact-deadline send is never worded as "no time", an incomplete record
+  degrades to the documented unknowns, an unnamed zone falls back instead of raising, long
+  confirmed fields stay within Telegram's UTF-16 limit without losing the deadline, and a
+  sub-minute remaining time is not confused with overdue.
+- Operational readiness (`tests/unit/test_v2_operational_readiness.py`,
+  `tests/unit/test_order_reminder_readiness_query.py`, 34 cases) — the readiness aggregates
+  executed in isolated in-memory SQLite: separate ledger/outbox counts, stale `SENDING`
+  gated on the configured lease, `DELIVERY_UNKNOWN` visibility, and the active-order due
+  `PENDING` lag excluding inactive plans, future work and other statuses — with no content,
+  ids or provider messages exposed.
 - Parser unit (`tests/unit/test_order_intake_parsing.py`, 50 cases) — the two numeric
   questions at the parser rather than through the adapter: spelled-out windows («iki saat»,
   «on bir saat», «bir gün iki saat») alongside the typed ones, every quantity in a reply
@@ -277,7 +368,9 @@ whose toggle is off cannot drive the workflow by replaying a callback.
 
 `MAX_LEAD_MINUTES` (one year) is OPEN-QUESTIONS Q47. The conversation bounds — the
 bare-number reading, the ten-minute window, the skip words and the calendar forms the
-deadline question accepts — are Q48. The remaining open points — the
+deadline question accepts — are Q48. The delivery engine bounds — the no-duplicates policy
+for ambiguous sends, the retry ceiling and backoff, the 300 s lease, the field truncation
+and the sub-minute wording — are Q49. The remaining open points — the
 semantics of rescheduling a frozen order, which file types and how many an order may
 carry, whether `requested_by` should resolve to an account, and how long a soft-deleted
 order survives before purge — are listed in Q47 and in

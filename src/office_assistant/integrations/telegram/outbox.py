@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
+from office_assistant.core.clock import Clock, SystemClock
 from office_assistant.infrastructure.database.models import (
     OutboxEvent,
     OutboxEventStatus,
@@ -19,9 +20,18 @@ from office_assistant.infrastructure.database.models import (
     ReminderStatus,
 )
 from office_assistant.integrations.telegram import messages
+from office_assistant.integrations.telegram.order_delivery import (
+    deliver_reserved_order,
+    reserve_order_send,
+)
+from office_assistant.orders.dispatch import ORDER_REMINDER_EVENT_TYPE
 from office_assistant.reminders.dispatch import REMINDER_EVENT_TYPE
 
 logger = logging.getLogger(__name__)
+
+# A send that keeps failing is closed out rather than retried forever; the ledger row says
+# FAILED with the last provider error, which is what the operational view counts (§26).
+MAX_SEND_ATTEMPTS = 3
 
 
 async def run_outbox_consumer(
@@ -36,14 +46,17 @@ async def run_outbox_consumer(
                 pass
 
 
-async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession]) -> bool:
+async def _send_one(
+    bot: Bot, session_factory: async_sessionmaker[AsyncSession], *, clock: Clock | None = None
+) -> bool:
+    clock = clock or SystemClock()
     async with session_factory.begin() as session:
         event = (
             await session.execute(
                 select(OutboxEvent)
                 .where(
                     OutboxEvent.status == OutboxEventStatus.PENDING,
-                    OutboxEvent.available_at <= datetime.now(UTC),
+                    OutboxEvent.available_at <= clock.now_utc(),
                 )
                 .order_by(OutboxEvent.id)
                 .limit(1)
@@ -67,6 +80,13 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
             reminder = await session.get(Reminder, delivery.reminder_id)
             text = messages.REMINDER_DELIVERED.format(text=payload.get("text", ""))
             delivery.status = ReminderDeliveryStatus.SENDING.value
+        elif event.event_type == ORDER_REMINDER_EVENT_TYPE:
+            if await reserve_order_send(session, event, clock):
+                event_id = int(event.id)
+                # Persist intent before Telegram; no further work uses this transaction.
+                await session.commit()
+                await deliver_reserved_order(bot, session_factory, event_id, clock)
+            return True
         elif event.event_type == "STRUCTURED_EXTRACTION_COMPLETED":
             counts = payload.get("counts", {})
             counts = cast(dict[str, object], counts) if isinstance(counts, dict) else {}
@@ -119,7 +139,7 @@ async def _send_one(bot: Bot, session_factory: async_sessionmaker[AsyncSession])
         except TelegramError as error:
             event.attempt_count += 1
             event.last_error = str(error)[:2000]
-            terminal = event.attempt_count >= 3
+            terminal = event.attempt_count >= MAX_SEND_ATTEMPTS
             if terminal:
                 event.status = OutboxEventStatus.FAILED.value
             else:

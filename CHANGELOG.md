@@ -1,3 +1,63 @@
+## 2026-11-11 — Milestone 3: the durable order reminder delivery engine
+
+- A confirmed order's plan now actually reaches its creator. `orders/dispatch.py`
+  (`OrderReminderDispatchService`) claims due `PENDING` ledger rows with
+  `FOR UPDATE SKIP LOCKED` — locking the `Order` before the ledger, as lifecycle mutations
+  do — and enqueues exactly one `ORDER_REMINDER_DUE` outbox event per instant in the same
+  transaction, addressed to the creator only (Master Spec §15.2). A row whose order is not
+  `ACTIVE` or whose creator is not `ACTIVE` is stopped, not queued. Only `PENDING` is
+  claimed, so a retry reuses the same event instead of queuing a second message.
+- `integrations/telegram/order_delivery.py` sends in two phases. `reserve_order_send`
+  commits `SENDING` on the event and the ledger plus an `ORDER_REMINDER_STARTED` audit
+  record, and the consumer (`integrations/telegram/outbox.py`) commits that transaction
+  before any network call; `deliver_reserved_order` then re-checks eligibility under the
+  order lock and calls `bot.send_message` with bounded timeouts. Holding the order lock
+  across the call serializes delivery with freeze/reschedule, so a stop acknowledged first
+  prevents the send. The sender's lock order is event → order → ledger; lifecycle and claim
+  take order → ledger, and workers `skip_locked` a busy order to avoid deadlock.
+- Telegram outcomes are classified (`retry_policy`): `BadRequest`/`Forbidden` are terminal;
+  `NetworkError`/`TimedOut` are terminal `DELIVERY_UNKNOWN` because the message may already
+  have arrived and Telegram `sendMessage` has no caller idempotency key — no duplicates
+  beats recovering an ambiguous send (ASSUMPTION, Q49); `RetryAfter` and other definite
+  errors retry up to three attempts with backoff `5 × 2^(attempt-1)` seconds, honouring a
+  larger `RetryAfter.retry_after`. The persisted `last_error` is the exception class name
+  only, never raw provider text (invariant 6).
+- `dispatch.reclaim_stale` (300 s lease) closes rows a crash left `CLAIMED`/`SENDING`: a
+  `SENDING` event whose ledger was cancelled/superseded becomes `CANCELLED`, any other
+  interrupted send becomes `DELIVERY_UNKNOWN`, and a row is reconciled to its event's truth
+  (`SENT`/`CANCELLED`/`FAILED`) rather than requeued — recovery never replays the burst
+  §15.4 forbids. Every transition appends a redacted `AuditEvent`
+  (`ORDER_REMINDER_STARTED/SENT/FAILED/UNKNOWN/CANCELLED`) with ids, attempt, outcome, error
+  code and the Telegram message id on success, reusing the owner-visible history `detail()`
+  reads.
+- Migration `0027_order_reminder_delivery` widens the `outbox_events` status set to
+  `PENDING/SENDING/SENT/CANCELLED/FAILED` and round-trips on real PostgreSQL 17.
+- `orders_format.reminder_text` words one delivered warning from the row against the
+  send-time clock (invariant 3): the order number and warning index, the deadline in the
+  order's zone with an Azerbaijani weekday, and a deterministic remaining time. Each
+  free-text field is truncated to 1,400 UTF-16 units so the deadline block fits one
+  4,096-unit Telegram message; under a minute reads `1 dəqiqədən az`, an exact-deadline send
+  reads `Son tarix indi çatdı.`, and a late send states the overrun (Q49). New strings live
+  in `messages.py`.
+- `scripts/check_readiness.py` gained `order_reminder_delivery_check`: ledger/outbox status
+  counts, stale `SENDING` past the lease, `DELIVERY_UNKNOWN` counts and the oldest
+  active-order due-`PENDING` lag, warning only on failed/unknown/stale rows and exposing no
+  content, ids or provider messages — the `Sistem vəziyyəti` visibility §15.3 asks for.
+- Tests: the Orders integration module is now 45 cases (real PostgreSQL 17, fake bot +
+  clock) covering claim/send once to the creator, freeze/complete/cancel/delete suppression
+  between reserve and send, reschedule superseding claimed/sending/retrying rows while
+  terminal history survives, two consumers racing one reserved event, a stop between the
+  durable reservation and the network call, terminal/uncertain outcomes never replayed,
+  `RetryAfter` delay with both attempts preserved, and a post-send transaction crash leaving
+  `SENDING` for recovery. `tests/unit/test_order_delivery_format.py` (13) pins the wording,
+  zone, remaining-time arithmetic, unknown-value degradation and the UTF-16 length bound;
+  `tests/unit/test_v2_operational_readiness.py` +
+  `tests/unit/test_order_reminder_readiness_query.py` (34) execute the readiness aggregates
+  in isolated SQLite. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
+  (0 errors), `pytest -m "not integration"` (1341 passing), `pytest -m integration`
+  (125 passed / 1 skipped). Assumptions recorded under Q49 in `docs/OPEN-QUESTIONS.md`;
+  `docs/ORDERS-WORKFLOW.md` describes the engine.
+
 ## 2026-11-10 — Test completeness for the Orders intake and the `orders` feature gate
 
 - A coverage pass over Milestone 2 slices A and B1 found four behaviors the suite never

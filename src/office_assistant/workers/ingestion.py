@@ -18,6 +18,7 @@ from office_assistant.knowledge.embeddings import FastEmbedSparseAdapter, FastEm
 from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
+from office_assistant.orders.dispatch import OrderReminderDispatchService
 from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
@@ -95,6 +96,11 @@ async def run() -> None:
         clock=SystemClock(),
         lease_seconds=settings.worker_lease_seconds,
     )
+    order_reminders = OrderReminderDispatchService(
+        factory,
+        clock=SystemClock(),
+        lease_seconds=settings.worker_lease_seconds,
+    )
     if settings.structured_extraction_enabled:
         extraction_model = create_language_model(settings, for_extraction=True)
     if extraction_model is not None:
@@ -165,6 +171,9 @@ async def run() -> None:
                 continue
             await reminders.reclaim_stale()
             if await reminders.claim_due() > 0:
+                continue
+            await order_reminders.reclaim_stale()
+            if await order_reminders.claim_due() > 0:
                 continue
             if claim is None:
                 try:
