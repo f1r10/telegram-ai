@@ -272,6 +272,32 @@ def _edited(query: SimpleNamespace) -> str:
     return str(query.edit_message_text.await_args.args[0])
 
 
+def _plan_view(
+    *,
+    deadline: datetime | None = DEADLINE,
+    lead: int | None = 2880,
+    count: int | None = 5,
+) -> OrderView:
+    """A confirmed-shaped view, so ``plan_text`` can be shown a stale window on purpose."""
+
+    order = Order(
+        id=7,
+        created_by_user_id=1,
+        intake_token=TOKEN,
+        requested_by="Aysel",
+        description="10 metr kabel",
+        notes=None,
+        timezone="Asia/Baku",
+        deadline_utc=deadline,
+        lead_time_minutes=lead,
+        warning_count=count,
+        state=OrderState.ACTIVE.value,
+    )
+    return OrderView(
+        order=order, warnings=(), materials=(), history=(), is_overdue=False, remaining=None
+    )
+
+
 def test_menu_tap_asks_the_first_question_and_arms_the_wizard() -> None:
     orders = FakeOrders()
     context = _context(_user(), orders)
@@ -479,6 +505,28 @@ def test_an_answer_without_the_grant_never_reaches_the_draft() -> None:
     assert ORDER_INTAKE_KEY in context.user_data
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [f"od:ok:{TOKEN}", f"od:no:{TOKEN}", f"od:fix:{TOKEN}", f"od:f:{TOKEN}:notes"],
+)
+def test_a_disabled_user_cannot_drive_the_review_by_replaying_a_callback(payload: str) -> None:
+    """The toggle gates the buttons, not only the menu row (docs/ORDERS-WORKFLOW.md)."""
+
+    orders = FakeOrders(answers=dict(COMPLETE_DRAFT))
+    context = _context(_user(role=UserRole.USER), orders)
+    _arm(context)
+    query = _query(payload)
+
+    _run(handle_order_callback, _update(_message(""), query), context)
+
+    assert _edited(query) == messages.FEATURE_DISABLED
+    assert orders.confirmed == []
+    assert orders.abandoned == []
+    assert orders.answers == dict(COMPLETE_DRAFT)
+    # The denial is an early return: it must not consume or re-aim the wizard either.
+    assert _armed(context) == (TOKEN, float("inf"), None)
+
+
 def test_a_service_refusal_asks_the_same_question_again() -> None:
     orders = FakeOrders(refusals={"warnings": "warning count must be between 1 and 10"})
     context = _context(_user(), orders)
@@ -527,3 +575,56 @@ def test_menu_selection_scope_does_not_leak_into_the_wizard() -> None:
     _run(handle_menu_callback, _update(_message("/menu"), _query("om:orders")), context)
 
     assert MENU_SELECTION_KEY not in context.user_data
+
+
+def test_the_plan_waits_for_every_number_before_it_promises_anything() -> None:
+    for text in (
+        orders_format.plan_text(_plan_view(lead=None), now_utc=NOW),
+        orders_format.plan_text(_plan_view(count=None), now_utc=NOW),
+        orders_format.plan_text(_plan_view(count=0), now_utc=NOW),
+        orders_format.plan_text(_plan_view(deadline=None), now_utc=NOW),
+    ):
+        assert text == messages.ORDERS_PLAN_PENDING
+
+
+def test_an_unschedulable_schedule_names_the_reason_instead_of_a_plan() -> None:
+    frame = messages.ORDERS_PLAN_INVALID.split("{reason}")[0]
+
+    too_many = orders_format.plan_text(_plan_view(count=11), now_utc=NOW)
+    assert too_many.startswith(frame)
+    assert "warning count" in too_many
+
+    # A deadline that carries no timezone names no instant, so nothing can be scheduled.
+    naive = orders_format.plan_text(_plan_view(deadline=datetime(2026, 11, 12, 9, 0)), now_utc=NOW)
+    assert naive.startswith(frame)
+    assert "timezone" in naive
+
+
+def test_a_wholly_future_window_promises_every_instant_and_says_nothing_about_the_past() -> None:
+    text = orders_format.plan_text(_plan_view(), now_utc=NOW)
+
+    assert "Xəbərdarlıq planı: 5 xəbərdarlıq" in text
+    assert "Göndərilməyə planlaşan say: 5" in text
+    assert "keçmişdə qaldığı" not in text
+
+
+def test_only_the_instants_still_ahead_are_promised_when_the_window_partly_passed() -> None:
+    """Four instants over 24 h ending 18 h from now: two are already behind us."""
+
+    text = orders_format.plan_text(
+        _plan_view(deadline=NOW + timedelta(hours=18), lead=1440, count=4), now_utc=NOW
+    )
+
+    assert messages.ORDERS_PLAN_STALE.format(count=2) in text
+    assert "Göndərilməyə planlaşan say: 2" in text
+    assert "Birinci:" in text
+    assert "Sonuncu:" in text
+
+
+def test_a_wholly_past_window_counts_every_instant_out_loud_and_promises_none() -> None:
+    text = orders_format.plan_text(
+        _plan_view(deadline=NOW + timedelta(hours=1), lead=1440, count=4), now_utc=NOW
+    )
+
+    assert messages.ORDERS_PLAN_STALE.format(count=4) in text
+    assert "Göndərilməyə planlaşan say" not in text

@@ -1,3 +1,26 @@
+## 2026-11-10 — Test completeness for the Orders intake and the `orders` feature gate
+
+- A coverage pass over Milestone 2 slices A and B1 found four behaviors the suite never
+  exercised. All four are now pinned; no production code changed.
+- `tests/unit/test_order_intake_parsing.py` tests the two numeric questions at the parser
+  instead of only through the wizard: spelled-out lead windows («iki saat», «on bir saat»,
+  «bir gün iki saat»), the `total or None` edge that makes «0 saat» a re-ask rather than an
+  answer, every documented skip word, and `parse_warning_count` taking the first number
+  while leaving the 1…10 range to the service. It also pins the skip rule as a
+  whole-reply-or-first-word test («keç,» is not a skip, «yoxdur demə» is) and records the
+  consequence under Q48 (5) in `docs/OPEN-QUESTIONS.md`.
+- `tests/unit/test_orders_telegram.py` drives the four review callbacks (`od:ok`, `od:no`,
+  `od:fix`, `od:f:<field>`) as a non-administrator without the `orders` grant: each answers
+  `FEATURE_DISABLED`, none confirms, abandons or re-aims the wizard, and the draft is
+  untouched — the contract line "a user whose toggle is off cannot drive the workflow by
+  replaying a callback" now has a test behind it.
+- The same file covers `orders_format.plan_text` on the branches the happy path never
+  reached: pending until every number exists, an unschedulable schedule naming its reason
+  instead of hiding it, and the stale count — all instants past (nothing promised), partly
+  past (only the future ones promised), wholly future (no stale line at all).
+- `tests/integration/test_orders_db.py` bounds the Q47 lead-time cap from both sides: the
+  one-year ceiling is accepted and stored, one minute more is refused.
+
 ## 2026-11-10 — Milestone 2 slice B1: the Sifarişlərim intake conversation in Telegram
 
 - Slice A put the orders service behind a table row; nothing in the bot could reach it.

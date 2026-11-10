@@ -512,8 +512,9 @@ service; the Telegram UI and the delivery engine are separate slices below.
       index and the partial unique draft index, and drops cleanly again; `alembic upgrade
       head` from an empty database reaches `0026_orders` on real PostgreSQL 17.
 - [x] Required orders tests: 31 offline cases (`tests/unit/test_order_schedule.py`,
-      `tests/unit/test_order_workflow.py`) and 15 real-PostgreSQL cases
-      (`tests/integration/test_orders_db.py`) covering restart-safe intake, the exact
+      `tests/unit/test_order_workflow.py`) and 16 real-PostgreSQL cases
+      (`tests/integration/test_orders_db.py`, 15 at this slice plus the lead-time ceiling
+      from the coverage pass below) covering restart-safe intake, the exact
       five-row plan, idempotent confirmation, `SKIPPED` stale warnings, freeze/resume with
       forty hours passing, complete and soft delete, per-user isolation, a disabled
       capability refused at the service boundary, invalid answers never persisting,
@@ -535,9 +536,24 @@ service; the Telegram UI and the delivery engine are separate slices below.
       answer repeats its own question and leaves the draft untouched; the review page
       shows every answer with the plan `confirm()` is about to write and the three
       buttons (Təsdiqlə / Düzəliş et / Ləğv et); `Düzəliş et` re-arms exactly the field
-      the user picks. 30 adapter cases (`tests/unit/test_orders_telegram.py`); gates
+      the user picks. 30 adapter cases (`tests/unit/test_orders_telegram.py`, 39 after the
+      coverage pass below); gates
       green on Linux: `ruff check`, `ruff format --check`, `pyright` (0 errors),
       `pytest -m "not integration"` (1242 passed).
+- [x] Test-completeness pass over slices A and B1 (2026-11-10) — the four behaviors the
+      suite never exercised now have tests behind them and no production code changed.
+      `tests/unit/test_order_intake_parsing.py` (50 cases) tests the two numeric questions
+      at the parser: spelled-out windows («iki saat», «on bir saat», «bir gün iki saat»),
+      `0 saat` read as no window at all, the first number winning for the count while the
+      range stays the service's check, and the skip words as the whole-reply-or-first-word
+      rule they are («keç,» is not a skip, «yoxdur demə» is — recorded under Q48 (5)).
+      A replayed `od:` callback of any of the four actions is refused with
+      `FEATURE_DISABLED` for an account without the grant, before it can confirm, abandon,
+      re-aim the wizard or touch the draft. `plan_text` is covered on pending,
+      unschedulable, wholly-past, partly-past and wholly-future windows. The Q47 lead-time
+      ceiling is accepted at one year and rejected one minute later against real
+      PostgreSQL. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
+      (0 errors), `pytest -m "not integration"` (1301 collected and passing).
 - [ ] Orders browsing slice: list filters, detail with warning history, and
       Bitir / Dondur / Davam etdir / Sil over the service methods that already exist
       (`list`, `detail`, `act`, `reschedule`), plus the order-materials attachment flow.

@@ -245,13 +245,21 @@ whose toggle is off cannot drive the workflow by replaying a callback.
   the worked example, non-dividing intervals, a localised deadline producing the same
   plan, every refusal reason, the state table, the soft-delete reachability, derived
   overdue.
-- Integration (`tests/integration/test_orders_db.py`, real PostgreSQL 17) — restart-safe
-  intake and one-draft-per-account, the exact five-row plan, idempotent confirmation,
-  stale warnings stored `SKIPPED`, freeze/resume with forty hours passing, complete and
-  soft delete, per-user isolation, a disabled capability refused at the boundary, invalid
-  answers never reaching the record, reschedule superseding while a delivered row survives,
-  attachment provenance, creator versus requester, cascade on account removal.
-- Adapter unit (`tests/unit/test_orders_telegram.py`, 30 cases) — the menu tap asks the
+- Integration (`tests/integration/test_orders_db.py`, real PostgreSQL 17, 16 cases) —
+  restart-safe intake and one-draft-per-account, the exact five-row plan, idempotent
+  confirmation, stale warnings stored `SKIPPED`, freeze/resume with forty hours passing,
+  complete and soft delete, per-user isolation, a disabled capability refused at the
+  boundary, invalid answers never reaching the record (including one minute past the
+  one-year lead-time ceiling, whose boundary itself is accepted and stored), reschedule
+  superseding while a delivered row survives, attachment provenance, creator versus
+  requester, cascade on account removal.
+- Parser unit (`tests/unit/test_order_intake_parsing.py`, 50 cases) — the two numeric
+  questions at the parser rather than through the adapter: spelled-out windows («iki saat»,
+  «on bir saat», «bir gün iki saat») alongside the typed ones, every quantity in a reply
+  adding up, `0 saat` read as no window at all, the first number winning for the count
+  while the 1…10 range stays the service's check, and the skip words as the whole-reply-or-
+  first-word rule they are («keç,» is not a skip, «yoxdur demə» is).
+- Adapter unit (`tests/unit/test_orders_telegram.py`, 39 cases) — the menu tap asks the
   first open question and arms the wizard; a saved draft says it is resuming; six answers
   are stored in order and the last opens the review page; an unreadable deadline, a
   service refusal and a blank reply each repeat their own question with the draft
@@ -259,7 +267,11 @@ whose toggle is off cannot drive the workflow by replaying a callback.
   offers `Təsdiqlə` / `Düzəliş et` / `Ləğv et`, shows the plan, and confirms once; a
   second tap is refused by the state machine; the picker re-arms exactly the chosen field;
   an unknown or foreign callback payload is ignored; and the whole wizard is unreachable
-  for an account without the grant, from the button and from a typed answer.
+  for an account without the grant — from the button, from a typed answer, and from a
+  replayed `od:` callback of any of the four actions, which is refused before it can
+  confirm, abandon or re-aim anything. `plan_text` is covered on the branches the happy
+  path never reaches: pending until every number exists, an unschedulable schedule naming
+  its reason, and a window that is wholly, partly or not at all in the past.
 
 ## Assumptions recorded
 

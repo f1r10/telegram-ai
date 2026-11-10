@@ -23,7 +23,12 @@ from office_assistant.application.errors import (
     EntityNotFound,
     InvalidBusinessValue,
 )
-from office_assistant.application.orders import OrderFilter, OrderIntakeError, OrderService
+from office_assistant.application.orders import (
+    MAX_LEAD_MINUTES,
+    OrderFilter,
+    OrderIntakeError,
+    OrderService,
+)
 from office_assistant.auth.features import baseline_grants
 from office_assistant.core.settings import load_settings
 from office_assistant.infrastructure.database.engine import create_database_engine
@@ -417,6 +422,7 @@ def test_an_invalid_answer_never_reaches_the_record() -> None:
             ("lead_time", 0),
             ("lead_time", -10),
             ("lead_time", "bir gün"),
+            ("lead_time", MAX_LEAD_MINUTES + 1),
             ("warnings", 0),
             ("warnings", 11),
             ("warnings", True),
@@ -435,6 +441,26 @@ def test_an_invalid_answer_never_reaches_the_record() -> None:
             assert stored.requested_by is None
         with pytest.raises(OrderIntakeError):
             await service.confirm(user, token)
+
+    _scenario(scenario)
+
+
+def test_the_lead_window_is_capped_at_the_documented_one_year_ceiling() -> None:
+    """Q47: the ceiling itself has to be accepted, or a rejected boundary is off by one."""
+
+    async def scenario(factory: Factory, clock: FakeClock) -> None:
+        user = await _creator(factory)
+        service = _service(factory, clock)
+        draft = await service.start(user)
+        token = cast(str, draft.intake_token)
+
+        await service.answer(user, token, "lead_time", MAX_LEAD_MINUTES)
+        with pytest.raises(InvalidBusinessValue):
+            await service.answer(user, token, "lead_time", MAX_LEAD_MINUTES + 1)
+
+        async with factory() as session:
+            stored = cast(Order, await session.get(Order, draft.id))
+            assert stored.lead_time_minutes == MAX_LEAD_MINUTES
 
     _scenario(scenario)
 
