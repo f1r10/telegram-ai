@@ -5,9 +5,11 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_assistant.application.errors import AuthorizationDenied, InvalidStateTransition
+from office_assistant.auth.features import baseline_grants
 from office_assistant.auth.policy import can_manage_users
 from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.repositories.audit import AuditRepository
+from office_assistant.repositories.feature_permissions import FeaturePermissionRepository
 from office_assistant.repositories.users import UserRepository
 
 
@@ -56,6 +58,9 @@ class UserManagementService:
             target.status = UserStatus.ACTIVE
             target.approved_at = datetime.now(UTC)
             target.approved_by_user_id = actor.id
+            # The explicit grid is written in the approval transaction, so a newly
+            # approved user never has an undefined capability set.
+            await FeaturePermissionRepository(session).insert_baseline(target.id, baseline_grants())
             AuditRepository(session).add(
                 actor_user_id=actor.id,
                 action="USER_APPROVED",

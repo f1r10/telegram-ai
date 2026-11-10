@@ -13,6 +13,8 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.business_common import ensure_feature
+from office_assistant.auth.features import FeatureKey
 from office_assistant.core.clock import Clock
 from office_assistant.infrastructure.database.models import (
     AIConversation,
@@ -159,6 +161,7 @@ class ReminderService:
             idempotency_key=f"prop:{proposal.token}",
         )
         async with self._session_factory.begin() as session:
+            await ensure_feature(session, user, FeatureKey.REMINDERS)
             session.add(reminder)
             await session.flush()
             return int(reminder.id)
@@ -169,6 +172,7 @@ class ReminderService:
 
     async def list_active(self, user: User) -> list[Reminder]:
         async with self._session_factory() as session:
+            await ensure_feature(session, user, FeatureKey.REMINDERS)
             rows = (
                 await session.execute(
                     select(Reminder)
@@ -186,6 +190,7 @@ class ReminderService:
 
     async def cancel(self, user: User, reminder_id: int) -> bool:
         async with self._session_factory.begin() as session:
+            await ensure_feature(session, user, FeatureKey.REMINDERS)
             reminder = await session.get(Reminder, reminder_id)
             if reminder is None or reminder.user_id != user.id:
                 return False

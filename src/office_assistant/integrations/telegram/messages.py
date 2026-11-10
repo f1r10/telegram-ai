@@ -25,7 +25,7 @@ MENU_TITLE = (
 MENU_CHAT_BUTTON = "💬 Sual ver"
 MENU_BAZA_BUTTON = "🏢 Bizim baza"
 MENU_PRODUCT_BUTTON = "📦 Məhsul axtar"
-MENU_PHOTO_BUTTON = "📷 Şəkillə axtar"
+MENU_PHOTO_BUTTON = "📷 Image Search"
 MENU_UPLOAD_BUTTON = "📄 Sənəd əlavə et"
 MENU_SALES_BUTTON = "📊 Satış hesabatı"
 MENU_STOCK_BUTTON = "🏬 Anbar qalığı"
@@ -240,6 +240,45 @@ USERS_NONE_REGISTERED = "Qeydiyyatda istifadəçi yoxdur."
 USERS_NO_NAME = "Ad yoxdur"
 USERS_NO_USERNAME = "username yoxdur"
 USERS_LINE = "ID: {telegram_user_id} | {name} | {username} | {status}"
+# Per-user feature access (owner contract V2 §2). Labels are presentation only; the
+# authorization keys live in auth.features.FeatureKey.
+FEATURE_DISABLED = (
+    "Bu imkan sizin üçün deaktiv edilib. Administratorla əlaqə saxlayın və ya /menu ilə "
+    "icazəli olduğunuz bölmələrə qayıdın."
+)
+MENU_USERS_BUTTON = "👥 Users"
+USERS_PANEL_HEADER = (
+    "👥 İSTİFADƏÇİ İCAZƏLƏRİ\n\n"
+    "İstifadəçini seçin, sonra hər imkanı ayrıca Aktiv/Deaktiv edin. "
+    "Deaktiv edilən imkan menyudan gizlədilir və backend tərəfindən də rədd edilir.\n\n"
+    "Administrator həmişə tam girişə malikdir; onun icazələri dəyişdirilə bilməz."
+)
+USERS_PANEL_EMPTY = "Redaktə ediləcək istifadəçi yoxdur."
+USERS_BACK_BUTTON = "⬅️ İstifadəçilər"
+USERS_OPEN_BUTTON = "👤 {name}"
+FEATURE_GRID_HEADER = "👥 {label}\n\nİmkanlar (düymə cari vəziyyəti göstərir, basanda dəyişir):"
+FEATURE_TARGET_MISSING = "Bu istifadəçi və ya imkan tapılmadı. Siyahını yenidən açın."
+FEATURE_GRID_READONLY = "\nAdministrator icazələri dəyişdirilə bilməz."
+FEATURE_GRID_PENDING = (
+    "\nBu istifadəçi hələ təsdiqlənməyib; icazələr təsdiqdən sonra qüvvəyə minir."
+)
+FEATURE_STATE_ON = "✅ Aktiv"
+FEATURE_STATE_OFF = "🚫 Deaktiv"
+FEATURE_TOGGLE_BUTTON = "{state} {label}"
+FEATURE_UPDATED = "✅ {label}: {state}\nDəyişiklik dərhal qüvvədədir və audit jurnalına yazıldı."
+FEATURE_ADMIN_UNTOUCHABLE = "Administratorun girişini toggle ilə bağlamaq olmaz."
+FEATURE_LABELS = {
+    "ai_chat": "💬 Sual ver (AI çat)",
+    "document_search": "🏢 Daxili sənəd axtarışı",
+    "document_ingest": "📄 Sənəd əlavə etmə",
+    "product_search": "📦 Məhsul axtarışı",
+    "image_search": "📷 Image Search",
+    "orders": "🗂 Sifarişlər",
+    "sales_reports": "📊 Satış hesabatı",
+    "external_search": "🌐 İnternet axtarışı",
+    "inventory": "🏬 Anbar qalığı",
+    "reminders": "⏰ Xatırlatmalar",
+}
 CANCELLED = "Parol daxil etmə prosesi ləğv edildi."
 TEMPORARY_ERROR = "Müvəqqəti texniki xəta baş verdi. Zəhmət olmasa sonra yenidən cəhd edin."
 AI_TIMEOUT = (
@@ -466,3 +505,59 @@ REFERENCE_REVOKE_CANCELLED = "Şəkil təsdiqinin ləğvi dayandırıldı. Heç 
 REFERENCE_REVOKE_NO_REQUEST = (
     "Ləğv təsdiqi gözlənilmir. Zəhmət olmasa /leqv_et əmrini məhsul kodu ilə yenidən göndərin."
 )
+
+MENU_ORDERS_BUTTON = "🗂 Sifarişlərim"
+
+ORDERS_FIELD_DEADLINE = "Son tarix"
+ORDERS_FIELD_LEAD_TIME = "Xəbərdarlıq pəncərəsi"
+ORDERS_FIELD_WARNINGS = "Xəbərdarlıq sayı"
+ORDERS_FIELD_REQUESTER = "Tələb edən"
+ORDERS_FIELD_DESCRIPTION = "Sifarişin məzmunu"
+ORDERS_FIELD_NOTES = "Qeydlər"
+
+ORDERS_INTAKE_TITLE = "Sifariş sualı {index}/{total} — {field}"
+ORDERS_DEADLINE_PROMPT = (
+    "Sifarişin son tarixi nə vaxtdır? Məsələn: sabah saat 10-da, 15.11.2026 14:00, "
+    "cümə axşamı və ya 3 gün sonra."
+)
+ORDERS_LEAD_PROMPT = (
+    "Xəbərdarlıqlar son tarixdən neçə vaxt əvvəl başlasın? Məsələn: 48 saat, 2 gün, "
+    "1 gün 12 saat, 90 dəqiqə."
+)
+ORDERS_WARNINGS_PROMPT = (
+    "Həmin pəncərədə neçə dəfə xəbərdar edim? 1 ilə 10 arasında bir ədəd yazın, məsələn: 5."
+)
+ORDERS_REQUESTER_PROMPT = "Sifarişi kim istəyir? Ad və vəzifə yazın."
+ORDERS_DESCRIPTION_PROMPT = "Sifarişin məzmunu nədir? Məhsul, miqdar və digər əsas detallar."
+ORDERS_NOTES_PROMPT = "Əlavə qeyd var? Qeyd yoxdursa «keç» yazın."
+
+ORDERS_INTAKE_RESUMED = "Yarımçıq qalmış sifariş layihəniz davam etdirilir."
+ORDERS_INTAKE_EXPIRED = (
+    "Sifariş suallarının cavab gözləmə vaxtı bitdi. Heç nə dəyişmədi; menyu yenidən açıla bilər."
+)
+ORDERS_INTAKE_INVALID = "Bu sifariş layihəsi artıq etibarlı deyil. Yeni sifariş başlayın."
+ORDERS_ANSWER_REJECTED = "«{field}» cavabı qəbul edilmədi."
+ORDERS_SERVICE_UNAVAILABLE = "Sifariş xidməti hazırda konfiqurasiya edilməyib."
+
+ORDERS_REVIEW_TITLE = "Sifarişi yoxlayın:"
+ORDERS_REVIEW_LINE = "{field}: {value}"
+ORDERS_UNKNOWN_VALUE = "bildirilməyib"
+ORDERS_UNKNOWN_ZONE = "UTC"
+ORDERS_NONE_VALUE = "yoxdur"
+
+ORDERS_PLAN_PENDING = "Xəbərdarlıq planı təsdiqdən sonra hesablanır."
+ORDERS_PLAN_INVALID = "Xəbərdarlıq planı hazırlana bilmir: {reason}"
+ORDERS_PLAN_SUMMARY = (
+    "Xəbərdarlıq planı: {count} xəbərdarlıq, son tarixdən {lead} əvvəl başlayır və hər "
+    "{interval} bir təkrarlanır.\nSon tarix: {deadline}"
+)
+ORDERS_PLAN_FIRST_LAST = "Göndərilməyə planlaşan say: {planned}\nBirinci: {first}\nSonuncu: {last}"
+ORDERS_PLAN_STALE = "{count} xəbərdarlıq anı artıq keçmişdə qaldığı üçün göndərilməyəcək."
+
+ORDERS_CONFIRM_BUTTON = "Təsdiqlə"
+ORDERS_EDIT_BUTTON = "Düzəliş et"
+ORDERS_CANCEL_BUTTON = "Ləğv et"
+ORDERS_EDIT_PICKER_TITLE = "Hansı sualı dəyişmək istəyirsiniz?"
+ORDERS_CONFIRMED = "Sifariş təsdiqləndi. Nömrə: {id}\nXəbərdarlıqlar planlaşdırıldı."
+ORDERS_DRAFT_CANCELLED = "Sifariş layihəsi ləğv edildi. Heç nə yadda saxlanılmadı."
+ORDERS_REVIEW_UNAVAILABLE = "Bu layihə indi yoxlanıla bilmir. Yeni sifariş başlayın."

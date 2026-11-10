@@ -13,9 +13,11 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_assistant.application.business_common import ensure_feature
 from office_assistant.application.errors import AuthorizationDenied, InvalidStateTransition
 from office_assistant.application.photo_groups import apply_photo_group_commit
 from office_assistant.application.reference_images import promote_queued_confirmations
+from office_assistant.auth.features import FeatureKey
 from office_assistant.auth.policy import is_active
 from office_assistant.infrastructure.database.models import (
     AuditEvent,
@@ -485,6 +487,7 @@ class IngestionSessionService:
         if not is_active(user):
             raise AuthorizationDenied("Only active users may use ingestion")
         assert user is not None
+        await ensure_feature(session, user, FeatureKey.DOCUMENT_INGEST)
         return user
 
     @staticmethod

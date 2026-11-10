@@ -12,7 +12,7 @@ from telegram import InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
-from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import handlers
 from office_assistant.integrations.telegram.photo_flow import (
     PHOTO_FLOW_KEY,
@@ -32,7 +32,9 @@ def setup_case(
     services = SimpleNamespace(
         users=SimpleNamespace(
             get_by_telegram_id=AsyncMock(
-                return_value=cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+                return_value=cast(
+                    User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE)
+                )
             )
         ),
         indexed_visual=SimpleNamespace(search=AsyncMock(return_value=verified)),

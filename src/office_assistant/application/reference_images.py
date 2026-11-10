@@ -28,8 +28,9 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from office_assistant.application.business_common import require_actor
+from office_assistant.application.business_common import require_actor, require_feature
 from office_assistant.application.errors import ApplicationError
+from office_assistant.auth.features import FeatureKey
 from office_assistant.business.types import ProvenanceInput
 from office_assistant.infrastructure.database.models import (
     FileObject,
@@ -165,7 +166,7 @@ class ReferenceImageService:
         """
 
         async with self.session_factory.begin() as session:
-            await require_actor(session, telegram_user_id)
+            await require_feature(session, telegram_user_id, FeatureKey.IMAGE_SEARCH)
             product = await ProductRepository(session).find_by_code(canonical_code)
             if product is None:
                 # §23.7: an unknown product is never created, and nothing else is attempted.

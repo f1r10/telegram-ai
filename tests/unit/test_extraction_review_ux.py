@@ -21,6 +21,7 @@ from office_assistant.application.errors import (
 )
 from office_assistant.application.user_management import UserManagementService
 from office_assistant.extraction.review import ApplyResult, ExtractionReviewService
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import messages
 from office_assistant.integrations.telegram.handlers import (
     SERVICES_KEY,
@@ -73,9 +74,13 @@ def _reviews(approve: AsyncMock) -> ExtractionReviewService:
 
 
 def _run(review_service: ExtractionReviewService, data: str) -> FakeQuery:
+    actor = User(id=5, telegram_user_id=123, role=UserRole.USER, status=UserStatus.ACTIVE)
     services = TelegramServices(
         authentication=cast(AuthenticationService, SimpleNamespace()),
-        users=cast(UserManagementService, SimpleNamespace()),
+        users=cast(
+            UserManagementService,
+            SimpleNamespace(get_by_telegram_id=AsyncMock(return_value=actor)),
+        ),
         password_state=PasswordEntryState(),
         limiter=PasswordAttemptLimiter(),
         extraction_reviews=review_service,

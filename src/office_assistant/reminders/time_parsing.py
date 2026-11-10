@@ -17,8 +17,8 @@ from office_assistant.core.clock import Clock
 
 DEFAULT_TIMEZONE = "Asia/Baku"
 
-_WORD_NUM = r"on bir|on iki|bir|iki|üç|dörd|beş|altı|yeddi|səkkiz|doqquz|on"
-_WORD_NUMBERS: dict[str, int] = {
+WORD_NUM = r"on bir|on iki|bir|iki|üç|dörd|beş|altı|yeddi|səkkiz|doqquz|on"
+WORD_NUMBERS: dict[str, int] = {
     "bir": 1,
     "iki": 2,
     "üç": 3,
@@ -49,6 +49,29 @@ _WEEKDAY_INDEX: dict[str, int] = dict(_WEEKDAYS)
 
 _PERIOD_DEFAULT_HOUR: dict[str, int] = {"səhər": 9, "gündüz": 14, "axşam": 20, "gecə": 22}
 
+# Month names as the owner writes them. Only the bare nominative is accepted: the
+# inflected forms ("noyabrın 15-i") are a separate rule and are recorded as an open
+# assumption rather than guessed at here.
+_MONTH_NAMES: dict[str, int] = {
+    "yanvar": 1,
+    "fevral": 2,
+    "mart": 3,
+    "aprel": 4,
+    "may": 5,
+    "iyun": 6,
+    "iyul": 7,
+    "avqust": 8,
+    "sentyabr": 9,
+    "oktyabr": 10,
+    "noyabr": 11,
+    "dekabr": 12,
+}
+_MONTH_NAME_PATTERN = "|".join(re.escape(name) for name in _MONTH_NAMES)
+# A dotted date always carries its year: "15.11.2026" is a date, while the ambiguous
+# "15.11" stays the clock time 15:11 that the colon rule already understood.
+_DOTTED_DATE = r"\b(\d{1,2})[.](\d{1,2})[.](\d{2,4})\b"
+_NAMED_DATE = rf"\b(\d{{1,2}})\s+({_MONTH_NAME_PATTERN})\b(?:\s+(\d{{4}}))?"
+
 
 @dataclass(frozen=True)
 class ReminderTimeResult:
@@ -65,7 +88,7 @@ class ReminderTimeResult:
     reminder_text: str
 
 
-def _normalize(text: str) -> str:
+def normalize_text(text: str) -> str:
     lowered = text.replace("İ", "i").replace("I", "ı").lower()
     return re.sub(r"\s+", " ", lowered.replace("\u00a0", " ")).strip()
 
@@ -89,7 +112,7 @@ def _number(value: str) -> int | None:
     stripped = value.strip()
     if stripped.isdigit():
         return int(stripped)
-    return _WORD_NUMBERS.get(stripped)
+    return WORD_NUMBERS.get(stripped)
 
 
 def _to_utc(local_naive: datetime, tz: ZoneInfo) -> datetime:
@@ -110,6 +133,35 @@ def _month_day(now_local: datetime, day_number: int, *, next_month: bool) -> dat
 
 def _clamped(year: int, month: int, day_number: int) -> date:
     return date(year, month, min(day_number, calendar.monthrange(year, month)[1]))
+
+
+def _calendar_date(now_local: datetime, *, day: int, month: int, year: int | None) -> date | None:
+    """Resolve an explicit calendar date, clamping the day to the month like ``ayın 15``.
+
+    Without a year the next occurrence that is not in the past is meant, the same
+    reading the parser already applies to a weekday named without a qualifier.
+    """
+
+    if not 1 <= month <= 12 or not 1 <= day <= 31:
+        return None
+    resolved = now_local.year if year is None else (year + 2000 if year < 100 else year)
+    candidate = _clamped(resolved, month, day)
+    if year is not None or candidate >= now_local.date():
+        return candidate
+    return _clamped(resolved + 1, month, day)
+
+
+def _date_from(match: re.Match[str] | None, now_local: datetime) -> date | None:
+    if match is None:
+        return None
+    day_text, month_text, year_text = match.group(1), match.group(2), match.group(3)
+    month = int(month_text) if month_text.isdigit() else _MONTH_NAMES.get(month_text, 0)
+    return _calendar_date(
+        now_local,
+        day=int(day_text),
+        month=month,
+        year=int(year_text) if year_text else None,
+    )
 
 
 def _next_weekday(now_local: datetime, target_index: int, *, next_week: bool) -> date:
@@ -146,10 +198,10 @@ def parse_reminder_time(
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=UTC)
     now_local = now_utc.astimezone(tz)
-    eater = _SpanEater(_normalize(message_text))
+    eater = _SpanEater(normalize_text(message_text))
     cleaned = lambda: _clean_text(eater.text)  # noqa: E731
 
-    relative = eater.take(rf"\b(\d{{1,3}}|{_WORD_NUM})\s*(saat|dəqiqə|gün)(?:dan|dən)?\s+sonra\b")
+    relative = eater.take(rf"\b(\d{{1,3}}|{WORD_NUM})\s*(saat|dəqiqə|gün)(?:dan|dən)?\s+sonra\b")
     if relative is not None:
         count = _number(relative.group(1))
         if count is None or not 0 < count <= 365:
@@ -174,9 +226,11 @@ def parse_reminder_time(
     next_month = eater.take(r"\bgələn ay\b") is not None
     weekday = eater.take(rf"\b({_WEEKDAY_PATTERN})\b")
     month_day = eater.take(r"\bay[ıi]n\s*(\d{1,2})(?:[- ]?(?:cı|çi|da|də|a|ə))?\b")
+    dotted_date = eater.take(_DOTTED_DATE)
+    named_date = eater.take(_NAMED_DATE)
     period = eater.take(r"\b(səhər|axşam|gündüz|gecə)\b")
     colon_time = eater.take(r"\b(\d{1,2})[:.](\d{2})\b")
-    saat_time = eater.take(rf"\bsaat\s*(\d{{1,2}}|{_WORD_NUM})(?:\s*-?(?:ı|i|da|də|a|ə|cı|çi))?\b")
+    saat_time = eater.take(rf"\bsaat\s*(\d{{1,2}}|{WORD_NUM})(?:\s*-?(?:ı|i|da|də|a|ə|cı|çi))?\b")
     bare_time = eater.take(r"(?<![\d:.])(\d{1,2})\s*-(?:də|da)\b")
 
     hour: int | None = None
@@ -206,6 +260,11 @@ def parse_reminder_time(
         md = _month_day(now_local, int(month_day.group(1)), next_month=next_month)
         if md is not None:
             target_date = md if target_date is None else max(target_date, md)
+    written_date = _date_from(dotted_date, now_local) or _date_from(named_date, now_local)
+    if written_date is not None:
+        target_date = written_date
+    elif dotted_date is not None or named_date is not None:
+        return _unclear(cleaned(), "tarix geçersizdir")
 
     if explicit_time and hour is not None:
         base = (
@@ -284,5 +343,5 @@ _REMINDER_HINTS = ("xatırlat", "xatırlad", "xatırlan", "xatirlat", "xatirlad"
 
 def looks_like_reminder_request(text: str) -> bool:
     """Cheap deterministic intent rule (SPEC §6); an LLM is never consulted."""
-    normalized = _normalize(text)
+    normalized = normalize_text(text)
     return any(hint in normalized for hint in _REMINDER_HINTS)

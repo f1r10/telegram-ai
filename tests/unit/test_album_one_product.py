@@ -12,7 +12,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
-from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import handlers, messages
 from office_assistant.integrations.telegram.photo_flow import (
     PHOTO_FLOW_KEY,
@@ -108,7 +108,9 @@ def _setup_album(
     services = SimpleNamespace(
         users=SimpleNamespace(
             get_by_telegram_id=AsyncMock(
-                return_value=cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+                return_value=cast(
+                    User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE)
+                )
             )
         ),
         session_factory=lambda: _Session(),
@@ -157,7 +159,7 @@ def _run_db(ns: SimpleNamespace) -> None:
             ns.update,
             cast(ContextTypes.DEFAULT_TYPE, ns.context),
             ns.flow,
-            cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE)),
+            cast(User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE)),
             cast(TelegramIdentity, SimpleNamespace(telegram_user_id=123)),
         )
     )
@@ -168,7 +170,9 @@ def test_album_prompt_is_consolidated_and_edited_in_place(monkeypatch: pytest.Mo
     services = SimpleNamespace(
         users=SimpleNamespace(
             get_by_telegram_id=AsyncMock(
-                return_value=cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+                return_value=cast(
+                    User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE)
+                )
             )
         )
     )

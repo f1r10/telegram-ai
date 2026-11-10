@@ -412,3 +412,155 @@ exchange-rate conversion, reports, reranking, mutation tools, autonomous agents.
       flow (one `PhotoGroup`, not an authoritative catalog item).
 - [ ] Confirm the combined album prompt, result and save on the owner's Kali
       staging bot with a real 3-4 photo album; GitHub unit tests do not close UAT.
+
+## V2 Milestone 1 — Permissions and navigation — 2026-11-09
+
+Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §2/§6, reconciled in
+`docs/FEATURE-PERMISSIONS.md`.
+
+- [x] One capability policy (`auth/features.py`) over the ten contract keys, with an
+      explicit baseline grid, a declared-key parser, and `ADMIN` never lockable out;
+      `can_use_feature` is the same function the menu and the backend call.
+- [x] Backend authorization at the service boundary: `ensure_feature` /
+      `require_feature` in `application/business_common.py` applied by
+      `sales_ledger`, `inventory`, `ingestion`, `reminders` and `reference_images`
+      inside their own transactions.
+- [x] Telegram adapter re-authorizes every surface — commands, menu taps (including a
+      button printed before the toggle changed), photo, document, upload, save, sales,
+      stock, reminder and source-delivery callbacks — and answers a denial visibly
+      (`FEATURE_DISABLED`) instead of silently doing nothing.
+- [x] Menu generation renders only allowed capabilities; `👤 İstifadəçilər` and
+      `🌐 Prioritet saytlar` are administrator rows.
+- [x] Storage and rollout: `user_feature_permissions` with a declared-key CHECK and
+      cascade, migration `0025_user_feature_permissions` backfilling the baseline for
+      existing users, `approve()` writing the grid in the same transaction, one audited
+      idempotent write per accepted toggle.
+- [x] Administrator grid UI: per-user binary toggles over actor-bound `uf:` callbacks,
+      read-only for an administrator, refusal for a non-admin actor.
+- [x] Required permission tests: 29 offline cases
+      (`tests/unit/test_feature_permissions.py`, menu contract cases in
+      `test_telegram_menu.py`) and 9 real-PostgreSQL cases
+      (`tests/integration/test_feature_permissions_db.py`) covering denial of a
+      disabled capability, admin immunity, stale callback, per-user isolation, audit
+      idempotency, approval write and cascade. `ruff check`, `ruff format --check`,
+      `pyright` and `pytest -m "not integration"` (1181 passed) are green, and the
+      integration job is green on a real PostgreSQL 17 (`alembic upgrade head` from an
+      empty database, then 80 passed / 1 skipped) after the schema-head assertion began
+      reading the migration graph instead of a stale revision literal and the capability
+      fixture started writing the grid the approval path writes.
+- [x] Migration `0025_user_feature_permissions` applied on the verified Kali TEST server
+      (`/opt/telegram-ai-staging`, project `tgstage_ai_assistand`, database
+      `office_assistant_kali_test`, deployed commit `db9f5a2`) after a custom-format
+      `pg_dump` to `staging-before-0025.dump`; `alembic_version` is
+      `0025_user_feature_permissions`, the rollout backfill wrote 10 rows for each of the
+      2 existing accounts, `tgstage_app`/`tgstage_worker` were rebuilt from the same
+      commit and restarted, and the bot polls (`getMe`, `deleteWebhook`, `getUpdates` all
+      200, DINO pre-warm `ready=True`, no 409 conflict left).
+- [x] Live toggle flow proven through the production services on that server with a
+      disposable account: approval wrote the 10-row grid, `document_search` off raised
+      `FeatureAccessDenied` at the service boundary while `ai_chat` kept working, the
+      stored grid read `False`/`True`, an administrator toggle was refused with
+      `AdministratorFeatureLocked`, a non-admin write with `AuthorizationDenied`, an
+      unknown target with `UnknownFeatureTarget`, and deleting the account cascaded its
+      rows to zero with no orphans.
+- [ ] Ordinary-message Telegram UI check with two approved real accounts (a baseline
+      user, a user with `document_search` off, and an administrator). The staging
+      second account `5414276040` is `REJECTED` (audit `USER_REJECTED` by actor 1 on
+      2026-11-08), so an approved second Telegram account is still needed; CI and the
+      server-side probe above do not close live UAT.
+- [ ] Owner decision on OPEN-QUESTIONS Q46: the rollout baseline and whether
+      `document_search` should also gate free-text internal answers.
+
+## V2 Milestone 2 — Orders domain, workflow and schedule — 2026-11-10
+
+Owner contract `docs/V2-OWNER-REQUIREMENTS-2026-11-08.md` §3.1–§3.4, documented in
+`docs/ORDERS-WORKFLOW.md`. This slice is the domain, the storage and the application
+service; the Telegram UI and the delivery engine are separate slices below.
+
+- [x] Independent `office_assistant/orders/` package that imports no session, no Telegram
+      type and no inventory model: the state table (`workflow.py`) and the exact schedule
+      (`schedule.py`) are testable without a database or a clock.
+- [x] §3.2 sequential intake stored as the order row itself — deadline, lead time, warning
+      count, requester, description, optional notes — each answer validated and committed
+      in its own transaction, so a restarted service resumes the same draft
+      (`current_draft`, `next_field`) and a refused value never reaches the record.
+- [x] One open draft per account enforced by the partial unique index
+      `uq_orders_one_open_draft`, not by conversation state; `created_by_user_id` and the
+      free-text `requested_by` are separate columns, as the contract names them.
+- [x] §3.3 schedule `I = L / N` with the first warning at `D - L` and the last one interval
+      before the deadline; the owner's 48 h / 5 example is pinned to 9 h 36 m, and a
+      deadline handed over in `Asia/Baku` produces the identical plan because the formula
+      normalises to UTC.
+- [x] Durable ledger: one `order_reminders` row per instant, `uq_order_reminder_instant`
+      plus a per-order-and-instant idempotency key, so a replayed confirmation, a retry or
+      a concurrent claim cannot duplicate a warning. Confirmation is idempotent and keeps
+      the intake token so a retried tap is a no-op.
+- [x] No stale burst: an instant already past when the plan is made is stored `SKIPPED`
+      and counted in the order view instead of being queued; freezing cancels pending
+      entries, resuming reopens only what is still ahead of now, and completing,
+      cancelling, deleting or freezing stop deliveries. Rescheduling supersedes the old
+      plan as history and never rewrites a `SENT` warning.
+- [x] §3.4 lifecycle with constrained states (`PENDING_CONFIRMATION`, `ACTIVE`, `FROZEN`,
+      `COMPLETED`, `CANCELLED`, `DELETED`) and `OVERDUE` derived at read time so a clock
+      change cannot make a row claim a state it was not given; `Sil` is a soft delete that
+      keeps the row, materials and ledger, and disappears from every list view.
+- [x] Materials keep provenance: `order_attachments` references a stored `file_object` and
+      records `added_by_user_id` and the `telegram_message_id` it arrived in; extraction
+      stays a suggestion until the explicit confirmation, and the service never reads or
+      writes inventory.
+- [x] Migration `0026_orders` creates the three tables, the CHECK constraints, the claim
+      index and the partial unique draft index, and drops cleanly again; `alembic upgrade
+      head` from an empty database reaches `0026_orders` on real PostgreSQL 17.
+- [x] Required orders tests: 31 offline cases (`tests/unit/test_order_schedule.py`,
+      `tests/unit/test_order_workflow.py`) and 16 real-PostgreSQL cases
+      (`tests/integration/test_orders_db.py`, 15 at this slice plus the lead-time ceiling
+      from the coverage pass below) covering restart-safe intake, the exact
+      five-row plan, idempotent confirmation, `SKIPPED` stale warnings, freeze/resume with
+      forty hours passing, complete and soft delete, per-user isolation, a disabled
+      capability refused at the service boundary, invalid answers never persisting,
+      reschedule supersession, attachment provenance, creator versus requester, and
+      cascade on account removal. Gates green on Linux: `ruff check`, `ruff format
+      --check`, `pyright` (0 errors), `pytest -m "not integration"` (1212 passed) and
+      `pytest -m integration` (95 passed / 1 skipped) on disposable PostgreSQL 17 + Qdrant.
+- [ ] Fix found while testing this slice, not carried over: `workflow.is_complete` AND-ed
+      the optionality test into every field, so a draft was confirmable only when *all*
+      six answers existed — `notes` was never actually optional and no order could ever be
+      confirmed. It now checks only the five required answers, and
+      `next_open_field` still lists `notes` last as the question to ask; the unit case
+      `test_notes_may_stay_empty_because_only_it_is_optional` pins the difference.
+- [x] Telegram intake slice (B1): the `Sifarişlərim` row behind `FeatureKey.ORDERS`,
+      re-authorized on every press, asks the six §3.2 questions over the durable draft —
+      deadline through the shared reminder parser, `48 saat` / `2 gün` / `1 gün 12 saat` /
+      `90 dəqiqə` / a bare number for the window, the first number for the count, free
+      text for requester and description, `keç` for the optional notes. An unreadable
+      answer repeats its own question and leaves the draft untouched; the review page
+      shows every answer with the plan `confirm()` is about to write and the three
+      buttons (Təsdiqlə / Düzəliş et / Ləğv et); `Düzəliş et` re-arms exactly the field
+      the user picks. 30 adapter cases (`tests/unit/test_orders_telegram.py`, 39 after the
+      coverage pass below); gates
+      green on Linux: `ruff check`, `ruff format --check`, `pyright` (0 errors),
+      `pytest -m "not integration"` (1242 passed).
+- [x] Test-completeness pass over slices A and B1 (2026-11-10) — the four behaviors the
+      suite never exercised now have tests behind them and no production code changed.
+      `tests/unit/test_order_intake_parsing.py` (50 cases) tests the two numeric questions
+      at the parser: spelled-out windows («iki saat», «on bir saat», «bir gün iki saat»),
+      `0 saat` read as no window at all, the first number winning for the count while the
+      range stays the service's check, and the skip words as the whole-reply-or-first-word
+      rule they are («keç,» is not a skip, «yoxdur demə» is — recorded under Q48 (5)).
+      A replayed `od:` callback of any of the four actions is refused with
+      `FEATURE_DISABLED` for an account without the grant, before it can confirm, abandon,
+      re-aim the wizard or touch the draft. `plan_text` is covered on pending,
+      unschedulable, wholly-past, partly-past and wholly-future windows. The Q47 lead-time
+      ceiling is accepted at one year and rejected one minute later against real
+      PostgreSQL. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
+      (0 errors), `pytest -m "not integration"` (1301 collected and passing).
+- [ ] Orders browsing slice: list filters, detail with warning history, and
+      Bitir / Dondur / Davam etdir / Sil over the service methods that already exist
+      (`list`, `detail`, `act`, `reschedule`), plus the order-materials attachment flow.
+- [ ] Milestone 3 — delivery engine: claim/lease the `order_reminders` rows through the
+      existing outbox pattern, refuse to send unless the order is `ACTIVE`, bounded
+      retry/backoff, restart-safe, visible in `Sistem vəziyyəti`; the ledger vocabulary
+      (`CLAIMED`, `SENDING`, `RETRY_PENDING`, `SENT`, `FAILED`) is already declared.
+- [ ] Owner decisions in OPEN-QUESTIONS Q47: the one-year lead-time ceiling, refusing a
+      past deadline outright, rescheduling while frozen, and whether an administrator
+      "all orders" view lists other users' orders.

@@ -27,8 +27,10 @@ from office_assistant.integrations.telegram.handlers import (
     handle_document,
     handle_error,
     handle_extraction_callback,
+    handle_feature_callback,
     handle_menu_callback,
     handle_menu_interruption,
+    handle_order_callback,
     handle_password_text,
     handle_photo,
     handle_photo_choice_callback,
@@ -113,6 +115,7 @@ def create_telegram_application(
     for name, callback in COMMAND_CALLBACKS.items():
         application.add_handler(CommandHandler(name, callback))
     application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^ua:"))
+    application.add_handler(CallbackQueryHandler(handle_feature_callback, pattern=r"^uf:"))
     application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern=r"^om:"))
     application.add_handler(CallbackQueryHandler(handle_answer_navigation, pattern=r"^nav:"))
     application.add_handler(CallbackQueryHandler(handle_source_button, pattern=r"^src:"))
@@ -124,6 +127,7 @@ def create_telegram_application(
     application.add_handler(CallbackQueryHandler(handle_sales_callback, pattern=r"^sl:"))
     application.add_handler(CallbackQueryHandler(handle_stock_callback, pattern=r"^st:"))
     application.add_handler(CallbackQueryHandler(handle_sales_import_callback, pattern=r"^si:"))
+    application.add_handler(CallbackQueryHandler(handle_order_callback, pattern=r"^od:"))
     application.add_handler(CallbackQueryHandler(handle_extraction_callback, pattern=r"^xr:"))
     application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rp:"))
     application.add_handler(CallbackQueryHandler(handle_reminder_callback, pattern=r"^rh:"))

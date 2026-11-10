@@ -89,6 +89,37 @@ class User(Base):
     )
 
 
+class UserFeaturePermission(Base):
+    """One binary feature grant for one user (owner contract V2 §2).
+
+    The key list is repeated here as a database constraint because importing
+    ``auth.features`` into the models module would be circular; a unit test pins the
+    two lists together. A missing row means the documented baseline, not a denial.
+    """
+
+    __tablename__ = "user_feature_permissions"
+    __table_args__ = (
+        CheckConstraint(
+            "feature_key IN ('ai_chat', 'document_search', 'document_ingest', "
+            "'product_search', 'image_search', 'orders', 'sales_reports', "
+            "'external_search', 'inventory', 'reminders')",
+            name="ck_user_feature_permissions_key",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    feature_key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class AuditEvent(Base):
     """Security and future application mutation audit record."""
 
@@ -1727,6 +1758,177 @@ class PhotoGroupImage(Base):
         ForeignKey("ingestion_session_items.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrderState(StrEnum):
+    """Persisted order workflow states; ``OVERDUE`` is derived, never stored."""
+
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
+    ACTIVE = "ACTIVE"
+    FROZEN = "FROZEN"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    DELETED = "DELETED"
+
+
+class OrderReminderStatus(StrEnum):
+    """One scheduled review reminder for an order.
+
+    The delivery vocabulary matches ``ReminderDeliveryStatus`` because the same
+    claim/lease engine drives both. ``SUPERSEDED`` keeps the history of an entry
+    replaced by a schedule change, ``CANCELLED`` is what freezing or finishing writes,
+    and ``SKIPPED`` records an instant that was already in the past when the plan was
+    made — the order view discloses those instead of firing a stale burst.
+    """
+
+    PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
+    SENDING = "SENDING"
+    SENT = "SENT"
+    RETRY_PENDING = "RETRY_PENDING"
+    FAILED = "FAILED"
+    SUPERSEDED = "SUPERSEDED"
+    SKIPPED = "SKIPPED"
+    CANCELLED = "CANCELLED"
+
+
+class Order(Base):
+    """A real work order: created by one user, requested for someone else, confirmed twice.
+
+    The row is also the draft. Sequential intake fills it field by field, so a restart
+    loses nothing, and only ``confirm`` promotes it to ``ACTIVE`` and writes its review
+    schedule in the same transaction. Prices, stock and quantities are not stored here
+    and an order never changes inventory by itself.
+    """
+
+    __tablename__ = "orders"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('PENDING_CONFIRMATION', 'ACTIVE', 'FROZEN', 'COMPLETED', "
+            "'CANCELLED', 'DELETED')",
+            name="ck_orders_state",
+        ),
+        CheckConstraint(
+            "lead_time_minutes IS NULL OR lead_time_minutes > 0",
+            name="ck_orders_lead_time_positive",
+        ),
+        CheckConstraint(
+            "warning_count IS NULL OR (warning_count >= 1 AND warning_count <= 10)",
+            name="ck_orders_warning_count_range",
+        ),
+        CheckConstraint(
+            "state NOT IN ('ACTIVE', 'FROZEN', 'COMPLETED') OR ("
+            "requested_by IS NOT NULL AND deadline_utc IS NOT NULL "
+            "AND lead_time_minutes IS NOT NULL AND warning_count IS NOT NULL "
+            "AND description <> '')",
+            name="ck_orders_confirmed_is_complete",
+        ),
+        Index("ix_orders_created_by_state_deadline", "created_by_user_id", "state", "deadline_utc"),
+        Index(
+            "uq_orders_one_open_draft",
+            "created_by_user_id",
+            unique=True,
+            postgresql_where=text("state = 'PENDING_CONFIRMATION'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    # The contract names this column `created_by_user_id` and separates it from
+    # `requested_by`: the Telegram account that made the order and the person it was
+    # made for are different people and must not be collapsed into one field.
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    intake_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    requested_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, server_default="Asia/Baku")
+    deadline_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lead_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warning_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    state: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=OrderState.PENDING_CONFIRMATION.value
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OrderReminder(Base):
+    """Durable review schedule for one order: one row per planned instant.
+
+    Uniqueness is per order and instant, so a retried confirmation cannot create a
+    second reminder for the same moment, and a schedule change supersedes the pending
+    rows instead of deleting the history.
+    """
+
+    __tablename__ = "order_reminders"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'CLAIMED', 'SENDING', 'SENT', 'RETRY_PENDING', "
+            "'FAILED', 'SUPERSEDED', 'SKIPPED', 'CANCELLED')",
+            name="ck_order_reminders_status",
+        ),
+        UniqueConstraint("order_id", "scheduled_for", name="uq_order_reminder_instant"),
+        UniqueConstraint("idempotency_key", name="uq_order_reminder_idempotency"),
+        Index("ix_order_reminders_claim", "status", "scheduled_for"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="PENDING")
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrderAttachment(Base):
+    """Reference to a committed file object; the bytes stay owned by file_objects.
+
+    Provenance is part of the contract: the Telegram message the file arrived in and
+    the account that sent it are stored next to the reference, so a later review can
+    show who supplied which material and when.
+    """
+
+    __tablename__ = "order_attachments"
+    __table_args__ = (
+        UniqueConstraint("order_id", "file_object_id", name="uq_order_attachment_file"),
+        UniqueConstraint("order_id", "position", name="uq_order_attachment_position"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_object_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("file_objects.id", ondelete="RESTRICT"), nullable=False
+    )
+    added_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -1,3 +1,186 @@
+## 2026-11-10 — Test completeness for the Orders intake and the `orders` feature gate
+
+- A coverage pass over Milestone 2 slices A and B1 found four behaviors the suite never
+  exercised. All four are now pinned; no production code changed.
+- `tests/unit/test_order_intake_parsing.py` tests the two numeric questions at the parser
+  instead of only through the wizard: spelled-out lead windows («iki saat», «on bir saat»,
+  «bir gün iki saat»), the `total or None` edge that makes «0 saat» a re-ask rather than an
+  answer, every documented skip word, and `parse_warning_count` taking the first number
+  while leaving the 1…10 range to the service. It also pins the skip rule as a
+  whole-reply-or-first-word test («keç,» is not a skip, «yoxdur demə» is) and records the
+  consequence under Q48 (5) in `docs/OPEN-QUESTIONS.md`.
+- `tests/unit/test_orders_telegram.py` drives the four review callbacks (`od:ok`, `od:no`,
+  `od:fix`, `od:f:<field>`) as a non-administrator without the `orders` grant: each answers
+  `FEATURE_DISABLED`, none confirms, abandons or re-aims the wizard, and the draft is
+  untouched — the contract line "a user whose toggle is off cannot drive the workflow by
+  replaying a callback" now has a test behind it.
+- The same file covers `orders_format.plan_text` on the branches the happy path never
+  reached: pending until every number exists, an unschedulable schedule naming its reason
+  instead of hiding it, and the stale count — all instants past (nothing promised), partly
+  past (only the future ones promised), wholly future (no stale line at all).
+- `tests/integration/test_orders_db.py` bounds the Q47 lead-time cap from both sides: the
+  one-year ceiling is accepted and stored, one minute more is refused.
+
+## 2026-11-10 — Milestone 2 slice B1: the Sifarişlərim intake conversation in Telegram
+
+- Slice A put the orders service behind a table row; nothing in the bot could reach it.
+  `Sifarişlərim` (`om:orders`) now starts or resumes the durable draft and asks only the
+  field `OrderService.next_field` reports as open, so an interrupted intake continues where
+  the user left off and says so (`ORDERS_INTAKE_RESUMED`). The capability is re-authorized
+  on every press and on every typed answer instead of trusted from the printed button, and
+  `orders` stays out of the rollout baseline (Q46), so an account without the grant gets
+  `FEATURE_DISABLED` and no draft row is created.
+- The conversation itself holds no state that matters. One pending question lives in
+  `user_data` for 600 seconds (`ORDER_INTAKE_KEY`, `ORDER_INTAKE_TTL_SECONDS`), always
+  paired with the intake token; the answers are PostgreSQL rows, so an expiry, a reload or
+  a later `/menu` tap loses only the question (`ORDERS_INTAKE_EXPIRED`, "heç nə dəyişmədi")
+  and never the draft. A stale or foreign `od:` payload is ignored rather than guessed at.
+- `orders/intake_parsing.py` reads the two numeric questions deterministically — every
+  quantity in the reply adds up so «1 gün 12 saat» is 2 160 minutes, an explicit unit
+  always beats a bare number, and a bare `48` answers the question that was just asked
+  (ASSUMPTION, Q48). The deadline question goes through `OrderService.deadline_from_text`
+  to the reminder parser, so it accepts the same Azerbaijani expressions and nothing else;
+  an ambiguous or unparseable reply repeats its own question with the parser's reason and
+  leaves the stored value untouched (invariant 3 — no number comes from a model).
+- `reminders/time_parsing.py` gained the written calendar dates the deadline prompt
+  advertises: `15.11.2026`, `15.11.2026 14:00`, `15 noyabr [2026]`. A dotted date keeps its
+  year so `15.11` stays the clock time 15:11, a year-less date means the next occurrence
+  that is not in the past, and only the bare nominative month name resolves — the inflected
+  «noyabrın 15-i» is still refused. `_WORD_NUM`/`WORD_NUMBERS` and `_normalize` became
+  public so the two parsers cannot drift into two different Azerbaijani number vocabularies.
+- `integrations/telegram/orders_format.py` renders the questions with their progress
+  («Sifariş sualı 4/6 — Tələb edən»), the review page, and the plan a confirmation is about
+  to write, computed by `schedule.review_instants` and read against `OrderService.now_utc()`
+  so the page shows the same clock the service planned with, including how many instants
+  already fell behind. Every new user-facing string is in `messages.py`.
+- `Təsdiqlə` confirms and prints the issued order with its plan; `Ləğv et` abandons the
+  draft; `Düzəliş et` opens the six-field picker and re-arms exactly the field chosen, so a
+  correction lands where the user pointed. A second tap on `Təsdiqlə` is refused by the
+  state machine (`InvalidStateTransition`), which the adapter answers by re-asking the
+  deadline rather than inventing a "already confirmed" path.
+- Tests: 30 adapter cases in `tests/unit/test_orders_telegram.py` (menu tap, resume,
+  ordered answers to review, refused/unreadable/blank answers, expiry, disarm, review
+  buttons and plan, confirm once, correction picker, cancel, ignored payloads, the grant
+  check from both the button and a typed reply, the five lead-time forms). The pinned
+  handler census in `tests/unit/test_telegram_handlers.py` went 41 → 42 for the new `od:`
+  callback. Gates green on Linux: `ruff check`, `ruff format --check`, `pyright`
+  (0 errors), `pytest -m "not integration"` (1242 passed, 96 deselected).
+- Still open by scope: list filters, detail with warning history, the `Bitir` / `Dondur` /
+  `Davam etdir` / `Sil` buttons and order-material attachment (the service methods already
+  exist), and the Milestone 3 delivery engine that claims the `order_reminders` rows.
+
+## 2026-11-10 — Milestone 2 slice A: the Orders domain, its storage and its service
+
+- Owner contract V2 §3.1–§3.4 asked for an independent Orders module whose guided intake
+  survives a restart and whose reminders follow an exact formula. That is now the
+  `office_assistant/orders/` package — `workflow.py` (states, allowed actions, intake
+  order, derived overdue) and `schedule.py` (`I = L / N`, first warning at `D - L`, last
+  one interval before the deadline, idempotency key) — with no session, Telegram or
+  inventory type imported, so the contract is testable on its own.
+- `application/orders.py` is the only place a draft becomes a record. The draft **is** the
+  `orders` row: each of the six answers is validated and committed in its own transaction,
+  so a restarted service resumes the same conversation (`current_draft`, `next_field`) and
+  a refused value never reaches the record. One open draft per account is the partial
+  unique index `uq_orders_one_open_draft`, not conversation state, and
+  `created_by_user_id` stays separate from the free-text `requested_by` the contract names.
+- Confirmation is idempotent and writes the ledger once: one `order_reminders` row per
+  instant, guarded by `uq_order_reminder_instant` and a per-order-plus-instant key, so a
+  double tap, a worker replay or two concurrent claims cannot add a second warning for the
+  same moment. An instant already past when the plan is made is stored `SKIPPED` and
+  counted in the order view instead of queued, which is §3.3's "no burst of stale
+  warnings". Freezing cancels pending entries, resuming reopens only what is still ahead of
+  now, completing/cancelling/deleting stop deliveries, and rescheduling supersedes the old
+  plan as history without rewriting a `SENT` warning.
+- §3.4 lifecycle ships with the six constrained states and `OVERDUE` derived at read time,
+  so a clock change cannot make a row claim a state it was not given; `Sil` is a soft
+  delete that keeps the order, its materials and its ledger while vanishing from every
+  list. Materials are referenced, not copied — `order_attachments` points at a stored
+  `file_object` and records `added_by_user_id` and the `telegram_message_id` it arrived in.
+- Migration `0026_orders` creates the three tables with their CHECK constraints, the claim
+  index and the partial unique draft index, and reverses cleanly.
+- Defects found while proving this slice, fixed at the cause rather than by weakening an
+  assertion: `workflow.is_complete` had AND-ed the optionality test into every field, so a
+  draft was confirmable only when all six answers existed — `notes` was never optional and
+  no order could ever be confirmed at all. It now checks only the five required answers
+  while `next_open_field` still lists `notes` last as the question to ask, and the unit
+  case that pins the difference failed first and passes now. `schedule.review_instants`
+  also refused a deadline that arrived in the order's own zone; it normalises to UTC
+  instead, so `Asia/Baku` and UTC now produce the identical plan, which is what §3.3 asks
+  for and what the earlier draft had mistaken for an invalid schedule.
+- Evidence: 31 offline cases (`tests/unit/test_order_schedule.py`,
+  `tests/unit/test_order_workflow.py`) and 15 real-PostgreSQL cases
+  (`tests/integration/test_orders_db.py`) covering the owner's 48 h / 5 → 9 h 36 m example,
+  restart-safe intake, idempotent confirmation, `SKIPPED` stale warnings, freeze/resume
+  across forty passing hours, complete and soft delete, per-user isolation, a disabled
+  capability refused at the service boundary, reschedule supersession, attachment
+  provenance, creator versus requester and cascade on account removal. Green on Linux:
+  `ruff check`, `ruff format --check`, `pyright` (0 errors), `pytest -m "not integration"`
+  (1212 passed) and `pytest -m integration` (95 passed, 1 skipped) against a disposable
+  PostgreSQL 17 plus Qdrant.
+- Deliberately not in this slice: the Telegram `Sifarişlərim` UI and the delivery engine
+  (Milestone 3). The ledger vocabulary `CLAIMED`/`SENDING`/`RETRY_PENDING`/`SENT`/`FAILED`
+  is declared and the rows are written and stopped correctly, but nothing sends them yet —
+  which is why `orders` stays disabled in the rollout baseline until a user can actually
+  reach the workflow. Bounds decided as reversible defaults are recorded in
+  OPEN-QUESTIONS Q47.
+
+## 2026-11-09 — Milestone 1: per-user feature permissions enforced in one policy
+
+- Owner contract V2 §2/§6 asked for administrator-managed binary capability toggles
+  that the backend, not the menu, decides. `auth/features.py` is now the single policy
+  (`can_use_feature` / `allowed_features` / `baseline_grants`) over ten keys —
+  `ai_chat`, `document_search`, `document_ingest`, `product_search`, `image_search`,
+  `orders`, `sales_reports`, `external_search`, `inventory`, `reminders` — and both
+  layers call it, so a button can never offer what a service would refuse.
+- Enforcement moved to the service boundary: `application/business_common.py` gained
+  `ensure_feature(session, actor, key)` beside the existing `require_feature`, and
+  `sales_ledger`, `inventory`, `ingestion`, `reminders` and `reference_images` each
+  apply it inside their own transaction. The Telegram adapter re-authorizes every
+  entry point — commands, menu taps including stale ones, photo, document, upload,
+  save, sales, stock, reminder and source-delivery callbacks — before doing work, so
+  a page printed before a toggle changed cannot be used after it.
+- `ADMIN` always passes and `set_for_actor` raises `AdministratorFeatureLocked` before
+  any write, so no toggle can lock the owner out. `delete_personal_data` stays ungated
+  on purpose: a data-subject right is not a feature.
+- Storage: `user_feature_permissions` (composite key, CHECK over the declared keys,
+  cascade on user delete) with migration `0025_user_feature_permissions` backfilling
+  the baseline grid for existing users; `UserManagementService.approve()` writes the
+  same grid in the approval transaction. Every accepted change writes one
+  `USER_FEATURE_ENABLED`/`USER_FEATURE_DISABLED` audit event and a repeat writes
+  nothing.
+- Rollout choice (OPEN-QUESTIONS Q46): everything that already worked stays enabled
+  and only `orders` starts disabled, so no user loses a feature to this change.
+- Administrator surface: `/menu` gains `👤 İstifadəçilər` (with `🌐 Prioritet saytlar`)
+  that lists users and opens a per-user grid of `uf:` toggle buttons; the grid is
+  read-only for an administrator and refuses a non-admin actor at the service boundary.
+- Evidence: `tests/unit/test_feature_permissions.py` (29 cases) and
+  `tests/integration/test_feature_permissions_db.py` (9 real-PostgreSQL cases), plus
+  the menu contract tests. `ruff check`, `ruff format --check`, `pyright` and the
+  offline suite (1181 passed) are green; fixtures that pre-dated the second read of the
+  actor row now carry `role` and the `users` lookup the callbacks require.
+- Two defects this milestone's own migrations and fixtures exposed, both fixed at the
+  cause rather than by relaxing an assertion: `tests/integration/test_database.py`
+  compared `alembic_version` to a hardcoded revision literal, so adding `0025` turned a
+  correctly migrated database red — it now reads the single head from the migration
+  graph itself, which also fails if the graph ever forks. And the PostgreSQL capability
+  fixture inserted `User` rows directly, a state production cannot reach (an active
+  account has either the `0025` rollout backfill or the approval grid), so three cases
+  asserted against an empty grid; the fixture now writes the baseline through the same
+  `FeaturePermissionRepository.insert_baseline` the approval path uses and leaves only
+  the pending account without rows, which is what the approval test measures. Verified
+  against a disposable PostgreSQL 17 plus Qdrant pair: `alembic upgrade head` from empty,
+  then 80 integration cases passed, 1 skipped (SearXNG URL not configured).
+- Live test-server acceptance for this milestone: migration `0025` was applied on the
+  verified Kali staging stack after `staging-before-0025.dump`, `db9f5a2` was built and
+  restarted, and a disposable account proved the whole chain through the production
+  services — approval writes the ten-row grid, `document_search` off raises
+  `FeatureAccessDenied` at the boundary while `ai_chat` keeps answering, an
+  administrator cannot be toggled (`AdministratorFeatureLocked`), a non-admin cannot
+  write (`AuthorizationDenied`), and deleting the account cascades the rows. The
+  account was removed afterwards; the audit events it produced are the trace of the run.
+  What is still open is the same flow driven by two approved real Telegram accounts in
+  the ordinary chat, because the staging second account is `REJECTED`.
+
 ## 2026-11-09 — The automatic document quote names the asked subject, not a word containing it
 
 - The first staging probe of #173 quoted the wrong product: «Delinator 75 sm var bizdə?»

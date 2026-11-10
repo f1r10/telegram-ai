@@ -14,6 +14,7 @@ from telegram.ext import ContextTypes
 
 from office_assistant.ai.service import InProcessRateGuard
 from office_assistant.application.authentication import AuthenticationService
+from office_assistant.application.feature_permissions import FeaturePermissionService
 from office_assistant.application.ingestion import IngestionSessionService
 from office_assistant.application.inventory import InventoryLedgerService, StockSnapshot
 from office_assistant.application.sales_ledger import SalesLedgerService, SalesRequest, SalesTotal
@@ -130,7 +131,45 @@ def test_active_user_sees_tap_friendly_menu() -> None:
         ["om:photo"],
         ["om:upload", "om:sales"],
         ["om:internet", "om:help"],
-        ["om:sites"],
+    ]
+
+
+def test_admin_menu_adds_the_users_and_sites_rows() -> None:
+    context, _ = _context(_user(role=UserRole.ADMIN))
+    message = _message("/menu")
+    asyncio.run(handle_menu(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    rows = [[button.callback_data for button in row] for row in keyboard.inline_keyboard]
+    assert rows[-1] == ["om:users", "om:sites"]
+
+
+def test_a_disabled_feature_hides_its_own_menu_button() -> None:
+    context, services = _context(_user())
+    services.features = cast(
+        FeaturePermissionService,
+        SimpleNamespace(
+            grants_for=AsyncMock(
+                return_value={
+                    "ai_chat": True,
+                    "document_search": False,
+                    "document_ingest": False,
+                    "product_search": False,
+                    "image_search": False,
+                    "orders": False,
+                    "sales_reports": False,
+                    "external_search": False,
+                    "inventory": False,
+                    "reminders": False,
+                }
+            )
+        ),
+    )
+    message = _message("/menu")
+    asyncio.run(handle_menu(_update(message), cast(ContextTypes.DEFAULT_TYPE, context)))
+    keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+    assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
+        ["om:ask"],
+        ["om:help"],
     ]
 
 
@@ -646,14 +685,11 @@ def test_sites_panel_lists_domains_with_admin_controls(monkeypatch: pytest.Monke
 
 def test_sites_panel_is_read_only_for_regular_user(monkeypatch: pytest.MonkeyPatch) -> None:
     context, services = _context(_user())
-    _arm_sites_service(monkeypatch, services, domains=("knatank.az",))
+    fake = _arm_sites_service(monkeypatch, services, domains=("knatank.az",))
     query = _select(context, "sites")
-    args = query.edit_message_text.await_args
-    assert messages.SITES_ADMIN_ONLY in args.args[0]
-    keyboard = args.kwargs["reply_markup"]
-    assert [[button.callback_data for button in row] for row in keyboard.inline_keyboard] == [
-        ["om:home"]
-    ]
+    # The registry is an administrator control, so a stale button never opens it.
+    assert query.edit_message_text.await_args.args[0] == messages.NO_PERMISSION
+    fake.list_domains.assert_not_awaited()
 
 
 def test_sites_panel_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:

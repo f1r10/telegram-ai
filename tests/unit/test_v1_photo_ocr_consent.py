@@ -11,7 +11,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from office_assistant.application.authentication import TelegramIdentity
-from office_assistant.infrastructure.database.models import User, UserStatus
+from office_assistant.infrastructure.database.models import User, UserRole, UserStatus
 from office_assistant.integrations.telegram import handlers
 from office_assistant.integrations.telegram.photo_flow import PHOTO_FLOW_KEY, add_photo
 from office_assistant.internal_evidence.models import (
@@ -45,7 +45,7 @@ def test_photo_ocr_callback_uses_original_caption_and_cites_image_evidence(
 ) -> None:
     actor_id = 123
     flow = add_photo(None, actor_id, "file-1", 11, 21, None, "Fotoda nə yazılıb?")
-    user = cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+    user = cast(User, SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE))
     reader = AsyncMock(
         return_value=ImageTranscription(
             text="Model KA45",
@@ -125,7 +125,10 @@ def test_invalid_ocr_index_never_contacts_model(monkeypatch: pytest.MonkeyPatch)
             SimpleNamespace(
                 users=SimpleNamespace(
                     get_by_telegram_id=AsyncMock(
-                        return_value=cast(User, SimpleNamespace(id=9, status=UserStatus.ACTIVE))
+                        return_value=cast(
+                            User,
+                            SimpleNamespace(id=9, role=UserRole.USER, status=UserStatus.ACTIVE),
+                        )
                     )
                 ),
                 image_reader=SimpleNamespace(read=reader),
