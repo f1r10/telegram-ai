@@ -130,6 +130,7 @@ class Settings(BaseSettings):
     # Global Intelligence Engine stages; every flag defaults to off so an opted-out
     # deployment keeps its previous behaviour and the engine can be disabled instantly.
     gi_engine_enabled: bool = False
+    gi_document_intelligence_enabled: bool = False
     gi_query_understanding_enabled: bool = False
     gi_concept_expansion_enabled: bool = False
     gi_decomposition_enabled: bool = False

@@ -7,6 +7,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select, update
@@ -44,6 +45,7 @@ from office_assistant.processing.models import ParsedDocument
 from office_assistant.processing.parsers import ImageProbeParser, ParserRegistry
 from office_assistant.processing.pdf_ocr import PdfOcrService
 from office_assistant.processing.semantic_visual import SemanticReference, SemanticVisualSearch
+from office_assistant.processing.structure import build_document_structure
 from office_assistant.processing.visual_ann import IndexedVisualPoint, VisualANNIndex
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,26 @@ class JobClaim:
     attempt: int
 
 
+def build_normalized_payload(
+    parsed: ParsedDocument,
+    context: list[dict[str, object]],
+    *,
+    document_intelligence_enabled: bool,
+) -> dict[str, Any]:
+    """The derived ``normalized.json`` payload for one parse run.
+
+    The document-structure view (Phase 2, Layer 3) is additive and opt-in: with the flag off the
+    payload is exactly the parser's own artifact plus the session context, byte for byte, and the
+    flat ``blocks`` list is never modified.
+    """
+
+    payload = parsed.as_dict()
+    payload["session_items"] = context
+    if document_intelligence_enabled:
+        payload["structure"] = build_document_structure(payload["blocks"]).as_dict()
+    return payload
+
+
 class IngestionJobService:
     """Claims jobs safely and persists one isolated result per source file."""
 
@@ -87,6 +109,7 @@ class IngestionJobService:
         index_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         index_chunking_version: str = "v1-medium-1800-180",
         structured_extraction_enabled: bool = False,
+        document_intelligence_enabled: bool = False,
         visual_semantic: SemanticVisualSearch | None = None,
         visual_ann: VisualANNIndex | None = None,
     ) -> None:
@@ -100,6 +123,7 @@ class IngestionJobService:
         self.index_embedding_model = index_embedding_model
         self.index_chunking_version = index_chunking_version
         self.structured_extraction_enabled = structured_extraction_enabled
+        self.document_intelligence_enabled = document_intelligence_enabled
         self.visual_semantic = visual_semantic
         self.visual_ann = visual_ann
 
@@ -245,8 +269,11 @@ class IngestionJobService:
             parsed = await asyncio.to_thread(
                 parser.parse, path, source_file_id=file_id, media_type=media_type
             )
-            payload = parsed.as_dict()
-            payload["session_items"] = context
+            payload = build_normalized_payload(
+                parsed,
+                context,
+                document_intelligence_enabled=self.document_intelligence_enabled,
+            )
             normalized_key = self.storage.write_derived_json(file_id, run_id, payload)
             text_key = self.storage.write_derived_text(file_id, run_id, parsed.text())
         except Exception as error:

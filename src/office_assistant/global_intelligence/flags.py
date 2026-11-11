@@ -24,6 +24,7 @@ class EngineFlags(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     engine_enabled: bool = False
+    document_intelligence_enabled: bool = False
     query_understanding_enabled: bool = False
     concept_expansion_enabled: bool = False
     decomposition_enabled: bool = False
@@ -50,6 +51,7 @@ def engine_flags(settings: Settings) -> EngineFlags:
 
     return EngineFlags(
         engine_enabled=settings.gi_engine_enabled,
+        document_intelligence_enabled=settings.gi_document_intelligence_enabled,
         query_understanding_enabled=settings.gi_query_understanding_enabled,
         concept_expansion_enabled=settings.gi_concept_expansion_enabled,
         decomposition_enabled=settings.gi_decomposition_enabled,
