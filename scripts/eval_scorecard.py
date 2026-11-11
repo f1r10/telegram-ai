@@ -24,7 +24,7 @@ from evaluation.scenarios import SCENARIOS, offline_scenarios  # noqa: E402
 def main() -> int:
     offline = offline_scenarios()
     print("=" * 78)
-    print("BASELINE — deterministic query-understanding probe (offline, no provider)")
+    print("PHASE 1 — deterministic query-understanding + planner probe (offline, no provider)")
     print("=" * 78)
     results = [probe(item) for item in offline]
     print(format_scorecard(results))
@@ -41,7 +41,7 @@ def main() -> int:
     for scenario in SCENARIOS:
         if scenario.offline_probe:
             result = probe(scenario)
-            status = "TARGET MET" if result.understanding_target_met else "GAP (baseline)"
+            status = "TARGET MET" if result.understanding_target_met else "GAP (later phase)"
         else:
             status = f"NOT VERIFIED (phase {scenario.target_phase}; needs live capability)"
         print(f"{scenario.id} | phase {scenario.target_phase} | {status} | {scenario.title}")

@@ -1,3 +1,32 @@
+## 2026-11-12 — Global Intelligence Engine, Phase 1: query understanding + planner
+
+- Additive, flag-gated `src/office_assistant/global_intelligence/` package lands the first
+  two pipeline stages — query understanding and the planner — without touching the shipped
+  request path. `EngineFlags` (9 flags, all default `False`) are read from `Settings` via
+  `gi_*` env vars; with flags off the bot behaves byte-identically to Milestone 3. Live
+  wiring of the engine into the Telegram handler is deferred to a later phase.
+- `understanding/` normalizes the question, extracts code-safe identifiers, corrects
+  bounded-edit-distance typos against a fixed vocabulary (never codes, digits, short or
+  known tokens; ambiguous corrections are surfaced as a clarification request, not guessed),
+  recognizes domain concepts, expands device→connector hypotheses as explicitly `PROBABLE`
+  ("inferred from domain knowledge, not confirmed by a source"), detects AZ/RU/TR/EN, and
+  decomposes multi-part questions into sub-questions.
+- `planning/` maps understanding to a `QueryPlan` (category, intent, evidence sources,
+  allow-listed business-tool calls) and can convert it back to the shipped `EvidencePlan`.
+  It defers to `internal_evidence.router.deterministic_plan` when that already yields an
+  internal route, so no working behaviour is rewritten.
+- `internal_evidence/query_normalization.py`: `strong_identifiers` gains an opt-in
+  `strip_case_suffix` keyword (default `False` = byte-identical) so Azerbaijani case
+  suffixes (`M404dən` → `M404`) are stripped only on the new path, never on the shipped one.
+  `router.py` is unchanged; the F1/F2/F4 defect reproducers stay green.
+- Evaluation: the offline understanding+planner probe goes from 2/7 to 6/7 target-met
+  (A, B, E, F, I, K); the four Phase-1 `xfail` gates are now hard assertions. D stays an
+  honest gap — recognizing "printer" from code `M404` alone needs Phase-3 entity resolution,
+  which is not yet built (no hardcoded code→product mapping).
+- Gates (WSL, Python 3.12): full suite **1411 passed, 0 failed**; `pyright` **0 errors**;
+  `ruff check` + `ruff format --check` **clean**. Evidence recorded in
+  `docs/progress/PROGRESS.md` and `docs/evaluation/BENCHMARK_RESULTS.md`.
+
 ## 2026-11-11 — Milestone 3: the durable order reminder delivery engine
 
 - A confirmed order's plan now actually reaches its creator. `orders/dispatch.py`

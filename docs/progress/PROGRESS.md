@@ -4,13 +4,19 @@ Working protocol: `promt.md` §2. One phase at a time; a phase may not start unt
 phase's exit criteria are met **and** recorded here with evidence. Anything not tested is marked
 **NOT VERIFIED**.
 
-- **Repository:** `https://github.com/f1r10/telegram-ai.git` — present locally at
-  `c:\Users\User\Downloads\ai_assistand\telegram-ai` with `origin` set to that URL and the
-  authorised branch already checked out.
+- **Repository:** `https://github.com/f1r10/telegram-ai.git`.
 - **Authorised feature branch:** `feature/global-intelligence-engine` (never merge to `main`).
 - **Base commit:** `e3d04ba654e836d5c2616eac24e26104d7312319` — *"Milestone 3: deliver order reminders
   durably without duplicates (#175)"*.
 - **Session date:** 2026-11-12.
+
+> **Isolation note (owner decision, 2026-11-12).** A second agent (TRAE) was concurrently committing
+> Phase 0 to the same clone/branch. To avoid clobbering each other, the owner chose to continue in an
+> **isolated git worktree**: `c:\Users\User\Downloads\ai_assistand\telegram-ai-qoder` on branch
+> **`feature/gie-qoder`**, branched from TRAE's committed Phase 0 (`5d9a398`). All Phase 1+ work below
+> is on `feature/gie-qoder`; the owner reconciles the two branches later. Gates run in a separate WSL
+> environment `~/telegram-ai-qoder` (own `.venv`, Python 3.12.16). TRAE's Phase 0 record is preserved
+> verbatim below as the inherited base.
 
 ---
 
@@ -18,8 +24,8 @@ phase's exit criteria are met **and** recorded here with evidence. Anything not 
 
 | Phase | Title | Status | Evidence |
 | --- | --- | --- | --- |
-| 0 | Audit + reproduce the problem + evaluation harness | **IN PROGRESS — artefacts complete, commit pending** | `docs/audit/*`, `docs/architecture/*`, `tests/evaluation/*`, this file |
-| 1 | Query understanding, planner, orchestration, evidence aggregation | NOT STARTED | — |
+| 0 | Audit + reproduce the problem + evaluation harness | **COMPLETE — committed `5d9a398` (inherited base)** | `docs/audit/*`, `docs/architecture/*`, `tests/evaluation/*`, this file |
+| 1 | Query understanding, planner, orchestration, evidence aggregation | **COMPLETE — offline evidence below** | `src/office_assistant/global_intelligence/*`, `tests/unit/test_gi_*`, `docs/evaluation/BENCHMARK_RESULTS.md` |
 | 2 | Document intelligence (parser/OCR adapters, Docling benchmark) | NOT STARTED | — |
 | 3 | Entity resolution, aliases, relations, temporal facts | NOT STARTED | — |
 | 4 | Multimodal vision/OCR providers, candidate verification | NOT STARTED | — |
@@ -112,6 +118,68 @@ Harness evidence:
 
 ---
 
+## Phase 1 — completed steps (branch `feature/gie-qoder`)
+
+### P1.1 What landed (additive, flag-gated)
+New package `src/office_assistant/global_intelligence/`:
+- `understanding/` — `lexicon.py` (AZ/TR/RU/EN stems, extended internal markers, typo vocabulary,
+  device→connector map), `typos.py` (bounded code-safe edit-distance correction), `concepts.py`
+  (recognition + PROBABLE connector hypotheses), `language.py` (deterministic language hint),
+  `decomposer.py` (bounded multi-topic split), `__init__.py::understand_query` (stage 1 orchestrator).
+- `planning/planner.py::plan_query` — deterministic-first: wraps the shipped internal route when it
+  already exists; otherwise routes recognized company concepts to internal sources; ambiguous typo →
+  clarification; no internal signal → general chat. Only allow-listed tools (`find_product`,
+  `resolve_product_price`) are emitted.
+- `models.py` — `QueryUnderstanding`, `QueryPlan`, `SubQuestion`, `SourceType`, `RetrievalBudget`,
+  `ConceptHypothesis`, `TypoCorrection`; `QueryPlan.to_evidence_plan()` degrades to the shipped type.
+- `evidence/confidence.py` — `StatementStatus` (Təsdiqlənib/Ehtimal/Naməlum), `SourceClass`,
+  `Statement`, `effective_status` (CONFIRMED needs evidence_id + locator; image ≤ PROBABLE).
+- `flags.py` — `EngineFlags` (9 flags, all default `False`) + `from_settings`.
+- `engine.py` — `GlobalIntelligenceEngine` skeleton composing understand → plan.
+
+Minimal additive edits to existing files:
+- `core/settings.py` — 9 `gi_*` flag fields, all default `False`.
+- `internal_evidence/query_normalization.py` — `strong_identifiers(..., *, strip_case_suffix=False)`
+  (default byte-identical) + `_strip_case_suffix` helper: drops an AZ case suffix absorbed into a
+  code's ASCII tail ("M404dən"→"M404") while preserving a genuine model tail ("M404dn").
+- `internal_evidence/router.py` — **UNCHANGED** (byte-identical); the F1/F2/F4 defect reproducers in
+  `tests/evaluation/test_evaluation_harness.py` still pass.
+
+### P1.2 Tests (evidence)
+- New: `tests/unit/test_gi_{typos,concepts,understanding,planner,engine_skeleton}.py` (40 tests).
+- `tests/evaluation/probe.py` now measures `understand_query` + `plan_query` (still offline/deterministic).
+- Flipped 4 former `xfail` gates to hard assertions: A/I/K understanding targets + D identifier
+  preservation (`test_evaluation_baseline.py`).
+
+### P1.3 Quality gates (WSL `~/telegram-ai-qoder`, offline)
+- `uv run --no-sync pytest -m "not integration"` → **1411 passed, 126 deselected, 0 failed** (25 s).
+- `pytest tests/unit/test_gi_*.py tests/evaluation` → **70 passed**.
+- `ruff check src tests` + `ruff format --check src tests` (= `make lint`) → **clean** (398 files).
+  Whole-tree `ruff check .` also flags pre-existing migration/doc lint debt outside the gate; left untouched.
+- `pyright` (strict, whole project) → **0 errors, 0 warnings**.
+- `python scripts/eval_scorecard.py` → **understanding target 6/7** (A,B,E,F,I,K). Phase 0 was 2/7.
+  **A, I, K moved fail → pass** (Phase 1 exit criterion). D is an honest later-phase gap.
+
+Full numbers and the NOT VERIFIED list: `docs/evaluation/BENCHMARK_RESULTS.md`.
+
+### P1.4 Deviations from IMPLEMENTATION_PLAN.md (recorded, not silent)
+| Plan item | What was done instead | Why |
+| --- | --- | --- |
+| `understanding/normalizer.py` | Skipped; `understand_query` calls `normalize_user_query` directly | A wrapper around one existing call adds no value (no speculative abstractions) |
+| `evidence/aggregate.py` | Deferred to Phase 5 | Architecture §3.1 marks aggregation "unchanged" (reuses existing `EvidenceBundle`); nothing new to build until retrieval lands |
+| Re-export `StatementStatus` from `internal_evidence/models.py` | Homed only in `evidence/confidence.py` | Architecture §4 names confidence.py the single home; a re-export would create a circular import |
+| Move `internal_markers` out of `router.py` | Left router byte-identical; extended markers live in `lexicon.py` | Guarantees flag-off behaviour is byte-identical and keeps the defect reproducers green |
+| Wire engine into the live handler | Deferred; `engine.py` is a tested skeleton, flags default off | Phase 1 exit criteria are offline fail→pass + no regression; live wiring is a later flag-gated step |
+
+### P1.5 Decisions
+| # | Decision | Why |
+| --- | --- | --- |
+| D5 | New planner trusts the shipped internal route when present; only adds routes for general-chat/LLM-only questions | Additive, lowest-risk fix for F1/F4; preserves E/F and every shipped internal path |
+| D6 | D's "printer" concept is NOT inferred from the code M404 in Phase 1 | Code→entity linking is Phase 3 entity resolution; hardcoding M404→printer would overfit the corpus and fabricate knowledge |
+| D7 | Probe measures the new layer directly (functions are pure); flags gate live wiring, not measurement | The capability is deterministic and offline-measurable now; production routing stays flag-off until a later phase |
+
+---
+
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
 
 | # | Decision | Why |
@@ -134,12 +202,15 @@ Harness evidence:
   feature branch (never `main`).
 
 ## Next step
-Commit Phase 0 artefacts on `feature/global-intelligence-engine`, then begin **Phase 1** (query
-understanding + planner + orchestration + evidence aggregation; target scenarios A, I, K), flipping
-the four `xfail` understanding gates to hard assertions when the layer lands.
+Commit Phase 1 on `feature/gie-qoder` and push to `origin/feature/gie-qoder` (never `main`), then
+begin **Phase 2** (document intelligence: parser/OCR adapters + benchmark, cross-sheet Excel,
+visible failure status; target scenario H). Phase 1's offline understanding/planner layer is the
+foundation; live application wiring remains deferred behind `gi_engine_enabled`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or
   provider-outage behaviour: **not measured** — those phases have not landed.
-- `docs/evaluation/BENCHMARK_RESULTS.md`, `docs/architecture/GLOBAL_INTELLIGENCE_ENGINE.md`,
-  `docs/security/SECURITY_REVIEW.md`, `docs/operations/DEPLOYMENT_AND_ROLLBACK.md`: pending their phases.
+- Live application wiring of the engine (Telegram handler) — deferred, flag-gated, default off.
+- `docs/architecture/GLOBAL_INTELLIGENCE_ENGINE.md`, `docs/security/SECURITY_REVIEW.md`,
+  `docs/operations/DEPLOYMENT_AND_ROLLBACK.md`: pending their phases.
+- `docs/evaluation/BENCHMARK_RESULTS.md`: **created in Phase 1** (offline numbers only).

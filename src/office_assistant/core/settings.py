@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     recent_source_context_messages: int = 6
     recent_source_context_ttl_minutes: int = 60
     file_delivery_max_bytes: int = 25 * 1024 * 1024
+    # Global Intelligence Engine feature flags. All default False = today's shipped behaviour;
+    # a phase enables its own flag only after the harness records a fail->pass delta.
+    gi_engine_enabled: bool = False
+    gi_query_understanding_enabled: bool = False
+    gi_concept_expansion_enabled: bool = False
+    gi_decomposition_enabled: bool = False
+    gi_entity_resolution_enabled: bool = False
+    gi_relations_enabled: bool = False
+    gi_conflict_classifier_enabled: bool = False
+    gi_per_statement_confidence_enabled: bool = False
+    gi_verification_enabled: bool = False
 
 
 def load_settings() -> Settings:

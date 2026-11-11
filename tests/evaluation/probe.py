@@ -1,41 +1,22 @@
-"""Measure the *current* query-understanding layer against the scenarios.
+"""Measure the query-understanding + planning layer against the scenarios.
 
-This probe deliberately exercises only the deterministic, offline-safe surface
-that exists today (``normalize_user_query``, ``strong_identifiers``,
-``deterministic_plan``). That surface is the guaranteed fallback when the LLM
-router is unavailable (promt.md §5), so measuring it shows what the engine can
-do without a provider. It does not call an LLM, database, Qdrant or vision
-provider; scenarios that need those stay NOT VERIFIED until their phase lands.
+Phase 1 replaced the measured surface: the probe now exercises the new, fully deterministic and
+offline-safe ``global_intelligence`` understanding (``understand_query``) and planner
+(``plan_query``). Neither calls an LLM, database, Qdrant or vision provider, so this still measures
+the guaranteed fallback capability (promt.md §5) — now with typo tolerance, concept expansion and
+code-safe identifiers. The *shipped* ``internal_evidence.router.deterministic_plan`` is measured
+separately by ``runner.ProductionRoutingProvider`` and the defect-reproducer tests, and is left
+byte-identical; scenarios that need live retrieval stay NOT VERIFIED until their phase lands.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from office_assistant.internal_evidence.query_normalization import (
-    normalize_user_query,
-    strong_identifiers,
-)
-from office_assistant.internal_evidence.router import deterministic_plan
+from office_assistant.global_intelligence.planning.planner import plan_query
+from office_assistant.global_intelligence.understanding import understand_query
 
 from .scenarios import EvaluationScenario
-
-# Canonical concept -> accepted normalized surface stems. Normalization folds
-# Azerbaijani diacritics (ə->e, ı->i, ...) so stems are written folded. A concept
-# is "recognized" only when a query token starts with one of its stems; the typo
-# "plinter" intentionally does NOT match "printer", which is the gap Phase 1 fills.
-_CONCEPT_STEMS: dict[str, tuple[str, ...]] = {
-    "printer": ("printer", "cap"),
-    "cable": ("kabel", "cable"),
-    "camera": ("kamera", "camera"),
-    "stock": ("stok", "anbar", "qalib", "elde"),
-    "price": ("qiymet", "price"),
-    "warranty": ("zemanet", "warranty"),
-    "contract": ("muqavile", "contract"),
-    "supplier": ("techizatci", "supplier"),
-    "order": ("sifaris", "order"),
-    "usb-b": ("usb",),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,35 +46,27 @@ class ProbeResult:
         )
 
 
-def _recognize_concepts(normalized: str, expected: tuple[str, ...]) -> tuple[str, ...]:
-    tokens = normalized.split()
-    found: list[str] = []
-    for concept in expected:
-        stems = _CONCEPT_STEMS.get(concept, (concept,))
-        if any(token.startswith(stem) for token in tokens for stem in stems):
-            found.append(concept)
-    return tuple(found)
-
-
 def probe(scenario: EvaluationScenario) -> ProbeResult:
-    normalized = normalize_user_query(scenario.question)
-    identifiers = strong_identifiers(scenario.question)
-    preserved = all(item in identifiers for item in scenario.expected_identifiers)
-    recognized = _recognize_concepts(normalized, scenario.expected_concepts)
-    missing = tuple(item for item in scenario.expected_concepts if item not in recognized)
-    plan = deterministic_plan(scenario.question)
-    intent = plan.intent if plan is not None else None
-    category = str(plan.category) if plan is not None else None
+    understanding = understand_query(scenario.question)
+    plan = plan_query(scenario.question, understanding)
+    preserved = all(item in understanding.identifiers for item in scenario.expected_identifiers)
+    recognized = tuple(
+        concept for concept in scenario.expected_concepts if concept in understanding.concepts
+    )
+    missing = tuple(
+        concept for concept in scenario.expected_concepts if concept not in understanding.concepts
+    )
+    category = str(plan.category)
     return ProbeResult(
         scenario_id=scenario.id,
-        normalized_query=normalized,
-        identifiers=identifiers,
+        normalized_query=understanding.normalized_query,
+        identifiers=understanding.identifiers,
         identifiers_preserved=preserved,
         concepts_recognized=recognized,
         concepts_missing=missing,
-        deterministic_intent=intent,
+        deterministic_intent=plan.intent,
         deterministic_category=category,
-        has_deterministic_route=plan is not None,
+        has_deterministic_route=plan.deterministic,
         routed_to_general_chat=category == "GENERAL_CHAT",
     )
 
