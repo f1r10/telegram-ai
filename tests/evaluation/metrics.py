@@ -7,6 +7,7 @@ numbers, so each metric documents its degenerate case explicitly rather than gue
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -126,6 +127,80 @@ def mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _ratio(part: int, total: int) -> float | None:
+    """Rounded ratio, or ``None`` when the denominator is empty (Phase-2 metric convention).
+
+    Mirrors ``scripts/benchmark_ocr.py``: a degenerate denominator reports ``None`` rather than a
+    misleading 0.0 or 1.0.
+    """
+
+    return round(part / total, 4) if total else None
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def score_table_cells(
+    truth: Mapping[tuple[int, int], str],
+    predicted: Mapping[tuple[int, int], str],
+) -> dict[str, int | float | None]:
+    """Cell-level precision/recall/F1 keyed by the ``(row, column)`` a cell was recovered at.
+
+    A cell counts as correct only when the same key exists in both maps *and* its text matches
+    after NFKC + casefold + whitespace normalization — position is part of table truth, so a right
+    value in the wrong cell is not a hit. Consumption is **report only**: TEST_STRATEGY.md §5 fixes
+    no accuracy threshold in Phase 2.
+    """
+
+    shared = set(truth) & set(predicted)
+    matched = sum(
+        1 for key in shared if _normalize_text(truth[key]) == _normalize_text(predicted[key])
+    )
+    return {
+        "truth_cells": len(truth),
+        "predicted_cells": len(predicted),
+        "matched_cells": matched,
+        "cell_precision": _ratio(matched, len(predicted)),
+        "cell_recall": _ratio(matched, len(truth)),
+        "cell_f1": _ratio(2 * matched, len(truth) + len(predicted)),
+    }
+
+
+def score_reading_order(
+    truth: Sequence[str], predicted: Sequence[str]
+) -> dict[str, int | float | bool | None]:
+    """Agreement between a truth reading order and an extracted one.
+
+    Two numbers, both deterministic and offline: ``exact_sequence_match`` (the whole sequence) and
+    ``pair_order_agreement`` — the fraction of shared item pairs the two orders rank the same way,
+    which is what M3's two-column check needs. Pair agreement is ``None`` when fewer than two items
+    are shared, because one item fixes no order.
+    """
+
+    truth_items = [_normalize_text(item) for item in truth]
+    predicted_items = [_normalize_text(item) for item in predicted]
+    predicted_set = set(predicted_items)
+    shared = [item for item in dict.fromkeys(truth_items) if item in predicted_set]
+    truth_position = {item: index for index, item in enumerate(truth_items)}
+    predicted_position = {item: index for index, item in enumerate(predicted_items)}
+    pairs = 0
+    agreed = 0
+    for offset, first in enumerate(shared):
+        for second in shared[offset + 1 :]:
+            pairs += 1
+            agreed += (truth_position[first] < truth_position[second]) == (
+                predicted_position[first] < predicted_position[second]
+            )
+    return {
+        "truth_items": len(truth_items),
+        "predicted_items": len(predicted_items),
+        "shared_items": len(shared),
+        "exact_sequence_match": predicted_items == truth_items,
+        "pair_order_agreement": _ratio(agreed, pairs),
+    }
+
+
 __all__ = [
     "CONFIRMED",
     "PROBABLE",
@@ -138,5 +213,7 @@ __all__ = [
     "ndcg_at_k",
     "recall_at_k",
     "reciprocal_rank",
+    "score_reading_order",
+    "score_table_cells",
     "unsupported_confirmed_rate",
 ]
