@@ -22,8 +22,9 @@
   reproducers F1/F4 became regression guards and the A/I/K understanding gates flipped from `xfail`
   to hard assertions. Offline understanding target **2/7 → 6/7** (A, I, K and B). Full matrix and
   gates in `docs/evaluation/BENCHMARK_RESULTS.md`; ledger in `docs/progress/PROGRESS.md`.
-- 71 new/targeted offline tests pass; lint, format and type checks report **0 errors in Phase-1
-  files**. Scenarios needing a live provider/corpus/database remain **NOT VERIFIED**.
+- 70 new/targeted offline tests pass (71 collected; 1 expected `xfail` for D); lint, format and type
+  checks report **0 errors in Phase-1 files**. Scenarios needing a live provider/corpus/database
+  remain **NOT VERIFIED**.
 
 ## 2026-11-11 — Milestone 3: the durable order reminder delivery engine
 

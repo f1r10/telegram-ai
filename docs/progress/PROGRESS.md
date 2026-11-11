@@ -151,8 +151,8 @@ because the `product and qiymet` branch intercepts it before the new device rout
 understanding gates for A/I/K were flipped to hard assertions.
 
 ### P1.5 Verification (evidence)
-- `uv run --no-sync pytest tests/unit/test_gi_*.py tests/evaluation -q` → **71 passed, 1 xfailed**
-  (the xfail is D, unchanged by design).
+- `uv run --no-sync pytest tests/unit/test_gi_*.py tests/evaluation -q` → **71 collected: 70 passed,
+  1 xfailed** (the xfail is D, unchanged by design).
 - `uv run --no-sync python scripts/eval_scorecard.py` → offline understanding target **2/7 → 6/7**;
   A/I/K now route `DEVICE_ACCESSORY_LOOKUP` with `allow_general_knowledge = False` (B moved too).
 - `ruff check` / `ruff format --check` / `pyright` → **0 errors in any Phase 1 file**; the remaining

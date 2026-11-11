@@ -72,7 +72,7 @@ and K as `GAP (baseline)`.
 
 | Gate | Command | Result |
 | --- | --- | --- |
-| New unit tests | `pytest tests/unit/test_gi_*.py tests/evaluation -q` | **71 items pass**, 1 expected `xfail` (D) |
+| New unit tests | `pytest tests/unit/test_gi_*.py tests/evaluation -q` | **70 passed**, 1 expected `xfail` (D) — 71 collected |
 | Understanding target | `python scripts/eval_scorecard.py` | A/I/K (+B) met; 6/7 offline |
 | Lint | `ruff check` | 9 pre-existing `E501` in `migrations/versions/0019…`, `0020…` — **0 in Phase 1 files** |
 | Format | `ruff format --check` | 10 pre-existing (8 migrations + 2 Phase-0 docs) — **0 in Phase 1 files** |
