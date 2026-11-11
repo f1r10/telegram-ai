@@ -1,9 +1,9 @@
 """Baseline anchors and Phase-1 target gates for the evaluation harness.
 
-The suite stays green at baseline: identifier preservation is a current strength
-and is asserted directly; the Phase-1 understanding targets (A/I/K) are marked
-``xfail`` until the Global Intelligence Engine query-understanding layer lands,
-then flipped to hard assertions. The full baseline scorecard is produced by
+Identifier preservation is a current strength and is asserted directly. The
+Phase-1 understanding targets (A/I/K) were ``xfail`` at baseline and are now hard
+assertions, because the Global Intelligence Engine query-understanding layer and the
+device/accessory route have landed. The full baseline scorecard is produced by
 ``scripts/eval_scorecard.py`` and recorded in docs/evaluation/BENCHMARK_RESULTS.md.
 """
 
@@ -50,11 +50,14 @@ def test_identifiers_are_preserved_by_current_normalization(scenario_id: str) ->
 
 
 @pytest.mark.parametrize("scenario_id", ["A", "I", "K"])
-@pytest.mark.xfail(
-    reason="Phase 1 not implemented: typo/concept understanding + deterministic routing",
-    strict=False,
-)
 def test_phase1_query_understanding_target(scenario_id: str) -> None:
+    """Phase 1 acceptance gate: A/I/K were ``xfail`` at baseline and must now pass.
+
+    A and I need typo tolerance ("plinter" -> "printer"); K needs the camera concept plus
+    its deterministic internal route. The probe delegates to the shipped engine, so this
+    asserts the engine itself, not a copy of its rules.
+    """
+
     result = probe(BY_ID[scenario_id])
     assert result.understanding_target_met, (
         f"concepts_missing={result.concepts_missing} "

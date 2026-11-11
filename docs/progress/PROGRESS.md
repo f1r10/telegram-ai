@@ -10,6 +10,8 @@ phase's exit criteria are met **and** recorded here with evidence. Anything not 
 - **Authorised feature branch:** `feature/global-intelligence-engine` (never merge to `main`).
 - **Base commit:** `e3d04ba654e836d5c2616eac24e26104d7312319` — *"Milestone 3: deliver order reminders
   durably without duplicates (#175)"*.
+- **Phase 0 commit:** `5d9a398` — *"Phase 0: audit, reproduce the defects, and build the evaluation
+  harness"* — committed **and pushed** to `origin/feature/global-intelligence-engine`.
 - **Session date:** 2026-11-12.
 
 ---
@@ -18,8 +20,8 @@ phase's exit criteria are met **and** recorded here with evidence. Anything not 
 
 | Phase | Title | Status | Evidence |
 | --- | --- | --- | --- |
-| 0 | Audit + reproduce the problem + evaluation harness | **IN PROGRESS — artefacts complete, commit pending** | `docs/audit/*`, `docs/architecture/*`, `tests/evaluation/*`, this file |
-| 1 | Query understanding, planner, orchestration, evidence aggregation | NOT STARTED | — |
+| 0 | Audit + reproduce the problem + evaluation harness | **COMPLETE** — committed `5d9a398`, pushed | `docs/audit/*`, `docs/architecture/*`, `tests/evaluation/*`, this file |
+| 1 | Query understanding, planner, orchestration, evidence aggregation | **COMPLETE** — committed on the feature branch | `src/office_assistant/global_intelligence/*`, `docs/evaluation/BENCHMARK_RESULTS.md`, `tests/unit/test_gi_*.py` |
 | 2 | Document intelligence (parser/OCR adapters, Docling benchmark) | NOT STARTED | — |
 | 3 | Entity resolution, aliases, relations, temporal facts | NOT STARTED | — |
 | 4 | Multimodal vision/OCR providers, candidate verification | NOT STARTED | — |
@@ -112,6 +114,56 @@ Harness evidence:
 
 ---
 
+## Phase 1 — completed steps
+
+Target: query understanding, deterministic-first planner, orchestration skeleton and evidence
+aggregation. Target scenarios **A, I, K** (promt.md §18; `docs/architecture/IMPLEMENTATION_PLAN.md`).
+
+### P1.1 New package `src/office_assistant/global_intelligence/`
+- `understanding/` — `normalizer.py` (AZ diacritic folding, identifier protection), `lexicon.py`
+  (AZ/TR/RU/EN domain vocabulary, the moved `INTERNAL_MARKERS`, device/connector hypotheses),
+  `typos.py` (bounded edit distance, code-safe correction), `concepts.py` (concepts + connector
+  hypotheses), `decomposer.py` (multi-topic split), `language.py` (az/ru/en/mixed).
+- `planning/planner.py` — deterministic first, model second; `PlanOutcome` records why it stayed
+  deterministic; a provider failure degrades to `deterministic_plan` instead of raising (invariant 8).
+- `evidence/` — `confidence.py` (`StatementStatus` 3-state) and `aggregate.py`.
+- `flags.py` — nine `EngineFlags`, **all default `False`**, master switch gates every stage.
+- `engine.py` — `GlobalIntelligenceEngine` (`.from_settings`, `.understand`, `await .plan`, `.aggregate`).
+
+### P1.2 Minimal additive edits to shipped modules
+- `internal_evidence/router.py` — the hard-coded marker tuple moves into `understanding/lexicon.py`
+  and gains the measured missing vocabulary; a new `_asks_device_or_accessory()` route fixes defect
+  **F1**. With the engine disabled the flag-off path is unchanged.
+- `internal_evidence/models.py` — `StatementStatus` added.
+- `core/settings.py` + `.env.example` — nine `gi_*` flags, all default `False`.
+
+### P1.3 Tests (new)
+`tests/unit/test_gi_typos.py`, `test_gi_understanding.py`, `test_gi_concepts.py`, `test_gi_planner.py`,
+`test_gi_engine_skeleton.py` — pin the §5 rules: product codes are never typo-corrected, an ambiguous
+correction returns alternatives instead of picking, concept expansion yields `PROBABLE` hypotheses, and
+the planner policy treats the message as untrusted data.
+
+### P1.4 Harness updated to measure the shipped layer
+`tests/evaluation/probe.py` now delegates concept recognition to the shipped `understand()` instead of a
+private duplicate stem table (the duplicate could never see `plinter` → `printer`). The two Phase-0
+reproducers F1 and F4 were **inverted into regression guards**; the F2 reproducer is **unchanged**
+because the `product and qiymet` branch intercepts it before the new device route. The four `xfail`
+understanding gates for A/I/K were flipped to hard assertions.
+
+### P1.5 Verification (evidence)
+- `uv run --no-sync pytest tests/unit/test_gi_*.py tests/evaluation -q` → **71 passed, 1 xfailed**
+  (the xfail is D, unchanged by design).
+- `uv run --no-sync python scripts/eval_scorecard.py` → offline understanding target **2/7 → 6/7**;
+  A/I/K now route `DEVICE_ACCESSORY_LOOKUP` with `allow_general_knowledge = False` (B moved too).
+- `ruff check` / `ruff format --check` / `pyright` → **0 errors in any Phase 1 file**; the remaining
+  errors (9 E501 migrations, 10 unformatted pre-existing files, 8 `os.getuid` scripts) are pre-existing.
+- `pytest -m "not integration"` → the 14 failing files are pre-existing native-Windows limitations,
+  **proved** by stashing the Phase 1 work and re-running the same files at the Phase-0 base (identical
+  `os.getuid` / `bash` 127 / `WinError 1314` failures). No `global_intelligence` or evaluation test fails.
+- Full matrix and gates: `docs/evaluation/BENCHMARK_RESULTS.md`.
+
+---
+
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
 
 | # | Decision | Why |
@@ -129,17 +181,19 @@ Harness evidence:
   API key, a populated real corpus, Docker. All Phase 0 evidence is deterministic and offline.
 - Native-Windows host: 41 environment-only test failures (above); a Linux CI/VM run is required to
   confirm those suites.
-- **Push not yet performed.** Phase 0 is committed locally on the feature branch first; a push to
-  `origin/feature/global-intelligence-engine` requires network access and is attempted only for the
-  feature branch (never `main`).
+- **Push:** Phase 0 (`5d9a398`) is pushed to `origin/feature/global-intelligence-engine`. The Phase 1
+  commit is pushed to the same feature branch (never `main`); a push failing for network reasons is
+  reported rather than retried blindly.
 
 ## Next step
-Commit Phase 0 artefacts on `feature/global-intelligence-engine`, then begin **Phase 1** (query
-understanding + planner + orchestration + evidence aggregation; target scenarios A, I, K), flipping
-the four `xfail` understanding gates to hard assertions when the layer lands.
+Begin **Phase 2 — document intelligence** (parser benchmark, OCR per language, Excel cross-sheet
+understanding, Docling behind an adapter), targeting scenarios H and the parser/OCR metrics defined in
+`docs/architecture/IMPLEMENTATION_PLAN.md`. Phase 1 is complete and its exit criteria are recorded in
+`docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or
   provider-outage behaviour: **not measured** — those phases have not landed.
-- `docs/evaluation/BENCHMARK_RESULTS.md`, `docs/architecture/GLOBAL_INTELLIGENCE_ENGINE.md`,
-  `docs/security/SECURITY_REVIEW.md`, `docs/operations/DEPLOYMENT_AND_ROLLBACK.md`: pending their phases.
+- `docs/architecture/GLOBAL_INTELLIGENCE_ENGINE.md`, `docs/security/SECURITY_REVIEW.md`,
+  `docs/operations/DEPLOYMENT_AND_ROLLBACK.md`: pending their phases.
+- Scenarios C, G, H, J, L, M stay **NOT VERIFIED** offline (they need a live provider/corpus/database).

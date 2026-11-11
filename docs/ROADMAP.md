@@ -598,3 +598,31 @@ service; the Telegram UI and the delivery engine are separate slices below.
 - [ ] Owner decisions in OPEN-QUESTIONS Q47: the one-year lead-time ceiling, refusing a
       past deadline outright, rescheduling while frozen, and whether an administrator
       "all orders" view lists other users' orders.
+
+## Global Intelligence Engine (2026-11-12)
+
+Feature branch `feature/global-intelligence-engine`, never merged to `main` without approval. All new
+behaviour sits behind `EngineFlags` (`gi_*` env vars, all default `False`); the shipped path is
+unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.md`; evidence:
+`docs/evaluation/BENCHMARK_RESULTS.md`; ledger: `docs/progress/PROGRESS.md`.
+
+- [x] Phase 0 — audit, reproduce the defects (F1–F9) and build the offline evaluation harness first
+      (scenarios A–M, metrics, provider-agnostic runner, scorecard). Committed `5d9a398`, pushed.
+- [x] Phase 1 — query understanding (normalization, code-safe typo correction, concept and
+      device/connector expansion, decomposition), deterministic-first planner with model fallback,
+      orchestration skeleton and three-state evidence aggregation. Defect **F1** fixed; offline
+      understanding target **2/7 → 6/7** (scenarios A, I, K and B); F2 reproducer left in place.
+      Target scenarios A, I, K met.
+- [ ] Phase 2 — document intelligence: parser benchmark (existing vs Docling behind an adapter), OCR
+      per language, Excel cross-sheet understanding, PDF table/scan handling, provenance.
+- [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
+- [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
+- [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
+      verification (scenarios D, E, G).
+- [ ] Phase 6 — memory: conversation context, entity-linked retrieval, `/saxla` preservation.
+- [ ] Phase 7 — hardening: security review, ACL isolation, resource limits, provider-outage behaviour
+      (scenarios J, L, M).
+- [ ] Cross-cutting docs still pending their phases: `docs/architecture/GLOBAL_INTELLIGENCE_ENGINE.md`,
+      `docs/security/SECURITY_REVIEW.md`, `docs/operations/DEPLOYMENT_AND_ROLLBACK.md`, new ADRs.
+- [ ] Scenarios C, G, H, J, L, M remain **NOT VERIFIED** offline and require a live
+      provider/corpus/database before their phases can be called complete.

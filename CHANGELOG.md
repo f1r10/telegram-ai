@@ -1,3 +1,30 @@
+## 2026-11-12 — Global Intelligence Engine, Phase 1: understanding, planning, evidence aggregation
+
+- New sibling package `src/office_assistant/global_intelligence/` behind nine `EngineFlags`
+  (`gi_*` env vars, **all default `False`**, master switch `gi_engine_enabled`). Nothing in the
+  shipped path changes while the flags are off; a deployment can restore the old behaviour instantly.
+- Deterministic understanding: Azerbaijani/Russian/English normalization with diacritic folding, a
+  code-safe bounded typo corrector (`plinter` → `printer`), concept and device/connector expansion,
+  and multi-topic decomposition. Product codes, model and serial numbers are never typo-corrected,
+  and an ambiguous correction returns its alternatives for clarification instead of picking one
+  (`promt.md` §5).
+- Deterministic-first planner (`planning/planner.py`): the deterministic router answers first; the
+  model is consulted only when the deterministic layer cannot decide, and a provider failure degrades
+  to the deterministic plan instead of raising (invariant 8). The planner policy treats the user
+  message as untrusted data.
+- Evidence aggregation with a three-state `StatementStatus` (`tesdiqlendi` / `ehtimal` / `namelum`)
+  derived from evidence and locator; concept-expansion outputs stay `PROBABLE`, never confirmed.
+- Fixes the measured defect **F1**: `"Plinter üçün kabel var?"` and `"Kamera üçün hansı kabellər
+  var?"` now route `DEVICE_ACCESSORY_LOOKUP` (internal, structured + documents) instead of
+  `GENERAL_CHAT`. The hard-coded internal-marker tuple moved into
+  `global_intelligence/understanding/lexicon.py` and gained the measured missing vocabulary.
+- Offline evaluation harness now measures the **shipped** understanding layer; the Phase-0
+  reproducers F1/F4 became regression guards and the A/I/K understanding gates flipped from `xfail`
+  to hard assertions. Offline understanding target **2/7 → 6/7** (A, I, K and B). Full matrix and
+  gates in `docs/evaluation/BENCHMARK_RESULTS.md`; ledger in `docs/progress/PROGRESS.md`.
+- 71 new/targeted offline tests pass; lint, format and type checks report **0 errors in Phase-1
+  files**. Scenarios needing a live provider/corpus/database remain **NOT VERIFIED**.
+
 ## 2026-11-11 — Milestone 3: the durable order reminder delivery engine
 
 - A confirmed order's plan now actually reaches its creator. `orders/dispatch.py`

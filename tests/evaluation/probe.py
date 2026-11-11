@@ -1,41 +1,30 @@
 """Measure the *current* query-understanding layer against the scenarios.
 
-This probe deliberately exercises only the deterministic, offline-safe surface
-that exists today (``normalize_user_query``, ``strong_identifiers``,
-``deterministic_plan``). That surface is the guaranteed fallback when the LLM
-router is unavailable (promt.md §5), so measuring it shows what the engine can
-do without a provider. It does not call an LLM, database, Qdrant or vision
-provider; scenarios that need those stay NOT VERIFIED until their phase lands.
+This probe exercises only the deterministic, offline-safe surface: the shipped
+Global Intelligence Engine understanding layer (which itself delegates folding to
+``normalize_user_query``), the authoritative identifier extractor
+``strong_identifiers``, and the real routing function ``deterministic_plan``. That
+surface is the guaranteed fallback when the LLM router is unavailable (promt.md
+§5), so measuring it shows what the engine can do without a provider. It does not
+call an LLM, database, Qdrant or vision provider; scenarios that need those stay
+NOT VERIFIED until their phase lands.
+
+Concept recognition is deliberately *not* re-implemented here. The probe delegates
+to :func:`office_assistant.global_intelligence.understanding.understand` so the
+scorecard measures the engine that ships, not a private copy of its rules - a
+duplicate stem table would silently drift from the lexicon and could never see the
+typo tolerance ("plinter" -> "printer") that Phase 1 added.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from office_assistant.internal_evidence.query_normalization import (
-    normalize_user_query,
-    strong_identifiers,
-)
+from office_assistant.global_intelligence.understanding import understand
+from office_assistant.internal_evidence.query_normalization import strong_identifiers
 from office_assistant.internal_evidence.router import deterministic_plan
 
 from .scenarios import EvaluationScenario
-
-# Canonical concept -> accepted normalized surface stems. Normalization folds
-# Azerbaijani diacritics (ə->e, ı->i, ...) so stems are written folded. A concept
-# is "recognized" only when a query token starts with one of its stems; the typo
-# "plinter" intentionally does NOT match "printer", which is the gap Phase 1 fills.
-_CONCEPT_STEMS: dict[str, tuple[str, ...]] = {
-    "printer": ("printer", "cap"),
-    "cable": ("kabel", "cable"),
-    "camera": ("kamera", "camera"),
-    "stock": ("stok", "anbar", "qalib", "elde"),
-    "price": ("qiymet", "price"),
-    "warranty": ("zemanet", "warranty"),
-    "contract": ("muqavile", "contract"),
-    "supplier": ("techizatci", "supplier"),
-    "order": ("sifaris", "order"),
-    "usb-b": ("usb",),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,21 +54,22 @@ class ProbeResult:
         )
 
 
-def _recognize_concepts(normalized: str, expected: tuple[str, ...]) -> tuple[str, ...]:
-    tokens = normalized.split()
-    found: list[str] = []
-    for concept in expected:
-        stems = _CONCEPT_STEMS.get(concept, (concept,))
-        if any(token.startswith(stem) for token in tokens for stem in stems):
-            found.append(concept)
-    return tuple(found)
+def _recognize_concepts(question: str, expected: tuple[str, ...]) -> tuple[str, ...]:
+    """Which of the scenario's expected canonical concepts the engine recognized.
+
+    Delegated to the shipped understanding layer, so typo tolerance and the shared
+    lexicon are measured rather than re-stated here.
+    """
+
+    recognized = set(understand(question).concepts)
+    return tuple(concept for concept in expected if concept in recognized)
 
 
 def probe(scenario: EvaluationScenario) -> ProbeResult:
-    normalized = normalize_user_query(scenario.question)
+    normalized = understand(scenario.question).normalized_query
     identifiers = strong_identifiers(scenario.question)
     preserved = all(item in identifiers for item in scenario.expected_identifiers)
-    recognized = _recognize_concepts(normalized, scenario.expected_concepts)
+    recognized = _recognize_concepts(scenario.question, scenario.expected_concepts)
     missing = tuple(item for item in scenario.expected_concepts if item not in recognized)
     plan = deterministic_plan(scenario.question)
     intent = plan.intent if plan is not None else None

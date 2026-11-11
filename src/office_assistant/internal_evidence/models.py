@@ -24,6 +24,22 @@ class RoutingCategory(StrEnum):
     CLARIFICATION_REQUIRED = "CLARIFICATION_REQUIRED"
 
 
+class StatementStatus(StrEnum):
+    """The three-state epistemic contract for one statement (Master Spec §7).
+
+    The values are stable machine identifiers; the Azerbaijani wording a user reads is
+    produced by ``integrations/telegram/messages.py`` in the phase that renders statements.
+    A claim is ``CONFIRMED`` only when it points at *both* an identified source and a
+    location inside that source. A hypothesis - a concept-expansion connector, an
+    image-derived identity, an inferred relation - is never ``CONFIRMED``, whatever the
+    model believes.
+    """
+
+    CONFIRMED = "tesdiqlendi"
+    PROBABLE = "ehtimal"
+    UNKNOWN = "namelum"
+
+
 class PlannedToolCall(StrictModel):
     tool_name: str = Field(min_length=1, max_length=100)
     arguments_json: str = Field(default="{}", max_length=4000)

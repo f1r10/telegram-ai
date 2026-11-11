@@ -198,31 +198,45 @@ def test_production_routing_report_is_well_formed() -> None:
     assert "unsafe_general_fallback_rate" in markdown
 
 
-def test_baseline_reproduces_defect_f1_general_chat_for_company_questions() -> None:
-    """Phase 0 failure reproduction (F1 in docs/audit/FAILURE_ANALYSIS.md).
+def test_phase1_fixes_defect_f1_company_questions_route_internal() -> None:
+    """Phase-1 regression guard for defect F1 (docs/audit/FAILURE_ANALYSIS.md).
 
-    The shipped ``deterministic_plan`` routes these company questions to the general-chat path,
-    which answers from model memory instead of company sources. Phase 1 fixes this; when it does,
-    these assertions must be inverted together with a recorded benchmark delta - they are the
-    regression guard for the defect, not a description of intended behaviour.
+    Phase 0 measured ``deterministic_plan`` sending these device/accessory questions to the
+    general-chat path, which answered them from model memory. Phase 1 added the shared
+    device/accessory concept route, so they must now consult internal sources and must never
+    allow general knowledge.
+
+    Benchmark delta (docs/evaluation/BENCHMARK_RESULTS.md): both questions move from
+    GENERAL_CHAT to INTERNAL_HYBRID/DEVICE_ACCESSORY_LOOKUP, so the harness's
+    unsafe_general_fallback_rate for this pair goes 1.0 -> 0.0.
     """
 
     for question in ("Plinter üçün kabel var?", "Kamera üçün hansı kabellər var?"):
         plan = deterministic_plan(question)
         assert plan is not None, question
-        assert plan.category is RoutingCategory.GENERAL_CHAT, (question, plan.category)
-        assert plan.allow_general_knowledge is True, question
+        assert plan.category is RoutingCategory.INTERNAL_HYBRID, (question, plan.category)
+        assert plan.intent == "DEVICE_ACCESSORY_LOOKUP", question
+        assert plan.use_structured_tools is True, question
+        assert plan.use_document_search is True, question
+        assert plan.allow_general_knowledge is False, question
 
 
-def test_baseline_reproduces_defect_f4_multi_topic_question_is_not_decomposed() -> None:
-    """Phase 0 failure reproduction (F4): one category cannot hold three source groups."""
+def test_phase1_fixes_defect_f4_multi_topic_question_routes_internal() -> None:
+    """Phase-1 regression guard for defect F4: one category cannot hold three source groups.
+
+    Phase 0 measured scenario G collapsing into GENERAL_CHAT with no sources consulted. The
+    Phase-1 device/accessory route now sends it to INTERNAL_HYBRID with both structured and
+    document evidence. Splitting it into three independently sourced sub-questions is the
+    flag-gated decomposition stage (covered by tests/unit/test_gi_planner.py).
+    """
 
     scenario_g = next(item for item in SCENARIOS if item.scenario_id == "G")
     plan = deterministic_plan(scenario_g.query)
     assert plan is not None, scenario_g.query
-    assert plan.category is RoutingCategory.GENERAL_CHAT
-    assert plan.use_structured_tools is False
-    assert plan.use_document_search is False
+    assert plan.category is RoutingCategory.INTERNAL_HYBRID
+    assert plan.use_structured_tools is True
+    assert plan.use_document_search is True
+    assert plan.allow_general_knowledge is False
 
 
 def test_baseline_reproduces_defect_f2_identifier_is_captured_with_a_trailing_dash() -> None:
