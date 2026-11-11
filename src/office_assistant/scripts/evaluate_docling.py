@@ -109,14 +109,9 @@ def docling_pdf(pdf_path: Path, artifacts_root: Path) -> str:
         raise DoclingEvaluationError("docling_conversion_failed") from None
 
 
-def pdfplumber_pdf(pdf_path: Path) -> str:
-    """Second benchmark-only candidate arm (audit risk R7; DEPENDENCY_REVIEW.md).
+def _check_pdf_input(pdf_path: Path) -> None:
+    """Refuse a hostile path before any candidate import: symlink, extension, size, ``%PDF-``."""
 
-    Same input validation as the Docling arm — symlink, extension, size, ``%PDF-`` header — so a
-    hostile path is refused before any import. There is no offline-environment guard because
-    pdfplumber is pure Python and downloads no model artifacts. pdfplumber is never a production
-    dependency: this module measures, it does not ship.
-    """
     if pdf_path.is_symlink() or not pdf_path.is_file() or pdf_path.suffix.casefold() != ".pdf":
         raise DoclingEvaluationError("invalid_pdf")
     if not 0 < pdf_path.stat().st_size <= _MAX_PDF_BYTES:
@@ -127,6 +122,18 @@ def pdfplumber_pdf(pdf_path: Path) -> str:
                 raise DoclingEvaluationError("invalid_pdf_header")
     except OSError:
         raise DoclingEvaluationError("invalid_pdf") from None
+
+
+def pdfplumber_pdf(pdf_path: Path) -> str:
+    """Second benchmark-only candidate arm (audit risk R7; DEPENDENCY_REVIEW.md).
+
+    Same input validation as the Docling arm — symlink, extension, size, ``%PDF-`` header — so a
+    hostile path is refused before any import. There is no offline-environment guard because
+    pdfplumber is pure Python and downloads no model artifacts. pdfplumber is never a production
+    dependency: this module measures, it does not ship.
+    """
+
+    _check_pdf_input(pdf_path)
     try:
         module = cast(Any, import_module("pdfplumber"))
     except (ModuleNotFoundError, ImportError):
@@ -137,6 +144,53 @@ def pdfplumber_pdf(pdf_path: Path) -> str:
         if len(output) > _MAX_EXTRACTED_CHARS:
             raise DoclingEvaluationError("extracted_text_limit")
         return output
+    except DoclingEvaluationError:
+        raise
+    except Exception:
+        raise DoclingEvaluationError("pdfplumber_conversion_failed") from None
+
+
+def pdfplumber_tables(pdf_path: Path) -> list[dict[str, Any]]:
+    """Benchmark-only: the tables pdfplumber finds, shaped like the shipped ``structure`` tables.
+
+    Phase 2 M4 evaluates pdfplumber as a *candidate* table extractor, so this arm returns the same
+    shape the native detector produces (``source``/``locator``/``rows``/``columns``/``cells``/
+    ``bbox``) and can be scored by the identical metric. Nothing here is imported by the shipped
+    pipeline. Two pdfplumber conventions are translated: an empty cell is ``None`` and its box is
+    top-down, so ``bbox`` is flipped into the PDF bottom-up frame the fixtures use. Same input
+    validation and unavailability label as :func:`pdfplumber_pdf` (DEPENDENCY_REVIEW.md;
+    docs/OPEN-QUESTIONS.md Q58).
+    """
+
+    _check_pdf_input(pdf_path)
+    try:
+        module = cast(Any, import_module("pdfplumber"))
+    except (ModuleNotFoundError, ImportError):
+        raise DoclingEvaluationError("pdfplumber_not_installed") from None
+    try:
+        tables: list[dict[str, Any]] = []
+        with module.open(str(pdf_path)) as document:
+            for page_number, page in enumerate(document.pages, start=1):
+                height = float(page.height)
+                for index, table in enumerate(page.find_tables(), start=1):
+                    grid = table.extract()
+                    cells = [
+                        {"row": row, "col": column, "text": value or ""}
+                        for row, line in enumerate(grid, start=1)
+                        for column, value in enumerate(line, start=1)
+                    ]
+                    x0, top, x1, bottom = (float(value) for value in table.bbox)
+                    tables.append(
+                        {
+                            "source": {"format": "pdf", "page": page_number, "table_index": index},
+                            "locator": {"page": page_number, "table_index": index},
+                            "rows": len(grid),
+                            "columns": max((len(line) for line in grid), default=0),
+                            "cells": cells,
+                            "bbox": [x0, height - bottom, x1, height - top],
+                        }
+                    )
+        return tables
     except DoclingEvaluationError:
         raise
     except Exception:

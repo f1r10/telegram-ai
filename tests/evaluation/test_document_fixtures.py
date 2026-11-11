@@ -21,16 +21,23 @@ from office_assistant.scripts.evaluate_docling import (
     DoclingEvaluationError,
     normalize,
     pdfplumber_pdf,
+    pdfplumber_tables,
     score_phrases,
 )
 
 from .fixtures import (
     generate_fixtures,
+    generate_table_fixtures,
     is_well_formed_ooxml,
     is_well_formed_pdf,
     is_well_formed_png,
 )
-from .metrics import score_reading_order, score_table_cells
+from .metrics import (
+    match_tables,
+    score_reading_order,
+    score_table_cells,
+    score_table_extraction,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCANNED_DIRECTORIES = ("src", "tests", "docs", "scripts", "migrations")
@@ -113,6 +120,74 @@ def test_table_scorer_is_undefined_when_a_side_is_empty() -> None:
     assert empty["cell_f1"] is None
 
 
+def _table(
+    page: int,
+    bbox: tuple[float, float, float, float],
+    cells: dict[tuple[int, int], str],
+) -> dict[str, object]:
+    return {
+        "page": page,
+        "bbox": list(bbox),
+        "rows": max(row for row, _column in cells),
+        "columns": max(column for _row, column in cells),
+        "cells": cells,
+        "locator": {"page": page, "table_index": 1},
+    }
+
+
+def test_table_matching_is_by_page_and_box_overlap() -> None:
+    truth = [_table(1, (0.0, 0.0, 10.0, 10.0), {(1, 1): "A"})]
+    same_page = [_table(1, (5.0, 5.0, 15.0, 15.0), {(1, 1): "A"})]
+    other_page = [_table(2, (0.0, 0.0, 10.0, 10.0), {(1, 1): "A"})]
+
+    assert match_tables(truth, same_page) == [(0, 0)]
+    assert match_tables(truth, other_page) == []
+
+
+def test_table_detection_never_claims_one_prediction_for_two_truth_tables() -> None:
+    truth = [
+        _table(1, (0.0, 0.0, 10.0, 10.0), {(1, 1): "A"}),
+        _table(1, (20.0, 0.0, 30.0, 10.0), {(1, 1): "B"}),
+    ]
+    predicted = [_table(1, (0.0, 0.0, 10.0, 10.0), {(1, 1): "A"})]
+
+    score = score_table_extraction(truth, predicted)
+
+    assert score["matched_tables"] == 1
+    assert score["detection_recall"] == 0.5
+    assert score["detection_precision"] == 1.0
+    assert score["false_positives"] == 0
+
+
+def test_table_extraction_scorer_reports_cells_shape_text_and_locator() -> None:
+    truth = [
+        _table(1, (0.0, 0.0, 20.0, 20.0), {(1, 1): "Kod", (1, 2): "Ad", (2, 1): "PRN"}),
+    ]
+    predicted = [
+        {
+            "locator": {"page": 1, "table_index": 1},
+            "bbox": [0.0, 0.0, 20.0, 20.0],
+            "rows": 2,
+            "columns": 2,
+            "cells": [
+                {"row": 1, "col": 1, "text": "Kod"},
+                {"row": 1, "col": 2, "text": "wrong"},
+                {"row": 2, "col": 1, "text": "PRN"},
+                {"row": 2, "col": 2, "text": "extra"},
+            ],
+        }
+    ]
+
+    score = score_table_extraction(truth, predicted)
+
+    assert score["detection_f1"] == 1.0
+    assert score["shape_accuracy"] == 1.0
+    assert score["matched_cells"] == 2
+    assert score["cell_f1"] == round(2 * 2 / (3 + 4), 4)
+    assert score["cell_text_accuracy"] == round(2 / 3, 4)
+    assert score["locator_preservation"] == 1.0
+
+
 def test_reading_order_scorer_detects_interleaving() -> None:
     truth = ("A1", "A2", "B1", "B2")
     identical = score_reading_order(truth, truth)
@@ -159,6 +234,23 @@ def test_pdfplumber_arm_is_declared_unavailable_when_absent(tmp_path: Path) -> N
     pdf = generate_fixtures(tmp_path)["simple.pdf"]
     with pytest.raises(DoclingEvaluationError, match="pdfplumber_not_installed"):
         pdfplumber_pdf(pdf)
+
+
+def test_pdfplumber_table_arm_rejects_an_invalid_header_before_importing(
+    tmp_path: Path,
+) -> None:
+    bad = tmp_path / "bad.pdf"
+    bad.write_bytes(b"not a pdf")
+    with pytest.raises(DoclingEvaluationError, match="invalid_pdf_header"):
+        pdfplumber_tables(bad)
+
+
+def test_pdfplumber_table_arm_is_declared_unavailable_when_absent(tmp_path: Path) -> None:
+    if importlib.util.find_spec("pdfplumber") is not None:
+        pytest.skip("pdfplumber installed; the unavailable path cannot be exercised")
+    pdf = generate_table_fixtures(tmp_path)["bordered_table.pdf"].path
+    with pytest.raises(DoclingEvaluationError, match="pdfplumber_not_installed"):
+        pdfplumber_tables(pdf)
 
 
 def _run_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, evaluate: bool) -> None:

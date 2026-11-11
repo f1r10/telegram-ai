@@ -167,7 +167,7 @@ class PdfParser:
                 text = ""
             if text:
                 if self.capture_layout:
-                    layout = _page_layout(page, page_number)
+                    layout = _page_layout(page, page_number, extraction_warnings)
                     if layout is not None:
                         # Additive only: the page's text and locator are exactly what they were.
                         # The geometry is a document-level sidecar, so ``blocks`` never changes.
@@ -363,13 +363,71 @@ def _page_locator(page_number: int, image_index: int, name: str) -> dict[str, An
     return {"page": page_number, "image_index": image_index, "xobject": name}
 
 
-def _page_layout(page: Any, page_number: int) -> dict[str, Any] | None:
+#: A drawn path segment shorter than this (PDF points) is a glyph stroke or a tick, not a table
+#: rule, so it is not recorded as a grid line. ASSUMPTION (docs/OPEN-QUESTIONS.md Q58).
+_RULE_MIN_LENGTH = 8.0
+#: Two coordinates within this distance (PDF points) are the same rule or the same grid line —
+#: a hand-authored rule rarely lands on an exact integer. ASSUMPTION (Q58).
+_RULE_TOLERANCE = 0.5
+
+
+def _append_rule(segments: list[list[float]], x0: float, y0: float, x1: float, y1: float) -> None:
+    """Keep one axis-aligned segment long enough to be a table rule; drop everything else."""
+
+    if abs(y1 - y0) <= _RULE_TOLERANCE and abs(x1 - x0) >= _RULE_MIN_LENGTH:
+        segments.append([round(min(x0, x1), 2), round(y0, 2), round(max(x0, x1), 2), round(y0, 2)])
+    elif abs(x1 - x0) <= _RULE_TOLERANCE and abs(y1 - y0) >= _RULE_MIN_LENGTH:
+        segments.append([round(x0, 2), round(min(y0, y1), 2), round(x0, 2), round(max(y0, y1), 2)])
+
+
+def _page_rules(page: Any) -> list[list[float]] | None:
+    """The axis-aligned rule segments a page draws, for ruled-table detection (Phase 2 M4).
+
+    A bordered table is a drawn grid, so the structure layer needs the page's straight rules. The
+    content stream is read *without* applying any ``cm`` transform, so a page that scales its
+    content with ``cm`` reports rules in un-transformed space — the documented assumption for the
+    generated fixtures (Q58). Only ``m``/``l`` paths and ``re`` rectangles are read; a curve is
+    never an axis-aligned rule. ``None`` (never a crash) is returned when the stream is unreadable,
+    so the caller can record an honest warning instead of silently losing a possible table.
+    """
+
+    try:
+        contents = page.get_contents()
+        operations = list(contents.operations) if contents is not None else []
+    except Exception:  # noqa: BLE001 - geometry is optional; a bad page keeps parser order
+        return None
+    segments: list[list[float]] = []
+    current: tuple[float, float] | None = None
+    for operands, operator in operations:
+        if operator == b"m" and len(operands) >= 2:
+            current = (_finite_float(operands[0]), _finite_float(operands[1]))
+        elif operator == b"l" and len(operands) >= 2 and current is not None:
+            x, y = _finite_float(operands[0]), _finite_float(operands[1])
+            _append_rule(segments, current[0], current[1], x, y)
+            current = (x, y)
+        elif operator == b"re" and len(operands) >= 4:
+            x0 = _finite_float(operands[0])
+            y0 = _finite_float(operands[1])
+            x1 = x0 + _finite_float(operands[2])
+            y1 = y0 + _finite_float(operands[3])
+            _append_rule(segments, x0, y0, x1, y0)
+            _append_rule(segments, x0, y1, x1, y1)
+            _append_rule(segments, x0, y0, x0, y1)
+            _append_rule(segments, x1, y0, x1, y1)
+    return segments
+
+
+def _page_layout(page: Any, page_number: int, warnings: list[str]) -> dict[str, Any] | None:
     """One PDF page's text-fragment geometry, or ``None`` when it cannot be read.
 
     Phase 2 M3: a content stream writes a page's text in the writer's order, which for a
     multi-column page interleaves the columns (audit gap G7). Recording where each text fragment
     sits lets the structure layer recover a geometric reading order and spot repeated bands. This
     is read-only: the page's own text and locator are produced by a separate, unchanged call.
+
+    Phase 2 M4 adds ``rules`` — the page's drawn straight segments — but only when the page has at
+    least one, so a page with no rules records byte-identical geometry to M3. A stream that cannot
+    be read records a warning instead of losing a possible table silently.
     """
 
     fragments: list[dict[str, Any]] = []
@@ -395,12 +453,20 @@ def _page_layout(page: Any, page_number: int) -> dict[str, Any] | None:
     height = _finite_float(getattr(getattr(page, "mediabox", None), "height", None))
     if width <= 0 or height <= 0:
         return None
-    return {
+    layout: dict[str, Any] = {
         "page": page_number,
         "width": round(width, 2),
         "height": round(height, 2),
         "lines": fragments,
     }
+    rules = _page_rules(page)
+    if rules is None:
+        warnings.append(
+            f"Page {page_number}: content stream unreadable, its table rules are not recorded"
+        )
+    elif rules:
+        layout["rules"] = rules
+    return layout
 
 
 def _text_origin(matrix: Any) -> tuple[float, float] | None:

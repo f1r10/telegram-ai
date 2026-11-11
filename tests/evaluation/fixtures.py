@@ -374,6 +374,488 @@ def generate_layout_fixtures(directory: Path) -> dict[str, LayoutFixture]:
     }
 
 
+# --- M4: PDF table fixtures ----------------------------------------------------------------------
+#
+# A table fixture needs two things the M3 builder cannot produce: non-ASCII text (Azerbaijani and
+# Russian cells) and drawn rules (a bordered table). Both are generated here without a new
+# dependency. The page uses a Type0 / Identity-H font whose ``ToUnicode`` map is the identity, so a
+# two-byte code point written as a hex string extracts back to itself — ``Məhsul`` and ``Продукт``
+# survive ``pypdf`` even though the base-14 fonts cannot carry them.
+
+_TOUNICODE_CMAP = (
+    b"/CIDInit /ProcSet findresource begin\n"
+    b"12 dict begin\n"
+    b"begincmap\n"
+    b"/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+    b"/CMapName /Adobe-Identity-UCS def\n"
+    b"/CMapType 2 def\n"
+    b"1 begincodespacerange\n"
+    b"<0000> <FFFF>\n"
+    b"endcodespacerange\n"
+    b"1 beginbfrange\n"
+    b"<0000> <FFFF> <0000>\n"
+    b"endbfrange\n"
+    b"endcmap\n"
+    b"CMapName currentdict /CMap defineresource pop\n"
+    b"end\n"
+    b"end\n"
+)
+
+
+class _PageDrawing(NamedTuple):
+    """One generated page: positioned text fragments and drawn rule segments."""
+
+    texts: tuple[tuple[float, float, str], ...] = ()
+    horizontal: tuple[tuple[float, float, float], ...] = ()
+    vertical: tuple[tuple[float, float, float], ...] = ()
+
+
+def table_pdf_bytes(pages: Sequence[_PageDrawing]) -> bytes:
+    """Build a multi-page PDF that can carry non-ASCII text and drawn rule segments.
+
+    Every text fragment is its own ``BT ... ET`` text object so ``pypdf`` reports one visitor call
+    per fragment with its own origin (a shared text object on one line is merged into a single
+    call). A rule is a stroked ``m``/``l`` path; the content stream therefore contains no ``cm``
+    transform, which is the assumption the rule capture makes. Bytes stay deterministic.
+    """
+
+    font_id = 3
+    page_ids = [7 + 2 * index for index in range(len(pages))]
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode("ascii"),
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Helvetica /Encoding /Identity-H "
+        b"/DescendantFonts [4 0 R] /ToUnicode 6 0 R >>",
+        b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Helvetica "
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+        b"/FontDescriptor 5 0 R /DW 500 >>",
+        b"<< /Type /FontDescriptor /FontName /Helvetica /Flags 4 /FontBBox [0 0 1000 1000] "
+        b"/ItalicAngle 0 /Ascent 1000 /Descent 0 /CapHeight 1000 /StemV 80 >>",
+        b"<< /Length %d >>\nstream\n" % len(_TOUNICODE_CMAP) + _TOUNICODE_CMAP + b"\nendstream",
+    ]
+    for index, drawing in enumerate(pages):
+        content_id = 8 + 2 * index
+        operations: list[str] = []
+        for x, y, text in drawing.texts:
+            hex_text = "".join(f"{ord(character):04X}" for character in text)
+            operations.append(f"BT /F1 12 Tf 1 0 0 1 {x:g} {y:g} Tm <{hex_text}> Tj ET")
+        for y, x0, x1 in drawing.horizontal:
+            operations.append(f"{x0:g} {y:g} m {x1:g} {y:g} l S")
+        for x, y0, y1 in drawing.vertical:
+            operations.append(f"{x:g} {y0:g} m {x:g} {y1:g} l S")
+        content = "\n".join(operations).encode("ascii")
+        resources = (
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >>"
+            if drawing.texts
+            else "/Resources << >>"
+        )
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"{resources} /Contents {content_id} 0 R >>".encode("ascii")
+        )
+        objects.append(b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream")
+    return _assemble_pdf(objects)
+
+
+def _assemble_pdf(objects: Sequence[bytes]) -> bytes:
+    """Write numbered objects plus a correct cross-reference table into a byte string."""
+
+    out = bytearray(f"{PDF_SIGNATURE.decode()}1.4\n".encode("ascii"))
+    offsets: list[int] = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode("ascii") + body + b"\nendobj\n"
+    xref_offset = len(out)
+    size = len(objects) + 1
+    out += f"xref\n0 {size}\n".encode("ascii")
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode("ascii")
+    out += (f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").encode(
+        "ascii"
+    )
+    return bytes(out)
+
+
+class TableTruth(NamedTuple):
+    """One table a fixture contains: its page, shape, ideal cell grid and merged regions."""
+
+    page: int
+    rows: int
+    columns: int
+    cells: dict[tuple[int, int], str]
+    bordered: bool
+    #: ``(row, col, row_span, col_span)`` merged regions, 1-based at the anchor cell.
+    merged: tuple[tuple[int, int, int, int], ...] = ()
+    #: ``[x0, y0, x1, y1]`` box of the whole table, so a detection can be matched to its truth.
+    bbox: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+
+
+class TableFixture(NamedTuple):
+    """One generated table fixture plus the truth the M4 metrics are scored against."""
+
+    name: str
+    path: Path
+    tables: tuple[TableTruth, ...]
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Grid:
+    """A rectangular table placed on a generated page, its cells and its grid boundaries."""
+
+    left: float
+    top: float
+    col_widths: tuple[float, ...]
+    row_heights: tuple[float, ...]
+    rows: tuple[tuple[str, ...], ...]
+    bordered: bool = True
+    merged: tuple[tuple[int, int, int, int], ...] = ()
+
+    def _x_boundaries(self) -> list[float]:
+        xs = [self.left]
+        for width in self.col_widths:
+            xs.append(xs[-1] + width)
+        return xs
+
+    def _y_boundaries(self) -> list[float]:
+        ys = [self.top]
+        for height in self.row_heights:
+            ys.append(ys[-1] - height)
+        return ys
+
+    def _inside_merge_horizontal(self, row_boundary: int, column: int) -> bool:
+        """True when the internal horizontal segment is absent inside a vertical merge."""
+
+        for row0, col0, row_span, col_span in self.merged:
+            rows_ok = row0 - 1 < row_boundary <= row0 - 1 + row_span - 1
+            cols_ok = col0 - 1 <= column <= col0 - 1 + col_span - 1
+            if rows_ok and cols_ok:
+                return True
+        return False
+
+    def _inside_merge_vertical(self, row_index: int, column_boundary: int) -> bool:
+        """True when the vertical boundary at ``column_boundary`` is absent inside a merge."""
+
+        for row0, col0, row_span, col_span in self.merged:
+            rows_ok = row0 - 1 <= row_index <= row0 - 1 + row_span - 1
+            cols_ok = col0 - 1 < column_boundary <= col0 - 1 + col_span - 1
+            if rows_ok and cols_ok:
+                return True
+        return False
+
+    def _covered_cells(self) -> set[tuple[int, int]]:
+        """Grid positions a merge covers (every position of a merged region except its anchor)."""
+
+        covered: set[tuple[int, int]] = set()
+        for row0, col0, row_span, col_span in self.merged:
+            for extra_row in range(row_span):
+                for extra_col in range(col_span):
+                    if extra_row or extra_col:
+                        covered.add((row0 - 1 + extra_row, col0 - 1 + extra_col))
+        return covered
+
+    def drawing(self) -> _PageDrawing:
+        """The page fragments and rules that render this table."""
+
+        xs = self._x_boundaries()
+        ys = self._y_boundaries()
+        rows = len(self.row_heights)
+        columns = len(self.col_widths)
+        texts: list[tuple[float, float, str]] = []
+        covered = self._covered_cells()
+        for row_index, row in enumerate(self.rows):
+            for col_index in range(columns):
+                if (row_index, col_index) in covered:
+                    continue
+                text = row[col_index] if col_index < len(row) else ""
+                if not text:
+                    continue
+                x = xs[col_index] + _CELL_PADDING
+                y = ys[row_index] - self.row_heights[row_index] + _CELL_PADDING
+                texts.append((x, y, text))
+        horizontal: list[tuple[float, float, float]] = []
+        vertical: list[tuple[float, float, float]] = []
+        if self.bordered:
+            for boundary in range(rows + 1):
+                y = ys[boundary]
+                for column in range(columns):
+                    if 0 < boundary < rows and self._inside_merge_horizontal(boundary, column):
+                        continue
+                    horizontal.append((y, xs[column], xs[column + 1]))
+            for boundary in range(columns + 1):
+                x = xs[boundary]
+                for row_index in range(rows):
+                    if 0 < boundary < columns and self._inside_merge_vertical(row_index, boundary):
+                        continue
+                    vertical.append((x, ys[row_index], ys[row_index + 1]))
+        return _PageDrawing(tuple(texts), tuple(horizontal), tuple(vertical))
+
+    def truth(self, page: int) -> TableTruth:
+        """The ideal table: shape, one text per *anchor* cell (a merge covers the rest), and box."""
+
+        rows = len(self.row_heights)
+        columns = len(self.col_widths)
+        covered = self._covered_cells()
+        cells: dict[tuple[int, int], str] = {}
+        for row_index in range(rows):
+            row = self.rows[row_index] if row_index < len(self.rows) else ()
+            for col_index in range(columns):
+                if (row_index, col_index) in covered:
+                    continue
+                cells[(row_index + 1, col_index + 1)] = (
+                    row[col_index] if col_index < len(row) else ""
+                )
+        xs = self._x_boundaries()
+        ys = self._y_boundaries()
+        bbox = (xs[0], ys[-1], xs[-1], ys[0])
+        return TableTruth(page, rows, columns, cells, self.bordered, self.merged, bbox)
+
+
+_CELL_PADDING = 6.0
+_TABLE_ROW_HEIGHT = 22.0
+
+
+def _bordered_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(80.0, 180.0, 70.0, 90.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Kod", "Ad", "Miqdar", "Qiymet"),
+            ("PRN-M404", "HP LaserJet Pro M404dn", "4", "540"),
+            ("CAM-2143", "Hikvision DS-2CD2143G2-I", "12", "180"),
+        ),
+        bordered=True,
+    )
+
+
+def _borderless_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(80.0, 170.0, 70.0, 80.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Kod", "Ad", "Say", "Qiymet"),
+            ("PRN-M404", "HP M404dn printer", "4", "540"),
+            ("CAM-2143", "Hikvision dome camera", "12", "180"),
+        ),
+        bordered=False,
+    )
+
+
+def _merged_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(110.0, 110.0, 110.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Region", "Cemi", ""),
+            ("Baki", "120", ""),
+            ("Gence", "240", ""),
+        ),
+        bordered=True,
+        merged=((1, 2, 1, 2), (2, 3, 2, 1)),
+    )
+
+
+def _empty_cells_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(110.0, 110.0, 90.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Kod", "Ad", "Say"),
+            ("PRN-M404", "", "4"),
+            ("", "kamera", ""),
+        ),
+        bordered=True,
+    )
+
+
+def _azerbaijani_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(120.0, 190.0, 70.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Məhsul", "Təsvir", "Qiymət"),
+            ("Şəkər", "Ağ şəkər çörəyi", "2"),
+            ("Çörək", "Günəşli çörək", "1"),
+        ),
+        bordered=True,
+    )
+
+
+def _multilang_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(120.0, 200.0, 90.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Məhsul", "Описание", "Price"),
+            ("Şəkər", "Сахар белый", "2"),
+            ("Camera", "Камера купольная", "180"),
+        ),
+        bordered=False,
+    )
+
+
+def _continuation_table(left: float, top: float, rows: tuple[tuple[str, ...], ...]) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(80.0, 180.0, 70.0, 90.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * len(rows),
+        rows=rows,
+        bordered=True,
+    )
+
+
+def _unrelated_table(left: float, top: float) -> _Grid:
+    return _Grid(
+        left=left,
+        top=top,
+        col_widths=(150.0, 90.0, 90.0),
+        row_heights=(_TABLE_ROW_HEIGHT,) * 3,
+        rows=(
+            ("Heyvan", "Say", "Yas"),
+            ("Pişik", "3", "2"),
+            ("İt", "1", "5"),
+        ),
+        bordered=True,
+    )
+
+
+def _prose_columns() -> _PageDrawing:
+    """Two long-line text columns and a short three-column block: never a table."""
+
+    long_left = (
+        "This agreement is concluded between the parties and remains in force",
+        "until every obligation described below has been fully discharged",
+        "and the final settlement report has been signed by both parties",
+    )
+    long_right = (
+        "Either party may terminate this agreement with thirty days of",
+        "written notice delivered to the registered address, and the",
+        "termination does not release any accrued payment obligation",
+    )
+    texts: list[tuple[float, float, str]] = []
+    for index, line in enumerate(long_left):
+        texts.append((72.0, 690.0 - index * 14.0, line))
+    for index, line in enumerate(long_right):
+        texts.append((330.0, 690.0 - index * 14.0, line))
+    short = (("COL-A", "COL-B", "COL-C"), ("COL-D", "COL-E", "COL-F"))
+    for row_index, row in enumerate(short):
+        for col_index, text in enumerate(row):
+            texts.append((72.0 + col_index * 160.0, 260.0 - row_index * 20.0, text))
+    return _PageDrawing(tuple(texts), (), ())
+
+
+def _scanned_table() -> _PageDrawing:
+    """A rules-only page: a drawn grid with no extractable text (a scan stand-in)."""
+
+    horizontal = tuple((y, 60.0, 540.0) for y in (700.0, 660.0, 620.0, 580.0))
+    vertical = tuple((x, 580.0, 700.0) for x in (60.0, 300.0, 540.0))
+    return _PageDrawing((), horizontal, vertical)
+
+
+def _page_text_lines(drawing: _PageDrawing) -> tuple[str, ...]:
+    return tuple(text for _x, _y, text in drawing.texts)
+
+
+def generate_table_fixtures(directory: Path) -> dict[str, TableFixture]:
+    """Write the M4 table fixtures and return their truth, keyed by file name."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def write(name: str, pages: Sequence[_PageDrawing]) -> Path:
+        path = directory / name
+        path.write_bytes(table_pdf_bytes(pages))
+        return path
+
+    def single(name: str, grid: _Grid) -> TableFixture:
+        drawing = grid.drawing()
+        return TableFixture(
+            name, write(name, [drawing]), (grid.truth(1),), _page_text_lines(drawing)
+        )
+
+    bordered = _bordered_table(72.0, 680.0)
+    borderless = _borderless_table(72.0, 680.0)
+    merged = _merged_table(72.0, 680.0)
+    empty_cells = _empty_cells_table(72.0, 680.0)
+    azerbaijani = _azerbaijani_table(72.0, 680.0)
+    multilang = _multilang_table(72.0, 680.0)
+
+    first = _bordered_table(72.0, 700.0)
+    second = _unrelated_table(72.0, 420.0)
+    multiple_drawing = _PageDrawing(
+        tuple([*first.drawing().texts, *second.drawing().texts]),
+        tuple([*first.drawing().horizontal, *second.drawing().horizontal]),
+        tuple([*first.drawing().vertical, *second.drawing().vertical]),
+    )
+
+    page_one = _continuation_table(
+        72.0,
+        140.0,
+        (("Kod", "Ad", "Miqdar", "Qiymet"), ("PRN-M404", "HP M404dn printer", "4", "540")),
+    )
+    page_two = _continuation_table(
+        72.0,
+        760.0,
+        (("PRN-M404", "HP M404dn printer", "4", "540"), ("CAM-2143", "Dome camera", "12", "180")),
+    )
+    page_three = _unrelated_table(72.0, 760.0)
+    continuation_pages = [
+        page_one.drawing(),
+        page_two.drawing(),
+        page_three.drawing(),
+    ]
+
+    prose = _prose_columns()
+    scanned = _scanned_table()
+
+    return {
+        "bordered_table.pdf": single("bordered_table.pdf", bordered),
+        "borderless_table.pdf": single("borderless_table.pdf", borderless),
+        "merged_cells.pdf": single("merged_cells.pdf", merged),
+        "empty_cells.pdf": single("empty_cells.pdf", empty_cells),
+        "azerbaijani_table.pdf": single("azerbaijani_table.pdf", azerbaijani),
+        "multilang_table.pdf": single("multilang_table.pdf", multilang),
+        "multiple_tables.pdf": TableFixture(
+            "multiple_tables.pdf",
+            write("multiple_tables.pdf", [multiple_drawing]),
+            (first.truth(1), second.truth(1)),
+            _page_text_lines(multiple_drawing),
+        ),
+        "multi_page_table.pdf": TableFixture(
+            "multi_page_table.pdf",
+            write("multi_page_table.pdf", continuation_pages),
+            (page_one.truth(1), page_two.truth(2), page_three.truth(3)),
+            tuple(text for drawing in continuation_pages for _x, _y, text in drawing.texts),
+        ),
+        "not_a_table.pdf": TableFixture(
+            "not_a_table.pdf",
+            write("not_a_table.pdf", [prose]),
+            (),
+            _page_text_lines(prose),
+        ),
+        "scanned_table.pdf": TableFixture(
+            "scanned_table.pdf",
+            write("scanned_table.pdf", [scanned]),
+            (),
+            _page_text_lines(scanned),
+        ),
+    }
+
+
 def docx_bytes(sections: Sequence[tuple[int, str]]) -> bytes:
     """Build a DOCX from ``(heading_level, text)`` pairs; level 0 becomes a numbered list item."""
 
@@ -489,14 +971,18 @@ __all__ = [
     "PDF_SIGNATURE",
     "PNG_SIGNATURE",
     "LayoutFixture",
+    "TableFixture",
+    "TableTruth",
     "docx_bytes",
     "generate_fixtures",
     "generate_layout_fixtures",
+    "generate_table_fixtures",
     "is_well_formed_ooxml",
     "is_well_formed_pdf",
     "is_well_formed_png",
     "multi_page_pdf_bytes",
     "pdf_bytes",
     "png_bytes",
+    "table_pdf_bytes",
     "xlsx_bytes",
 ]

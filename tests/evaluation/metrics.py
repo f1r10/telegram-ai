@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import math
 import unicodedata
+from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 
 CONFIRMED = "confirmed"
 PROBABLE = "probable"
@@ -167,6 +169,165 @@ def score_table_cells(
     }
 
 
+def _table_page(table: Mapping[str, Any]) -> int | None:
+    """The page a table record names, from a top-level ``page`` or its ``locator`` else ``None``."""
+
+    page = table.get("page")
+    if isinstance(page, int) and not isinstance(page, bool):
+        return page
+    locator = table.get("locator")
+    if isinstance(locator, Mapping):
+        page = cast("Mapping[str, Any]", locator).get("page")
+        if isinstance(page, int) and not isinstance(page, bool):
+            return page
+    return None
+
+
+def _cells(value: Any) -> dict[tuple[int, int], str]:
+    """Normalize a table's cells to ``{(row, column): text}``.
+
+    Accepts both the fixture truth mapping (``(row, column) -> text``) and the structure
+    representation (a list of ``{"row", "col", "text"}`` records) so a scorer can compare them.
+    Anything else normalizes to an empty map rather than raising.
+    """
+
+    if isinstance(value, Mapping):
+        items: list[tuple[Any, Any]] = list(cast("Mapping[Any, Any]", value).items())
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        items = [
+            ((record.get("row"), record.get("col")), record.get("text", ""))
+            for record in (cast("Mapping[str, Any]", item) for item in cast("Sequence[Any]", value))
+        ]
+    else:
+        return {}
+    cells: dict[tuple[int, int], str] = {}
+    for key, text in items:
+        row, column = cast("tuple[Any, Any]", key)
+        cells[(int(row), int(column))] = str(text)
+    return cells
+
+
+def _overlap_area(first: Sequence[float], second: Sequence[float]) -> float:
+    """Intersection area of two ``[x0, y0, x1, y1]`` boxes; 0.0 when they do not overlap."""
+
+    ax0, ay0, ax1, ay1 = first
+    bx0, by0, bx1, by1 = second
+    width = min(ax1, bx1) - max(ax0, bx0)
+    height = min(ay1, by1) - max(ay0, by0)
+    return width * height if width > 0 and height > 0 else 0.0
+
+
+def match_tables(
+    truth: Sequence[Mapping[str, Any]], predicted: Sequence[Mapping[str, Any]]
+) -> list[tuple[int, int]]:
+    """Greedy ``(truth_index, predicted_index)`` pairs, one predicted table per truth table.
+
+    A pair matches only when both tables sit on the same page and their bounding boxes overlap; a
+    candidate is claimed once, by the truth table it overlaps most, so two tables on one page cannot
+    both claim the same detection. Deterministic because the outer loop follows the caller's truth
+    order. Each table needs ``bbox`` and either a top-level ``page`` or a ``locator.page``.
+    """
+
+    used: set[int] = set()
+    matches: list[tuple[int, int]] = []
+    for truth_index, truth_table in enumerate(truth):
+        page = _table_page(truth_table)
+        bbox = cast("Sequence[float]", truth_table["bbox"])
+        best_index = -1
+        best_overlap = 0.0
+        for index, prediction in enumerate(predicted):
+            if index in used or _table_page(prediction) != page:
+                continue
+            overlap = _overlap_area(bbox, cast("Sequence[float]", prediction["bbox"]))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_index = index
+        if best_index >= 0:
+            used.add(best_index)
+            matches.append((truth_index, best_index))
+    return matches
+
+
+def _preserves_locator(truth_table: Mapping[str, Any], prediction: Mapping[str, Any]) -> bool:
+    """Whether a prediction's locator names the truth table's page and a positive table index."""
+
+    locator = prediction.get("locator")
+    if not isinstance(locator, Mapping):
+        return False
+    fields = cast("Mapping[str, Any]", locator)
+    page = fields.get("page")
+    index = fields.get("table_index")
+    return (
+        isinstance(page, int)
+        and not isinstance(page, bool)
+        and page == _table_page(truth_table)
+        and isinstance(index, int)
+        and not isinstance(index, bool)
+        and index > 0
+    )
+
+
+def score_table_extraction(
+    truth: Sequence[Mapping[str, Any]], predicted: Sequence[Mapping[str, Any]]
+) -> dict[str, int | float | None]:
+    """Detection, shape, cell, text and locator metrics over one fixture's table truth.
+
+    :func:`match_tables` pairs each truth table with the prediction it overlaps most, then the
+    numbers aggregate over those pairs: table detection precision/recall/F1 and false positives;
+    row/column count accuracy; cell precision/recall/F1 (position-sensitive, via
+    :func:`score_table_cells`); cell text accuracy (multiset of texts, position-insensitive); and
+    locator/provenance preservation. Report only — TEST_STRATEGY.md §5 fixes no accuracy threshold
+    in Phase 2.
+    """
+
+    matches = match_tables(truth, predicted)
+    truth_cells_total = 0
+    predicted_cells_total = 0
+    matched_cells_total = 0
+    text_hits = 0
+    text_total = 0
+    shape_correct = 0
+    locators_preserved = 0
+    for truth_index, predicted_index in matches:
+        truth_table = truth[truth_index]
+        prediction = predicted[predicted_index]
+        truth_cells = _cells(truth_table["cells"])
+        predicted_cells = _cells(prediction["cells"])
+        cells = score_table_cells(truth_cells, predicted_cells)
+        truth_cells_total += len(truth_cells)
+        predicted_cells_total += len(predicted_cells)
+        matched_cells_total += cast("int", cells["matched_cells"])
+        truth_text = Counter(_normalize_text(text) for text in truth_cells.values())
+        predicted_text = Counter(_normalize_text(text) for text in predicted_cells.values())
+        text_hits += sum((truth_text & predicted_text).values())
+        text_total += sum(truth_text.values())
+        if truth_table["rows"] == prediction["rows"]:
+            shape_correct += int(truth_table["columns"] == prediction["columns"])
+        if _preserves_locator(truth_table, prediction):
+            locators_preserved += 1
+    matched = len(matches)
+    return {
+        "truth_tables": len(truth),
+        "predicted_tables": len(predicted),
+        "matched_tables": matched,
+        "false_positives": len(predicted) - matched,
+        "detection_precision": _ratio(matched, len(predicted)),
+        "detection_recall": _ratio(matched, len(truth)),
+        "detection_f1": _ratio(2 * matched, len(truth) + len(predicted)),
+        "shape_correct_tables": shape_correct,
+        "shape_accuracy": _ratio(shape_correct, matched),
+        "truth_cells": truth_cells_total,
+        "predicted_cells": predicted_cells_total,
+        "matched_cells": matched_cells_total,
+        "cell_precision": _ratio(matched_cells_total, predicted_cells_total),
+        "cell_recall": _ratio(matched_cells_total, truth_cells_total),
+        "cell_f1": _ratio(2 * matched_cells_total, truth_cells_total + predicted_cells_total),
+        "cell_text_accuracy": _ratio(text_hits, text_total),
+        "locators_preserved": locators_preserved,
+        "locator_preservation": _ratio(locators_preserved, matched),
+    }
+
+
 def score_reading_order(
     truth: Sequence[str], predicted: Sequence[str]
 ) -> dict[str, int | float | bool | None]:
@@ -255,6 +416,7 @@ __all__ = [
     "citation_accuracy",
     "citation_presence",
     "label_coverage",
+    "match_tables",
     "mean",
     "ndcg_at_k",
     "recall_at_k",
@@ -263,5 +425,6 @@ __all__ = [
     "score_furniture_detection",
     "score_reading_order",
     "score_table_cells",
+    "score_table_extraction",
     "unsupported_confirmed_rate",
 ]
