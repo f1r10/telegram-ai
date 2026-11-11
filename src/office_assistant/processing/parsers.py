@@ -4,6 +4,7 @@
 # adapter boundary keeps that uncertainty out of the normalized model/worker.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false
 
+import math
 import zipfile
 from pathlib import Path
 from posixpath import normpath
@@ -139,13 +140,23 @@ class PdfParser:
     version = pypdf.__version__
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.PDF_EMBEDDED
 
-    def __init__(self, ocr_service: PdfOcrService | None = None) -> None:
+    def __init__(
+        self,
+        ocr_service: PdfOcrService | None = None,
+        *,
+        capture_layout: bool = False,
+    ) -> None:
         self.ocr_service = ocr_service
+        #: Phase 2 M3: record each page's text-line geometry so the structure layer can compute a
+        #: geometric reading order and detect repeated bands. Off by default, so a deployment that
+        #: has not opted in keeps byte-for-byte the pre-M3 blocks (no extra metadata is emitted).
+        self.capture_layout = capture_layout
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         blocks: list[ContentBlock] = []
         text_warnings: list[str] = []
         extraction_warnings: list[str] = []
+        page_layouts: list[dict[str, Any]] = []
         reader = PdfReader(str(path), strict=True)
         ocr = self.ocr_service.session(path) if self.ocr_service is not None else None
         for page_number, page in enumerate(reader.pages, start=1):
@@ -155,6 +166,12 @@ class PdfParser:
                 extraction_warnings.append(f"Page {page_number}: native text extraction failed")
                 text = ""
             if text:
+                if self.capture_layout:
+                    layout = _page_layout(page, page_number)
+                    if layout is not None:
+                        # Additive only: the page's text and locator are exactly what they were.
+                        # The geometry is a document-level sidecar, so ``blocks`` never changes.
+                        page_layouts.append(layout)
                 blocks.append(
                     ContentBlock(
                         len(blocks) + 1,
@@ -194,6 +211,11 @@ class PdfParser:
                 "recovered_pages": ocr.recovered_pages,
                 "unresolved_pages": len(text_warnings),
             }
+        if page_layouts:
+            # Phase 2 M3: per-line geometry of every page that carried native text, for the
+            # structure layer's geometric reading order and repeated-band detection. Recorded at
+            # document level, never on a block, so ``blocks`` stays exactly as it was.
+            metadata["layout"] = {"pages": page_layouts}
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -339,6 +361,71 @@ def _xobject_resources(holder: Any) -> dict[str, Any]:
 
 def _page_locator(page_number: int, image_index: int, name: str) -> dict[str, Any]:
     return {"page": page_number, "image_index": image_index, "xobject": name}
+
+
+def _page_layout(page: Any, page_number: int) -> dict[str, Any] | None:
+    """One PDF page's text-fragment geometry, or ``None`` when it cannot be read.
+
+    Phase 2 M3: a content stream writes a page's text in the writer's order, which for a
+    multi-column page interleaves the columns (audit gap G7). Recording where each text fragment
+    sits lets the structure layer recover a geometric reading order and spot repeated bands. This
+    is read-only: the page's own text and locator are produced by a separate, unchanged call.
+    """
+
+    fragments: list[dict[str, Any]] = []
+
+    def visit(text: str, cm: Any, tm: Any, font_dict: Any, font_size: Any) -> None:
+        value = str(text).strip()
+        if not value:
+            return
+        origin = _text_origin(tm) or _text_origin(cm)
+        if origin is None:
+            return
+        x, y = origin
+        size = _finite_float(font_size)
+        fragments.append({"text": value, "x": x, "y": y, "size": round(size, 2)})
+
+    try:
+        page.extract_text(visitor_text=visit)
+    except Exception:  # noqa: BLE001 - geometry is optional; a bad page keeps parser order
+        return None
+    if not fragments:
+        return None
+    width = _finite_float(getattr(getattr(page, "mediabox", None), "width", None))
+    height = _finite_float(getattr(getattr(page, "mediabox", None), "height", None))
+    if width <= 0 or height <= 0:
+        return None
+    return {
+        "page": page_number,
+        "width": round(width, 2),
+        "height": round(height, 2),
+        "lines": fragments,
+    }
+
+
+def _text_origin(matrix: Any) -> tuple[float, float] | None:
+    """``(x, y)`` from a PDF text/current matrix, or ``None`` when the matrix is unusable."""
+
+    if matrix is None:
+        return None
+    try:
+        x = float(matrix[4])
+        y = float(matrix[5])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return None
+    return round(x, 2), round(y, 2)
+
+
+def _finite_float(value: Any) -> float:
+    """A finite float for ``value``, or ``0.0`` when it is missing or not a finite number."""
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return result if math.isfinite(result) else 0.0
 
 
 def _zip_root(archive: zipfile.ZipFile, name: str) -> ElementTree.Element | None:
@@ -788,10 +875,11 @@ class ParserRegistry:
         *,
         pdf_ocr: PdfOcrService | None = None,
         image_ocr: ImageOcrService | None = None,
+        capture_layout: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
-            ".pdf": PdfParser(ocr_service=pdf_ocr),
+            ".pdf": PdfParser(ocr_service=pdf_ocr, capture_layout=capture_layout),
             ".docx": DocxParser(),
             ".xlsx": XlsxParser(),
             ".jpg": ImageProbeParser(image_ocr=image_ocr),

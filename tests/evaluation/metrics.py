@@ -201,6 +201,52 @@ def score_reading_order(
     }
 
 
+def score_furniture_detection(
+    truth: Collection[str], predicted: Collection[str]
+) -> dict[str, int | float | None]:
+    """Precision/recall/F1 of detected page-furniture *keys* against the truth keys.
+
+    M3 detects repeated headers/footers and page numbers inside the structure view; this scorer
+    compares the set of detected keys with the set the fixture knows about, so a fixture with no
+    furniture (``legitimate_repetition.pdf``) has an empty truth set and reports ``None`` precision
+    — nothing was predicted and nothing should have been. ``false_positive_keys`` is reported
+    separately because a false positive deletes legitimate body text from retrieval. Report only:
+    TEST_STRATEGY.md §5 fixes no accuracy threshold in Phase 2.
+    """
+
+    truth_set = {_normalize_text(item) for item in truth}
+    predicted_set = {_normalize_text(item) for item in predicted}
+    matched = truth_set & predicted_set
+    return {
+        "truth_keys": len(truth_set),
+        "predicted_keys": len(predicted_set),
+        "matched_keys": len(matched),
+        "false_positive_keys": len(predicted_set - truth_set),
+        "precision": _ratio(len(matched), len(predicted_set)),
+        "recall": _ratio(len(matched), len(truth_set)),
+        "f1": _ratio(2 * len(matched), len(truth_set) + len(predicted_set)),
+    }
+
+
+def score_content_preservation(
+    truth: Sequence[str], artifact_text: str
+) -> dict[str, int | float | None]:
+    """Share of truth lines that still appear in the artifact text (a no-silent-deletion check).
+
+    M3 records reading order and furniture as a *view*, so every line the parser extracted must
+    still reach the stored artifact even when a line is furniture. ``preservation`` is ``None`` for
+    an empty truth, matching the Phase-2 metric convention.
+    """
+
+    normalized = _normalize_text(artifact_text)
+    present = sum(1 for line in truth if _normalize_text(line) in normalized)
+    return {
+        "truth_lines": len(truth),
+        "preserved_lines": present,
+        "preservation": _ratio(present, len(truth)),
+    }
+
+
 __all__ = [
     "CONFIRMED",
     "PROBABLE",
@@ -213,6 +259,8 @@ __all__ = [
     "ndcg_at_k",
     "recall_at_k",
     "reciprocal_rank",
+    "score_content_preservation",
+    "score_furniture_detection",
     "score_reading_order",
     "score_table_cells",
     "unsupported_confirmed_rate",

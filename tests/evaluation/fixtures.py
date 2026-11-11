@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import zipfile
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
+from typing import NamedTuple
 
 from docx import Document
 from openpyxl import Workbook
@@ -104,6 +106,272 @@ def pdf_bytes(lines: Sequence[str]) -> bytes:
     trailer = f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n"
     out += trailer.encode("ascii")
     return bytes(out)
+
+
+def multi_page_pdf_bytes(pages: Sequence[Sequence[tuple[float, float, str]]]) -> bytes:
+    """Build a multi-page PDF from positioned ``(x, y, text)`` fragments per page.
+
+    Each page's fragments are written **in the given order**, so a fixture can reproduce the
+    content-stream order a real PDF writer produced (including a wrong, interleaved one) and let the
+    reading-order pass be measured against it. Coordinates are PDF points on a 612x792 Letter page
+    with the origin at the bottom-left, so a larger ``y`` is nearer the top. Bytes stay
+    deterministic (no dates, no compression, one shared base-14 Helvetica font).
+    """
+
+    font_id = 3
+    page_ids = [4 + 2 * index for index in range(len(pages))]
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode("ascii"),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".encode("ascii"),
+    ]
+    for index, fragments in enumerate(pages):
+        content_id = 5 + 2 * index
+        drawing = [
+            f"BT /F1 12 Tf 1 0 0 1 {x:g} {y:g} Tm ({_escape(_ascii(text))}) Tj ET"
+            for x, y, text in fragments
+        ]
+        content = "\n".join(drawing).encode("latin-1")
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>".encode(
+                "ascii"
+            )
+        )
+        objects.append(b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream")
+    out = bytearray(f"{PDF_SIGNATURE.decode()}1.4\n".encode("ascii"))
+    offsets: list[int] = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode("ascii") + body + b"\nendobj\n"
+    xref_offset = len(out)
+    size = len(objects) + 1
+    out += f"xref\n0 {size}\n".encode("ascii")
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode("ascii")
+    out += (f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").encode(
+        "ascii"
+    )
+    return bytes(out)
+
+
+class LayoutFixture(NamedTuple):
+    """One generated layout fixture plus the truth the M3 metrics are scored against.
+
+    ``page_order`` holds the correct reading order of each page's **non-furniture** lines;
+    ``furniture`` holds the furniture keys (see
+    :func:`office_assistant.processing.structure.furniture_key`) a detector is expected to find;
+    ``lines`` holds every line the artifact must still carry, so a "no silent deletion" assertion
+    has something to check against.
+    """
+
+    name: str
+    path: Path
+    page_order: tuple[tuple[str, ...], ...]
+    furniture: frozenset[str]
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Layout:
+    """The fragments (with geometry) and the correct reading order of one generated layout page."""
+
+    fragments: list[tuple[float, float, str]] = field(default_factory=list)
+    order: list[str] = field(default_factory=list)
+
+
+_COLUMN_X = (72.0, 320.0)
+_THREE_COLUMN_X = (72.0, 250.0, 440.0)
+_COLUMN_TOP = 700.0
+_LINE_STEP = 16.0
+_HEADER_Y = 760.0
+_FOOTER_Y = 40.0
+
+
+def _columns(labels: Sequence[Sequence[str]], xs: Sequence[float]) -> _Layout:
+    """Place each column's labels top-to-bottom, interleaving the fragment order row by row.
+
+    Interleaving is the defect being measured: a content-stream-order reader emits ``L1 R1 L2 ...``
+    while a reader must see ``L1 L2 ... R1 R2``.
+    """
+
+    layout = _Layout()
+    rows = max(len(column) for column in labels)
+    for row in range(rows):
+        for column, xs_value in enumerate(xs):
+            if row < len(labels[column]):
+                layout.fragments.append(
+                    (xs_value, _COLUMN_TOP - row * _LINE_STEP, labels[column][row])
+                )
+    for column in labels:
+        layout.order.extend(column)
+    return layout
+
+
+def _two_column_contract() -> _Layout:
+    return _columns(
+        [["LEFT-1", "LEFT-2", "LEFT-3", "LEFT-4"], ["RIGHT-1", "RIGHT-2", "RIGHT-3", "RIGHT-4"]],
+        _COLUMN_X,
+    )
+
+
+def _three_column_contract() -> _Layout:
+    labels = [
+        ["COL-A-1", "COL-A-2", "COL-A-3"],
+        ["COL-B-1", "COL-B-2", "COL-B-3"],
+        ["COL-C-1", "COL-C-2", "COL-C-3"],
+    ]
+    return _columns(labels, _THREE_COLUMN_X)
+
+
+def _mixed_layout() -> _Layout:
+    """A full-width title above two columns: the page must read title, left column, right column."""
+
+    title = "MIXED LAYOUT TITLE"
+    layout = _Layout(fragments=[(72.0, 744.0, title)], order=[title])
+    columns = _columns([["L-1", "L-2", "L-3"], ["R-1", "R-2", "R-3"]], _COLUMN_X)
+    layout.fragments.extend(columns.fragments)
+    layout.order.extend(columns.order)
+    return layout
+
+
+def _different_page_layouts() -> list[_Layout]:
+    """One document whose pages do not share a layout: page 1 single column, page 2 two columns."""
+
+    single = _Layout(
+        fragments=[
+            (72.0, _COLUMN_TOP - index * _LINE_STEP, f"P1-LINE-{index + 1}") for index in range(3)
+        ],
+    )
+    single.order.extend(f"P1-LINE-{index + 1}" for index in range(3))
+    columns = _columns([["P2-LEFT-1", "P2-LEFT-2"], ["P2-RIGHT-1", "P2-RIGHT-2"]], _COLUMN_X)
+    return [single, columns]
+
+
+def _furniture_pages() -> list[_Layout]:
+    """Three pages with a repeating header and a repeating-but-varying footer, plus unique bodies.
+
+    ``order`` holds only the body lines: the header and the ``"Page N"`` footer repeat, so they are
+    the furniture a detector must find and must *not* report as body reading-order lines.
+    """
+
+    pages: list[_Layout] = []
+    for page_number in range(1, 4):
+        layout = _Layout()
+        layout.fragments.append((72.0, _HEADER_Y, "INTERNAL DOCUMENT"))
+        for index in range(3):
+            line = f"BODY-P{page_number}-{index + 1}"
+            layout.fragments.append((72.0, _COLUMN_TOP - index * _LINE_STEP, line))
+            layout.order.append(line)
+        layout.fragments.append((72.0, _FOOTER_Y, f"Page {page_number}"))
+        pages.append(layout)
+    return pages
+
+
+def _legitimate_repetition_pages() -> list[_Layout]:
+    """Repeated **body** text (must be kept) with per-page-unique header and footer text.
+
+    Nothing here repeats across pages as a *key*, so no line is furniture: the repeated clause and
+    the per-page-unique header/footer are all ordinary content and all appear in the reading order.
+    The header and footer vary by WORD, not by digit, because ``furniture_key`` masks digits (so
+    ``"Page 3"`` and its neighbours collapse to one key) — a digit-varying line would be a true
+    positive, not the false positive this fixture guards against.
+    """
+
+    repeated = "THIS CLAUSE APPLIES TO ALL AGREEMENTS"
+    headers = ("ALPHA INTERNAL NOTICE", "BETA INTERNAL NOTICE", "GAMMA INTERNAL NOTICE")
+    footers = ("REVISION ALPHA", "REVISION BETA", "REVISION GAMMA")
+    pages: list[_Layout] = []
+    for index in range(3):
+        header = headers[index]
+        first = f"UNIQUE-BODY-{index + 1}-1"
+        second = f"UNIQUE-BODY-{index + 1}-2"
+        footer = footers[index]
+        layout = _Layout(
+            fragments=[
+                (72.0, _HEADER_Y, header),
+                (72.0, 500.0, first),
+                (72.0, 484.0, second),
+                (72.0, 400.0, repeated),
+                (72.0, _FOOTER_Y, footer),
+            ],
+            order=[header, first, second, repeated, footer],
+        )
+        pages.append(layout)
+    return pages
+
+
+def _all_lines(layouts: Sequence[_Layout]) -> tuple[str, ...]:
+    return tuple(text for layout in layouts for _, _, text in layout.fragments)
+
+
+def generate_layout_fixtures(directory: Path) -> dict[str, LayoutFixture]:
+    """Write the M3 reading-order/furniture fixtures and return their truth.
+
+    These are separate from :func:`generate_fixtures` on purpose: M0's fixture-set assertion and the
+    binary-free guard both keep working unchanged (TEST_STRATEGY.md §2 — no existing test weakened).
+    """
+
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def write(name: str, layouts: Sequence[_Layout]) -> Path:
+        path = directory / name
+        path.write_bytes(multi_page_pdf_bytes([layout.fragments for layout in layouts]))
+        return path
+
+    two_column = _two_column_contract()
+    three_column = _three_column_contract()
+    mixed = _mixed_layout()
+    different = _different_page_layouts()
+    furniture = _furniture_pages()
+    repetition = _legitimate_repetition_pages()
+
+    return {
+        "two_column_contract.pdf": LayoutFixture(
+            "two_column_contract.pdf",
+            write("two_column_contract.pdf", [two_column]),
+            (tuple(two_column.order),),
+            frozenset(),
+            _all_lines([two_column]),
+        ),
+        "three_column_contract.pdf": LayoutFixture(
+            "three_column_contract.pdf",
+            write("three_column_contract.pdf", [three_column]),
+            (tuple(three_column.order),),
+            frozenset(),
+            _all_lines([three_column]),
+        ),
+        "mixed_layout.pdf": LayoutFixture(
+            "mixed_layout.pdf",
+            write("mixed_layout.pdf", [mixed]),
+            (tuple(mixed.order),),
+            frozenset(),
+            _all_lines([mixed]),
+        ),
+        "different_page_layouts.pdf": LayoutFixture(
+            "different_page_layouts.pdf",
+            write("different_page_layouts.pdf", different),
+            tuple(tuple(layout.order) for layout in different),
+            frozenset(),
+            _all_lines(different),
+        ),
+        "furniture.pdf": LayoutFixture(
+            "furniture.pdf",
+            write("furniture.pdf", furniture),
+            tuple(tuple(layout.order) for layout in furniture),
+            frozenset({"internal document", "page #"}),
+            _all_lines(furniture),
+        ),
+        "legitimate_repetition.pdf": LayoutFixture(
+            "legitimate_repetition.pdf",
+            write("legitimate_repetition.pdf", repetition),
+            tuple(tuple(layout.order) for layout in repetition),
+            frozenset(),
+            _all_lines(repetition),
+        ),
+    }
 
 
 def docx_bytes(sections: Sequence[tuple[int, str]]) -> bytes:
@@ -220,11 +488,14 @@ def generate_fixtures(directory: Path) -> dict[str, Path]:
 __all__ = [
     "PDF_SIGNATURE",
     "PNG_SIGNATURE",
+    "LayoutFixture",
     "docx_bytes",
     "generate_fixtures",
+    "generate_layout_fixtures",
     "is_well_formed_ooxml",
     "is_well_formed_pdf",
     "is_well_formed_png",
+    "multi_page_pdf_bytes",
     "pdf_bytes",
     "png_bytes",
     "xlsx_bytes",

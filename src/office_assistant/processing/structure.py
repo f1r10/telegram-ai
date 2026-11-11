@@ -1,19 +1,27 @@
 """Deterministic structural view over the flat content blocks (Phase 2, Layer 3, gap G12).
 
-This layer adds a *view* of the document a parser already produced. It re-extracts nothing,
-re-orders nothing and rewrites no text: it groups the existing blocks into pages, sections,
-tables and lists so a later phase can reason about structure without touching the flat
-``blocks[]`` list that chunking consumes (ARCHITECTURE §6).
+This layer adds a *view* of the document a parser already produced. It re-extracts nothing and
+rewrites no text: it groups the existing blocks into pages, sections, tables and lists so a later
+phase can reason about structure without touching the flat ``blocks[]`` list that chunking consumes
+(ARCHITECTURE §6).
+
+Phase 2 M3 adds a geometric reading order and page-furniture detection, both recorded **inside this
+view** so the flat blocks stay byte-identical: ``page["lines"]`` holds a page's text lines in
+geometric reading order (recovering the column order a content stream interleaves, audit gap G7)
+and ``page["furniture"]`` names the repeated top/bottom-band lines and page numbers (gap G8). A
+furniture line is a *view* only — its text stays in the page's block, so extracted content is never
+discarded.
 
 Compatibility: ``ParsedDocument.blocks`` stays the canonical representation, chunking is
 unaffected because it reads only the flat ``blocks`` key, and ``stable_chunk_id`` is not
 touched (it hashes the chunk locator, not the document). The normalizer is pure — the same
-block list always yields the same structure — and it is only recorded on a parse run when
+block list and layout always yield the same structure — and it is only recorded on a parse run when
 ``gi_document_intelligence_enabled`` is on, so an opted-out deployment keeps the pre-Phase-2
 artifact byte for byte.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -24,6 +32,23 @@ TABLE_BLOCK_TYPES = frozenset({"table_row"})
 #: flat blocks carry today, because the DOCX outline level is not read until M6; a heading without
 #: a numeric marker is recorded at level 1. See docs/OPEN-QUESTIONS.md Q56.
 _NUMBERED_HEADING = re.compile(r"^(\d+(?:\.\d+)*)[.)]?(?:\s|$)")
+
+#: A run of digits, masked to ``#`` when a furniture key is built so a page number that changes from
+#: page to page still repeats as one key (``"Page 1"`` and ``"Page 2"`` -> ``"page #"``).
+_DIGITS = re.compile(r"\d+")
+
+#: Fraction of a page's height at the top and bottom a repeating band must sit inside to count as
+#: page furniture. ASSUMPTION: real headers/footers sit within ~8% of a page edge; a body line in
+#: that band only becomes furniture once the same key repeats across pages (Q57).
+_BAND_FRACTION = 0.08
+#: A band line must appear on at least this many pages before it is furniture, so a one-page
+#: document and a one-off mention are never flagged. ASSUMPTION (Q57).
+_MIN_FURNITURE_PAGES = 2
+#: Estimated advance width of one glyph as a fraction of the font size. A PDF text fragment records
+#: its origin but not its measured width, so a column gutter is found from this estimate (Q57).
+_WIDTH_PER_CHAR = 0.5
+#: Font size assumed for a fragment that recorded none, so a line still has a usable box.
+_DEFAULT_FONT_SIZE = 12.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,11 +78,18 @@ class DocumentStructure:
         }
 
 
-def build_document_structure(blocks: list[dict[str, Any]]) -> DocumentStructure:
-    """Derive the structure view from the flat, parser-produced content blocks."""
+def build_document_structure(
+    blocks: list[dict[str, Any]], layout: dict[str, Any] | None = None
+) -> DocumentStructure:
+    """Derive the structure view from the flat, parser-produced content blocks.
+
+    ``layout`` is the optional per-page text geometry a PDF parser records (M3); when it is absent
+    the page view falls back to the parser's own order and reports no furniture, exactly as it did
+    before M3.
+    """
 
     return DocumentStructure(
-        pages=_pages(blocks),
+        pages=_pages(blocks, layout),
         sections=_sections(blocks),
         tables=_tables(blocks),
         lists=[],
@@ -84,12 +116,15 @@ def _new_page(page: int) -> dict[str, Any]:
     return {"page": page, "reading_order": [], "furniture": []}
 
 
-def _pages(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _pages(
+    blocks: list[dict[str, Any]], layout: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Group the blocks a page locator places, in first-seen (ascending) page order.
 
-    ``reading_order`` is the order the parser produced for now; a geometric re-ordering is M3.
-    ``size`` is left out because no parser records a page size yet, and ``furniture`` stays empty
-    until M3 detects repeated bands.
+    ``reading_order`` is the block order the parser produced. When a page's text geometry is
+    available, ``lines`` adds the page's text lines in geometric reading order and ``furniture``
+    names the lines that repeat across pages. ``size`` is left out because no parser records a page
+    size in the artifact itself.
     """
 
     pages: list[dict[str, Any]] = []
@@ -106,7 +141,187 @@ def _pages(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         sequence = block.get("sequence")
         if isinstance(sequence, int) and not isinstance(sequence, bool):
             group["reading_order"].append(sequence)
+    if layout is not None:
+        _apply_layout(pages, layout)
     return pages
+
+
+def furniture_key(text: str) -> str:
+    """A page-furniture key: text case-folded and NFKC-normalised with every number masked.
+
+    ``"Page 1"`` and ``"Page 2"`` share the key ``"page #"``, so a page number whose digits change
+    from page to page still repeats as one key, while ``"Internal Document"`` becomes
+    ``"internal document"``. Two lines are "the same" furniture exactly when their keys match.
+    See docs/OPEN-QUESTIONS.md Q57.
+    """
+
+    normalized = " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+    return _DIGITS.sub("#", normalized)
+
+
+def _number(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
+
+
+def _record(value: Any) -> dict[str, Any]:
+    """A parser geometry record as a string-keyed mapping, or an empty mapping otherwise."""
+
+    return cast("dict[str, Any]", value) if isinstance(value, dict) else {}
+
+
+def _line(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """One usable text line from a parser's geometry record, or ``None`` when it is unusable."""
+
+    text = str(raw.get("text") or "").strip()
+    if not text:
+        return None
+    size = _number(raw.get("size"))
+    return {
+        "text": text,
+        "x": _number(raw.get("x")),
+        "y": _number(raw.get("y")),
+        "size": size if size > 0 else _DEFAULT_FONT_SIZE,
+    }
+
+
+def _band_edges(height: float) -> tuple[float, float]:
+    """The top and bottom ``y`` a line must reach to sit in a furniture band of a page."""
+
+    return height * (1.0 - _BAND_FRACTION), height * _BAND_FRACTION
+
+
+def _apply_layout(pages: list[dict[str, Any]], layout: dict[str, Any]) -> None:
+    """Add the geometric reading order and furniture view to every page that has geometry."""
+
+    by_number: dict[int, list[dict[str, Any]]] = {}
+    heights: dict[int, float] = {}
+    raw_pages = layout.get("pages")
+    if not isinstance(raw_pages, list):
+        return
+    for raw_page in cast("list[Any]", raw_pages):
+        page_record = _record(raw_page)
+        number = page_record.get("page")
+        raw_lines = page_record.get("lines")
+        if not isinstance(number, int) or isinstance(number, bool):
+            continue
+        if not isinstance(raw_lines, list):
+            continue
+        records = [_record(item) for item in cast("list[Any]", raw_lines)]
+        lines = [line for line in (_line(item) for item in records) if line is not None]
+        if not lines:
+            continue
+        by_number[number] = lines
+        heights[number] = _number(page_record.get("height"))
+    if not by_number:
+        return
+    repeated = _repeated_furniture(by_number, heights)
+    for page in pages:
+        number = page.get("page")
+        lines = by_number.get(number) if isinstance(number, int) else None
+        if lines is None:
+            continue
+        body: list[dict[str, Any]] = []
+        furniture: dict[str, dict[str, Any]] = {}
+        for line in _reading_order(lines):
+            key = furniture_key(line["text"])
+            repeated_on = repeated.get(key)
+            if repeated_on is None:
+                body.append({"text": line["text"], "x": line["x"], "y": line["y"]})
+            elif key not in furniture:
+                furniture[key] = {
+                    "key": key,
+                    "text": line["text"],
+                    "locator": {"page": number},
+                    "repeated_on": repeated_on,
+                }
+        page["lines"] = body
+        if furniture:
+            page["furniture"] = [furniture[key] for key in sorted(furniture)]
+
+
+def _repeated_furniture(
+    by_number: dict[int, list[dict[str, Any]]], heights: dict[int, float]
+) -> dict[str, list[int]]:
+    """Furniture keys seen in a page's top or bottom band on at least two pages."""
+
+    seen: dict[str, set[int]] = {}
+    for number, lines in by_number.items():
+        height = heights.get(number, 0.0)
+        if height <= 0:
+            continue
+        top, bottom = _band_edges(height)
+        for line in lines:
+            if line["y"] >= top or line["y"] <= bottom:
+                seen.setdefault(furniture_key(line["text"]), set()).add(number)
+    return {
+        key: sorted(numbers)
+        for key, numbers in seen.items()
+        if len(numbers) >= _MIN_FURNITURE_PAGES
+    }
+
+
+def _box(line: dict[str, Any]) -> dict[str, Any]:
+    """A line's bounding box, its width estimated from the text and the font size."""
+
+    size = line["size"]
+    width = max(len(line["text"]) * size * _WIDTH_PER_CHAR, size)
+    return {
+        "line": line,
+        "left": line["x"],
+        "right": line["x"] + width,
+        "bottom": line["y"],
+        "top": line["y"] + size,
+    }
+
+
+def _largest_gap(intervals: list[tuple[float, float]]) -> tuple[float, float] | None:
+    """The widest uncovered ``(gap, split_position)`` between merged intervals, or ``None``."""
+
+    merged: list[list[float]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    best: tuple[float, float] | None = None
+    for lower, upper in zip(merged, merged[1:], strict=False):
+        gap = upper[0] - lower[1]
+        if gap > 0 and (best is None or gap > best[0]):
+            best = (gap, (lower[1] + upper[0]) / 2.0)
+    return best
+
+
+def _reading_order(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recover a page's reading order with a recursive XY-cut over the line boxes.
+
+    At each step the widest whitespace gap — vertical (a column gutter) or horizontal (a band
+    boundary) — splits the region; the upper/left region is read first and each part recurses. This
+    is what turns an interleaved content stream (``L1 R1 L2 ...``) back into column order
+    (``L1 L2 ... R1 R2 ...``) and keeps a full-width title above the columns it spans. When no gap
+    remains (touching boxes) the region is read top-to-bottom then left-to-right.
+    """
+
+    return [box["line"] for box in _xy_cut([_box(line) for line in lines])]
+
+
+def _xy_cut(boxes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(boxes) <= 1:
+        return list(boxes)
+    vertical = _largest_gap([(box["left"], box["right"]) for box in boxes])
+    horizontal = _largest_gap([(box["bottom"], box["top"]) for box in boxes])
+    if horizontal is not None and (vertical is None or horizontal[0] > vertical[0]):
+        split = horizontal[1]
+        above = [box for box in boxes if box["bottom"] >= split]
+        below = [box for box in boxes if box["bottom"] < split]
+        return _xy_cut(above) + _xy_cut(below)
+    if vertical is not None:
+        split = vertical[1]
+        left = [box for box in boxes if box["left"] < split]
+        right = [box for box in boxes if box["left"] >= split]
+        return _xy_cut(left) + _xy_cut(right)
+    return sorted(boxes, key=lambda box: (-box["bottom"], box["left"]))
 
 
 def _heading_level(text: str) -> int:

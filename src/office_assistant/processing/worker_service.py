@@ -7,7 +7,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import select, update
@@ -87,7 +87,11 @@ def build_normalized_payload(
     payload = parsed.as_dict()
     payload["session_items"] = context
     if document_intelligence_enabled:
-        payload["structure"] = build_document_structure(payload["blocks"]).as_dict()
+        layout = parsed.metadata.get("layout")
+        payload["structure"] = build_document_structure(
+            payload["blocks"],
+            cast("dict[str, Any] | None", layout if isinstance(layout, dict) else None),
+        ).as_dict()
     return payload
 
 
@@ -117,7 +121,11 @@ class IngestionJobService:
         self.storage = storage
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
-        self.registry = registry or ParserRegistry(pdf_ocr=pdf_ocr, image_ocr=image_ocr)
+        self.registry = registry or ParserRegistry(
+            pdf_ocr=pdf_ocr,
+            image_ocr=image_ocr,
+            capture_layout=document_intelligence_enabled,
+        )
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name
         self.index_embedding_model = index_embedding_model
