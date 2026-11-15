@@ -619,7 +619,8 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       (1.0 cell F1 on 11 generated tables, pdfplumber measured and **not** adopted); M5 cached
       formula values plus merged-region/declared-table metadata; M6 DOCX outline depth, numbered/
       bulleted list items, table cell coordinates and core properties (structure view uses the
-      recorded levels and fills `lists[]`). Outstanding: M8 confidence recording, M9 resource
+      recorded levels and fills `lists[]`); M8 OCR confidence recorded per block and aggregated per
+      run (native pages carry no fabricated score, no threshold applied). Outstanding: M9 resource
       limits, M10 embedded-image OCR, M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark
       verdict and adoption decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).

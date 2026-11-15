@@ -1,3 +1,22 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M8: OCR confidence recorded, never acted on
+
+- With `gi_document_intelligence_enabled` on, an OCR'd PDF page or uploaded image records the
+  engine's mean word confidence in block metadata (`confidence`, `0..1`) and the parse run keeps a
+  summary in `metadata.confidence` (`pages`, `native_pages`, `ocr_pages`, `mean_ocr_confidence`).
+- A native-text page records `extraction: "native"` and **no** score: the key is absent, so nothing
+  presents a fabricated `1.0`. An empty score is `None`, never `0.0`.
+- Tesseract is asked for `txt tsv` in a single invocation only when confidence capture is enabled,
+  so the recognised text is unchanged and the OCR cost does not double. The TSV sidecar is capped at
+  8 MiB; the `-1` non-text sentinel is skipped.
+- Recording is not consumption: no threshold, ranking or rejection uses the score (grep recorded in
+  `docs/evaluation/BENCHMARK_RESULTS.md`), and the pre-M8 `metadata.ocr` summary is untouched.
+- Flag-off behaviour is unchanged: empty block metadata and no `confidence` key in the document
+  metadata. Confidence never enters chunk text or a `chunk_id` (asserted).
+- Verified: 10 new tests pass, 21 with the M1 seam suite, 175 passed + 1 xfailed across the adjacent
+  parser/structure/evaluation suites; full offline suite 1501 passed, 39 failed (same native-Windows
+  host failures, zero regressions); ruff/format/pyright clean on the changed files. Assumption
+  recorded as `Q61` in `docs/OPEN-QUESTIONS.md`.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M6: DOCX outline, lists, table cells, properties
 
 - The DOCX parser now records the hierarchy python-docx already exposes when

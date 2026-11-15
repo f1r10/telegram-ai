@@ -5,6 +5,7 @@ from __future__ import annotations
 from .ocr import (
     LANGUAGE_PATTERN,
     MAX_TEXT_BYTES,
+    MAX_TSV_BYTES,
     RECOGNITION_FAILED,
     TESSERACT_VERSION,
     TEXT_LIMIT,
@@ -12,11 +13,13 @@ from .ocr import (
     OcrProviderError,
     OcrResult,
     TesseractOcrProvider,
+    mean_word_confidence,
 )
 
 __all__ = [
     "LANGUAGE_PATTERN",
     "MAX_TEXT_BYTES",
+    "MAX_TSV_BYTES",
     "OCRProvider",
     "OcrProviderError",
     "OcrResult",
@@ -24,4 +27,5 @@ __all__ = [
     "TESSERACT_VERSION",
     "TEXT_LIMIT",
     "TesseractOcrProvider",
+    "mean_word_confidence",
 ]

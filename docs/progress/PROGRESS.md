@@ -243,7 +243,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M3 | `d36cf36` | PDF geometric reading order + page-furniture detection, recorded in the view only | `tests/evaluation/test_reading_order.py`, `tests/unit/test_document_reading_order.py` |
 | M4 | `7d4c0d5` | PDF table extraction (bordered/borderless/merged/multi-page) as `structure.tables` | `tests/evaluation/test_table_extraction.py`; 11 tables / 104 cells at 1.0 cell F1 |
 | M5 | `c6472ac` | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
-| M6 | *(this commit)* | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
+| M6 | `0703ad5` | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
+| M8 | *(this commit)* | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -290,6 +291,33 @@ keys. Flag-on adds `level`/`level_source` on headings, `level`/`marker` on list 
 
 Assumptions recorded as **Q60** in `docs/OPEN-QUESTIONS.md`.
 
+### M8 verification (actual commands, 2026-11-15)
+- `uv run --no-sync pytest tests/unit/test_document_ocr_confidence.py -o addopts="" -q` →
+  **10 passed** (1.1 s); with the M1 seam suite `test_ocr_provider_seam.py` → **21 passed** (3.1 s).
+- `uv run --no-sync pytest tests/unit/test_document_ocr_confidence.py
+tests/unit/test_ocr_provider_seam.py tests/unit/test_document_docx_structure.py
+tests/unit/test_document_xlsx_cached_values.py tests/unit/test_document_structure.py
+tests/unit/test_document_tables.py tests/unit/test_document_reading_order.py
+tests/unit/test_parsers.py tests/unit/test_chunking.py tests/evaluation -o addopts="" -q` →
+  **175 passed, 1 xfailed** (16.2 s).
+- Full offline suite `pytest -m "not integration" -o addopts="" -q` → **1501 passed, 39 failed,
+  2 skipped, 126 deselected, 1 xfailed** (63.1 s). A test-by-test diff against the pre-M6 failure
+  list shows **zero new failures**; the 39 are the same native-Windows host limitations.
+- No-threshold evidence (the acceptance criterion is a grep, not a test):
+  `grep -rnE "confidence[a-z_]*( *|)(<|>|<=|>=|==|!=)" src --include=*.py` → **no matches**;
+  `grep -rnE "^(MIN|MAX)_?[A-Z_]*CONFIDENCE|CONFIDENCE_THRESHOLD" src --include=*.py` → **no
+  matches**. Confidence is recorded only.
+- `ruff check` + `ruff format --check` on `src`/`tests` → **clean** (414 files); `pyright` on the
+  changed modules and the new test → **0 errors**.
+
+Flag-off contract: block metadata stays `{}` and the document metadata gains no `confidence` key;
+`metadata["ocr"]`, block locators and chunk text are untouched. Flag-on adds `extraction` (and
+`confidence` when the engine reported one) to an OCR block, `extraction: "native"` to a native page,
+and a run-level summary `{pages, native_pages, ocr_pages, mean_ocr_confidence}`. An OCR page whose
+engine reports no score keeps `None`; nothing is rounded up to `1.0` and nothing becomes `0.0`.
+
+Assumptions recorded as **Q61** in `docs/OPEN-QUESTIONS.md`.
+
 ---
 
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
@@ -314,10 +342,11 @@ Assumptions recorded as **Q60** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M8 — confidence recording** (per-page OCR confidence beside native text
-that reports none), then M9 resource limits, M10 embedded-image OCR, M7 cross-sheet relations and M11
-the benchmark/adoption decision. M6 is complete and its evidence is recorded above; Phase 1 exit
-criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+Continue **Phase 2** with **M9 — resource limits and processing isolation** (a configurable per-parse
+wall-clock/memory ceiling whose defaults reproduce today's limits, with a visible abort), then M10
+embedded-image OCR, M7 cross-sheet relations and M11 the benchmark/adoption decision. M8 is complete
+and its evidence is recorded above; Phase 1 exit criteria remain recorded in
+`docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

@@ -57,6 +57,9 @@ class PdfOcrConfig:
 class OcrPageResult:
     text: str = ""
     reason: str | None = None
+    #: Phase 2 M8: the engine's mean word confidence for this page, or ``None`` when the engine
+    #: reported none. ``None`` is not ``0.0`` and is never replaced by a guessed score.
+    confidence: float | None = None
 
 
 class _OcrFailure(Exception):
@@ -65,12 +68,18 @@ class _OcrFailure(Exception):
 
 class PdfOcrService:
     def __init__(
-        self, config: PdfOcrConfig | None = None, *, provider: OCRProvider | None = None
+        self,
+        config: PdfOcrConfig | None = None,
+        *,
+        provider: OCRProvider | None = None,
+        capture_confidence: bool = False,
     ) -> None:
         self.config = config or PdfOcrConfig()
         # Tesseract is the only registered production provider; the seam exists so an
         # alternative engine is adopted by registration, not by editing this service.
-        self.provider: OCRProvider = provider or TesseractOcrProvider()
+        self.provider: OCRProvider = provider or TesseractOcrProvider(
+            capture_confidence=capture_confidence
+        )
 
     def session(self, path: Path) -> "PdfOcrSession":
         return PdfOcrSession(path, self.config, self.provider)
@@ -102,7 +111,8 @@ class PdfOcrSession:
         self.attempted_pages += 1
 
         try:
-            text = self._run_page(page_number).strip()
+            text, confidence = self._run_page(page_number)
+            text = text.strip()
         except _OcrFailure as error:
             return OcrPageResult(reason=str(error))
         except subprocess.TimeoutExpired:
@@ -114,9 +124,9 @@ class PdfOcrSession:
         if not text:
             return OcrPageResult(reason="OCR_NO_TEXT")
         self.recovered_pages += 1
-        return OcrPageResult(text=text)
+        return OcrPageResult(text=text, confidence=confidence)
 
-    def _run_page(self, page_number: int) -> str:
+    def _run_page(self, page_number: int) -> tuple[str, float | None]:
         # TemporaryDirectory is private (mode 0700) and removes intermediate images.
         with TemporaryDirectory(prefix="office-pdf-ocr-") as temp_dir:
             prefix = Path(temp_dir) / "page"
@@ -157,4 +167,4 @@ class PdfOcrSession:
                 raise _OcrFailure(
                     _PROVIDER_REASONS.get(str(error), "OCR_RECOGNITION_FAILED")
                 ) from error
-            return result.text
+            return result.text, result.confidence

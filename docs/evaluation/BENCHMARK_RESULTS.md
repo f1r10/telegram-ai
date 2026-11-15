@@ -320,6 +320,59 @@ verbatim, including template defaults such as `author = "python-docx"` in a docu
 one — the values are honest but not necessarily meaningful. No accuracy threshold is asserted
 (report-only, `TEST_STRATEGY.md` §5).
 
+## Phase 2 — M8 OCR confidence recording (measured, off by default)
+
+Phase-2 M8 records the confidence the OCR engine reports, beside the text it belongs to, without
+acting on it. A native-text page records `extraction: "native"` and **no** score. It stays behind
+`gi_document_intelligence_enabled=False`.
+
+**How the score is produced.** With capture enabled, Tesseract is invoked once and asked for both
+renderers (`txt tsv`) instead of printing text to stdout, so the recognised text is unchanged and
+there is no second recognition pass. Confidence is the mean of the level-5 (word) scores, divided by
+100 to give `0.0..1.0`; Tesseract's `-1` non-text sentinel is skipped and rounded to four decimals.
+No word rows means `None`, never `0.0`. The TSV sidecar is capped at 8 MiB and the text keeps its
+existing 1 MiB cap.
+
+**Measured behaviour** (`uv run --no-sync pytest tests/unit/test_document_ocr_confidence.py
+-o addopts="" -q` → **10 passed**, 1.1 s; with the M1 seam suite **21 passed**, 3.1 s):
+
+| case | flag off | flag on |
+| --- | --- | --- |
+| OCR page block metadata | `{}` (pre-M8) | `{extraction: "tesseract", confidence: 0.875}` |
+| native text page block | `{}` | `{extraction: "native"}` — the key is **absent**, so not `1.0` and not `0.0` |
+| run summary `metadata.confidence` | absent | `{pages, native_pages, ocr_pages, mean_ocr_confidence}` |
+| native-only document | — | `mean_ocr_confidence: None`, `native_pages: 1`, `ocr_pages: 0` |
+| image OCR block | `{}` | `{extraction: "tesseract", confidence: 0.71}` plus the run summary |
+| existing `metadata.ocr` | unchanged | unchanged (engine/attempted/recovered/unresolved) |
+| TSV scoring | — | `90.5, 70, -1` → `0.8025`; header-only → `None` |
+| provider invocation | `tesseract … stdout …` | one call, `… txt tsv`, no `stdout` argument |
+| chunk text / `chunk_id` | — | identical with and without the confidence metadata |
+
+**No threshold is applied.** The check is a grep over `src/`, recorded here with its output:
+
+```
+$ grep -rnE "confidence[a-z_]*( *|)(<|>|<=|>=|==|!=)" src --include=*.py
+NONE
+$ grep -rnE "^(MIN|MAX)_?[A-Z_]*CONFIDENCE|CONFIDENCE_THRESHOLD" src --include=*.py
+NONE
+```
+
+Adjacent regression suites: **175 passed, 1 xfailed** across the confidence/seam/DOCX/XLSX/
+structure/table/reading-order/parser/chunking/evaluation suites (16.2 s). Full offline suite after
+M8: **1501 passed, 39 failed, 2 skipped, 126 deselected, 1 xfailed** (63.1 s) with a test-by-test
+diff against the pre-M6 failure list showing **zero new failures** — the 39 are the same
+native-Windows host limitations. `ruff check` and `ruff format --check` are clean (414 files), and
+`pyright` reports **0 errors** on the changed modules and the new test.
+
+**Limitations, stated rather than hidden.** The score is a mean word confidence, not a calibrated
+probability and not a per-block or per-line score. It is recorded but never consumed: no answer is
+ranked, filtered or rejected by it until Phase 5 decides a policy. The real Tesseract binary was not
+run in these tests — the provider's file-writing path is exercised through a stub process and the
+services through a stub provider — so Azerbaijani/Russian accuracy and real-engine confidence
+behaviour remain **NOT VERIFIED**. The confidence is deliberately **not** in the structure view
+(`structure.pages[]`), which has no per-page score source for DOCX/XLSX; it lives on the blocks and in
+the run metadata (Q61).
+
 ## Not measured (honest gaps)
 
 - End-to-end answers, retrieval quality (recall/MRR/nDCG), OCR and vision accuracy, graph reasoning,

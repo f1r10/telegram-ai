@@ -36,6 +36,8 @@ _PROVIDER_REASONS = {
 class ImageOcrResult:
     text: str = ""
     reason: str | None = None
+    #: Phase 2 M8: the engine's mean word confidence, or ``None`` when it reported none.
+    confidence: float | None = None
 
 
 class ImageOcrService:
@@ -47,6 +49,7 @@ class ImageOcrService:
         languages: str = "aze+eng+rus",
         timeout_seconds: float = 15.0,
         provider: OCRProvider | None = None,
+        capture_confidence: bool = False,
     ) -> None:
         if LANGUAGE_PATTERN.fullmatch(languages) is None:
             raise ValueError("Invalid image OCR language configuration")
@@ -57,7 +60,9 @@ class ImageOcrService:
         self._languages = tuple(languages.split("+"))
         # Tesseract is the only registered production provider; the seam exists so an
         # alternative engine is adopted by registration, not by editing this service.
-        self.provider: OCRProvider = provider or TesseractOcrProvider()
+        self.provider: OCRProvider = provider or TesseractOcrProvider(
+            capture_confidence=capture_confidence
+        )
 
     def read(self, path: Path, *, media_type: str) -> ImageOcrResult:
         if media_type not in {"image/png", "image/jpeg"}:
@@ -96,7 +101,7 @@ class ImageOcrService:
             text = result.text.strip()
             if not text:
                 return ImageOcrResult(reason="IMAGE_OCR_NO_TEXT")
-            return ImageOcrResult(text=text)
+            return ImageOcrResult(text=text, confidence=result.confidence)
         except subprocess.TimeoutExpired:
             return ImageOcrResult(reason="IMAGE_OCR_TIMEOUT")
         except FileNotFoundError:

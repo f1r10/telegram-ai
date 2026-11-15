@@ -74,6 +74,26 @@ def _style_depth(style: str) -> int | None:
     return int(match.group(1)) if match is not None else None
 
 
+def _confidence_summary(sources: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate per-page extraction sources and OCR scores for one parse run (Phase 2 M8).
+
+    Native pages contribute no score, so the mean is over OCR pages only and is ``None`` when no
+    page reported one. Nothing here compares a score against a threshold: recording is not acting.
+    """
+
+    scores: list[float] = []
+    for entry in sources:
+        value = entry.get("confidence")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            scores.append(float(value))
+    return {
+        "pages": sources,
+        "native_pages": sum(1 for entry in sources if entry.get("source") == "native"),
+        "ocr_pages": sum(1 for entry in sources if entry.get("source") == "tesseract"),
+        "mean_ocr_confidence": round(sum(scores) / len(scores), 4) if scores else None,
+    }
+
+
 _RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
 _SPREADSHEET_DRAWING_NAMESPACE = (
@@ -178,8 +198,13 @@ class PdfParser:
         ocr_service: PdfOcrService | None = None,
         *,
         capture_layout: bool = False,
+        capture_confidence: bool = False,
     ) -> None:
         self.ocr_service = ocr_service
+        #: Phase 2 M8: name each page's extraction source and record the OCR engine's confidence
+        #: when it reported one. A native-text page records ``extraction: "native"`` and no score.
+        #: Off by default, so the pre-M8 block metadata (empty) is unchanged.
+        self.capture_confidence = capture_confidence
         #: Phase 2 M3: record each page's text-line geometry so the structure layer can compute a
         #: geometric reading order and detect repeated bands. Off by default, so a deployment that
         #: has not opted in keeps byte-for-byte the pre-M3 blocks (no extra metadata is emitted).
@@ -190,6 +215,7 @@ class PdfParser:
         text_warnings: list[str] = []
         extraction_warnings: list[str] = []
         page_layouts: list[dict[str, Any]] = []
+        page_sources: list[dict[str, Any]] = []
         reader = PdfReader(str(path), strict=True)
         ocr = self.ocr_service.session(path) if self.ocr_service is not None else None
         for page_number, page in enumerate(reader.pages, start=1):
@@ -205,24 +231,44 @@ class PdfParser:
                         # Additive only: the page's text and locator are exactly what they were.
                         # The geometry is a document-level sidecar, so ``blocks`` never changes.
                         page_layouts.append(layout)
+                native_metadata: dict[str, Any] = {}
+                if self.capture_confidence:
+                    native_metadata["extraction"] = "native"
+                    page_sources.append(
+                        {"page": page_number, "source": "native", "confidence": None}
+                    )
                 blocks.append(
                     ContentBlock(
                         len(blocks) + 1,
                         "page_text",
                         str(cast(Any, text)),
                         {"page": page_number},
+                        native_metadata,
                     )
                 )
                 continue
             if ocr is not None:
                 result = ocr.read_page(page_number)
                 if result.text:
+                    ocr_metadata: dict[str, Any] = {}
+                    if self.capture_confidence:
+                        ocr_metadata["extraction"] = "tesseract"
+                        if result.confidence is not None:
+                            ocr_metadata["confidence"] = result.confidence
+                        page_sources.append(
+                            {
+                                "page": page_number,
+                                "source": "tesseract",
+                                "confidence": result.confidence,
+                            }
+                        )
                     blocks.append(
                         ContentBlock(
                             len(blocks) + 1,
                             "page_ocr",
                             result.text,
                             {"page": page_number, "extraction": "tesseract"},
+                            ocr_metadata,
                         )
                     )
                     continue
@@ -249,6 +295,10 @@ class PdfParser:
             # structure layer's geometric reading order and repeated-band detection. Recorded at
             # document level, never on a block, so ``blocks`` stays exactly as it was.
             metadata["layout"] = {"pages": page_layouts}
+        if page_sources:
+            # Phase 2 M8: the parse run's confidence summary. Recorded, never acted on: no
+            # threshold is applied here (consumption is Phase 5).
+            metadata["confidence"] = _confidence_summary(page_sources)
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -1090,8 +1140,12 @@ class ImageProbeParser:
     version = "1.1"
     embedded_origin: ImageAssetOrigin | None = None
 
-    def __init__(self, image_ocr: ImageOcrService | None = None) -> None:
+    def __init__(
+        self, image_ocr: ImageOcrService | None = None, *, capture_confidence: bool = False
+    ) -> None:
         self.image_ocr = image_ocr
+        #: Phase 2 M8: record the OCR engine's confidence on the image block and in the run summary.
+        self.capture_confidence = capture_confidence
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         detected = detect_image_media_type(path.read_bytes()[:12])
@@ -1102,27 +1156,39 @@ class ImageProbeParser:
             raise ValueError("image_signature_mismatch")
         blocks: list[ContentBlock] = []
         warnings: list[str] = []
+        metadata: dict[str, Any] = {}
         if self.image_ocr is None:
             warnings.append(f"{detected} image requires vision extraction")
         else:
             result = self.image_ocr.read(path, media_type=detected)
             if result.text:
+                block_metadata: dict[str, Any] = {}
+                if self.capture_confidence:
+                    block_metadata["extraction"] = "tesseract"
+                    if result.confidence is not None:
+                        block_metadata["confidence"] = result.confidence
+                    metadata["confidence"] = _confidence_summary(
+                        [{"page": 1, "source": "tesseract", "confidence": result.confidence}]
+                    )
                 blocks.append(
                     ContentBlock(
                         1,
                         "image_ocr",
                         result.text,
                         {"image_index": 1, "extraction": "tesseract"},
+                        block_metadata,
                     )
                 )
             else:
                 warnings.append(result.reason or "IMAGE_OCR_NO_TEXT")
+        metadata["filename"] = path.name
+        metadata["ocr"] = {"engine": "tesseract" if blocks else None}
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
             detected,
-            {"filename": path.name, "ocr": {"engine": "tesseract" if blocks else None}},
+            metadata,
             blocks,
             warnings,
             requires_vision=True,
@@ -1147,15 +1213,20 @@ class ParserRegistry:
         capture_layout: bool = False,
         capture_cached_values: bool = False,
         capture_structure: bool = False,
+        capture_confidence: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
-            ".pdf": PdfParser(ocr_service=pdf_ocr, capture_layout=capture_layout),
+            ".pdf": PdfParser(
+                ocr_service=pdf_ocr,
+                capture_layout=capture_layout,
+                capture_confidence=capture_confidence,
+            ),
             ".docx": DocxParser(capture_structure=capture_structure),
             ".xlsx": XlsxParser(capture_cached_values=capture_cached_values),
-            ".jpg": ImageProbeParser(image_ocr=image_ocr),
-            ".jpeg": ImageProbeParser(image_ocr=image_ocr),
-            ".png": ImageProbeParser(image_ocr=image_ocr),
+            ".jpg": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
+            ".jpeg": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
+            ".png": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
         }
 
     def for_filename(self, filename: str) -> DocumentParser:

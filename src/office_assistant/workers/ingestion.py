@@ -54,13 +54,17 @@ async def run() -> None:
                     max_pages=settings.pdf_ocr_max_pages,
                     page_timeout_seconds=settings.pdf_ocr_page_timeout_seconds,
                     document_timeout_seconds=settings.pdf_ocr_document_timeout_seconds,
-                )
+                ),
+                capture_confidence=settings.gi_document_intelligence_enabled,
             )
             if settings.pdf_ocr_enabled
             else None
         ),
         image_ocr=(
-            ImageOcrService(languages=settings.pdf_ocr_languages)
+            ImageOcrService(
+                languages=settings.pdf_ocr_languages,
+                capture_confidence=settings.gi_document_intelligence_enabled,
+            )
             if settings.image_ocr_enabled
             else None
         ),

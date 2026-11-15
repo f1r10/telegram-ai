@@ -129,6 +129,7 @@ class IngestionJobService:
             capture_layout=document_intelligence_enabled,
             capture_cached_values=document_intelligence_enabled,
             capture_structure=document_intelligence_enabled,
+            capture_confidence=document_intelligence_enabled,
         )
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name
