@@ -27,6 +27,7 @@ from typing import Any, cast
 
 HEADING_BLOCK_TYPES = frozenset({"heading"})
 TABLE_BLOCK_TYPES = frozenset({"table_row"})
+LIST_BLOCK_TYPES = frozenset({"list_item"})
 
 #: A leading ``1`` / ``1.`` / ``1.2`` / ``1.2.3`` marker. It is the only heading-level signal the
 #: flat blocks carry today, because the DOCX outline level is not read until M6; a heading without
@@ -99,7 +100,7 @@ def build_document_structure(
         pages=_pages(blocks, layout),
         sections=_sections(blocks),
         tables=[*_tables(blocks, sheet_metadata), *_pdf_tables(layout)],
-        lists=[],
+        lists=_lists(blocks),
         relations=[],
         blocks=[dict(block) for block in blocks],
     )
@@ -338,6 +339,15 @@ def _heading_level(text: str) -> int:
     return match.group(1).count(".") + 1
 
 
+def _heading_level_of(block: dict[str, Any]) -> int:
+    """The heading's recorded depth when M6 wrote one, else the numeric-prefix fallback."""
+
+    level = _metadata(block).get("level")
+    if isinstance(level, int) and not isinstance(level, bool) and level > 0:
+        return level
+    return _heading_level(str(block.get("text") or "").strip())
+
+
 def _sections(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build the heading hierarchy and the flat block range each section owns.
 
@@ -354,10 +364,10 @@ def _sections(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = []
     for order, (position, block) in enumerate(headings):
         text = str(block["text"]).strip()
-        level = _heading_level(text)
+        level = _heading_level_of(block)
         end_position = last_position
         for following_position, following in headings[order + 1 :]:
-            if _heading_level(str(following["text"]).strip()) <= level:
+            if _heading_level_of(following) <= level:
                 end_position = following_position - 1
                 break
         if end_position < position:
@@ -375,6 +385,50 @@ def _sections(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
             section["locator"] = dict(locator)
         sections.append(section)
     return sections
+
+
+def _lists(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group consecutive ``list_item`` blocks into lists, one per contiguous same-marker run.
+
+    M6 records the level and marker kind on each list block (``numbered`` / ``bulleted``); this view
+    only groups them, so a heading or paragraph between two runs starts a new list. The id is
+    positional and therefore deterministic. Levels are 1-based, as the parser records them.
+    """
+
+    lists: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for block in blocks:
+        if _block_type(block) not in LIST_BLOCK_TYPES:
+            current = None
+            continue
+        metadata = _metadata(block)
+        raw_level = metadata.get("level")
+        level = (
+            raw_level
+            if isinstance(raw_level, int) and not isinstance(raw_level, bool) and raw_level > 0
+            else 1
+        )
+        raw_marker = metadata.get("marker")
+        marker = raw_marker if isinstance(raw_marker, str) and raw_marker else "list"
+        item: dict[str, Any] = {
+            "sequence": block.get("sequence"),
+            "level": level,
+            "text": str(block.get("text") or ""),
+        }
+        locator = _locator(block)
+        if locator:
+            item["locator"] = dict(locator)
+        if current is None or current["marker"] != marker:
+            current = {
+                "id": f"list-{len(lists) + 1}",
+                "marker": marker,
+                "level": level,
+                "items": [],
+            }
+            lists.append(current)
+        current["level"] = min(cast("int", current["level"]), level)
+        cast("list[dict[str, Any]]", current["items"]).append(item)
+    return lists
 
 
 def _row_cells(block: dict[str, Any], metadata: dict[str, Any]) -> list[str]:

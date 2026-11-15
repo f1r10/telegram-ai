@@ -2,10 +2,12 @@
 
 # Third-party document libraries do not all ship complete Pyright stubs. The
 # adapter boundary keeps that uncertainty out of the normalized model/worker.
-# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportPrivateUsage=false, reportUnknownArgumentType=false
 
 import math
+import re
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from posixpath import normpath
 from typing import Any, Protocol, cast
@@ -40,6 +42,37 @@ from office_assistant.processing.pdf_ocr import PdfOcrService
 # write marathon. Both caps are ASSUMPTION values (Master Spec §23 leaves them open, Q29).
 MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_EMBEDDED_IMAGES_PER_DOCUMENT = 200
+
+#: Phase 2 M6: a Word heading style's depth (``Heading 1`` -> 1). The paragraph's own
+#: ``outlineLvl`` wins when it is present; see docs/OPEN-QUESTIONS.md Q60.
+_HEADING_STYLE = re.compile(r"heading\s+(\d+)", re.IGNORECASE)
+
+#: The document properties python-docx exposes. Only the non-empty ones are recorded, so a plain
+#: document does not gain a wall of empty strings. Datetimes are serialised as ISO 8601.
+_CORE_PROPERTY_FIELDS = (
+    "title",
+    "subject",
+    "author",
+    "last_modified_by",
+    "keywords",
+    "category",
+    "comments",
+    "content_status",
+    "identifier",
+    "language",
+    "version",
+    "created",
+    "modified",
+    "revision",
+)
+
+
+def _style_depth(style: str) -> int | None:
+    """The depth of a Word heading style (``Heading 3`` -> 3), or ``None`` for any other style."""
+
+    match = _HEADING_STYLE.search(style)
+    return int(match.group(1)) if match is not None else None
+
 
 _RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -570,6 +603,12 @@ class DocxParser:
     version = "1.2.0"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.DOCX_EMBEDDED
 
+    def __init__(self, *, capture_structure: bool = False) -> None:
+        #: Phase 2 M6: record the outline depth, list membership, table cell coordinates and the
+        #: document's core properties. Off by default, so an opted-out deployment produces exactly
+        #: the pre-M6 blocks and an empty document metadata.
+        self.capture_structure = capture_structure
+
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         document = Document(str(path))
         blocks: list[ContentBlock] = []
@@ -588,12 +627,22 @@ class DocxParser:
                 if text:
                     style = paragraph.style.name if paragraph.style else ""
                     block_type = "heading" if style.lower().startswith("heading") else "paragraph"
+                    block_metadata: dict[str, Any] = {}
+                    if self.capture_structure:
+                        if block_type == "heading":
+                            block_metadata.update(self._heading_metadata(paragraph, style))
+                        listing = self._list_metadata(paragraph, style)
+                        if listing is not None:
+                            # A list paragraph keeps its text and locator; only its type is named.
+                            block_type = "list_item"
+                            block_metadata.update(listing)
                     blocks.append(
                         ContentBlock(
                             len(blocks) + 1,
                             block_type,
                             text,
                             {"paragraph_index": current_paragraph_index},
+                            block_metadata,
                         )
                     )
             elif element.tag.endswith("}tbl"):
@@ -603,6 +652,14 @@ class DocxParser:
                 for row_index, row in enumerate(table.rows, start=1):
                     values = [cell.text.strip() for cell in row.cells]
                     if any(values):
+                        row_metadata: dict[str, Any] = {"cells": values}
+                        if self.capture_structure:
+                            # Grid coordinates, aligned index-for-index with ``cells``. A merged
+                            # cell repeats its text at each grid position python-docx reports (Q60).
+                            row_metadata["cell_coordinates"] = [
+                                {"row": row_index, "column": column_index}
+                                for column_index in range(1, len(values) + 1)
+                            ]
                         blocks.append(
                             ContentBlock(
                                 len(blocks) + 1,
@@ -612,19 +669,87 @@ class DocxParser:
                                     "table_index": current_table_index,
                                     "row": row_index,
                                 },
-                                {"cells": values},
+                                row_metadata,
                             )
                         )
+        metadata: dict[str, Any] = {}
+        if self.capture_structure:
+            properties = self._core_properties(document)
+            if properties:
+                metadata["core_properties"] = properties
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
             media_type,
-            {},
+            metadata,
             blocks,
             warnings,
             embedded_images=collected.images,
         )
+
+    @staticmethod
+    def _heading_metadata(paragraph: Paragraph, style: str) -> dict[str, Any]:
+        """A heading's depth and where it came from: ``outlineLvl`` first, then the style depth."""
+
+        properties = paragraph._p.pPr
+        outline = properties.outlineLvl if properties is not None else None
+        if outline is not None and outline.val is not None:
+            return {"level": int(outline.val) + 1, "level_source": "outline"}
+        depth = _style_depth(style)
+        if depth is not None:
+            return {"level": depth, "level_source": "style"}
+        return {"level": 1, "level_source": "default"}
+
+    @staticmethod
+    def _list_metadata(paragraph: Paragraph, style: str) -> dict[str, Any] | None:
+        """List membership, level and marker kind, or ``None`` when the paragraph is body text.
+
+        A paragraph-level ``w:numPr`` is the strongest signal; ``numId=0`` means numbering was
+        explicitly removed and is **not** a list. The default template's ``List Number`` /
+        ``List Bullet`` styles carry no paragraph-level ``numPr``, so the style name is the
+        fallback. ``List Paragraph`` alone is a container style, not a list, and is ignored.
+        """
+
+        properties = paragraph._p.pPr
+        numbering = properties.numPr if properties is not None else None
+        level: int | None = None
+        numbering_id: int | None = None
+        if numbering is not None:
+            if numbering.ilvl is not None and numbering.ilvl.val is not None:
+                level = int(numbering.ilvl.val) + 1
+            if numbering.numId is not None and numbering.numId.val is not None:
+                numbering_id = int(numbering.numId.val)
+        if numbering is not None and numbering_id is not None:
+            if numbering_id == 0:
+                return None
+            return {"level": level or 1, "marker": "numbered", "numbering_id": numbering_id}
+        lowered = style.strip().casefold()
+        marker = None
+        if lowered.startswith("list number"):
+            marker = "numbered"
+        elif lowered.startswith("list bullet"):
+            marker = "bulleted"
+        if marker is None:
+            return None
+        return {"level": level or _style_depth(style) or 1, "marker": marker}
+
+    @staticmethod
+    def _core_properties(document: Any) -> dict[str, Any]:
+        """The document's non-empty core properties, with datetimes as ISO 8601 strings."""
+
+        properties = document.core_properties
+        collected: dict[str, Any] = {}
+        for name in _CORE_PROPERTY_FIELDS:
+            value = getattr(properties, name, None)
+            if isinstance(value, datetime):
+                collected[name] = value.isoformat()
+            elif isinstance(value, str):
+                if value.strip():
+                    collected[name] = value
+            elif value is not None:
+                collected[name] = value
+        return collected
 
     @classmethod
     def _collect_section_images(cls, collected: _ExtractedImages, document: Any) -> None:
@@ -1021,11 +1146,12 @@ class ParserRegistry:
         image_ocr: ImageOcrService | None = None,
         capture_layout: bool = False,
         capture_cached_values: bool = False,
+        capture_structure: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
             ".pdf": PdfParser(ocr_service=pdf_ocr, capture_layout=capture_layout),
-            ".docx": DocxParser(),
+            ".docx": DocxParser(capture_structure=capture_structure),
             ".xlsx": XlsxParser(capture_cached_values=capture_cached_values),
             ".jpg": ImageProbeParser(image_ocr=image_ocr),
             ".jpeg": ImageProbeParser(image_ocr=image_ocr),

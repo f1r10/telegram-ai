@@ -208,7 +208,8 @@ Reviewed the actual files and re-ran the commands rather than trusting this ledg
   into the **shipped** `internal_evidence/router.py`. The A/I/K understanding target is met by the
   shipped `understand()`/`deterministic_plan()` functions measured offline.
 - Full suite re-run (`pytest -m "not integration"`): **1479 passed, 40 failed, 2 skipped,
-  126 deselected, 1 xfailed** (115 s). The 40 failures are the same native-Windows host limitations
+  126 deselected, 1 xfailed**   (115 s; a later M6 run is 1491 passed / 39 failed with zero regressions). The failures are the
+  same native-Windows host limitations
   recorded in Phase 0 (POSIX scripts, `os.getuid`, symlink privilege); **no failure is in
   `global_intelligence`, `tests/evaluation` or any Phase-2 suite**. This also corrects P0.8's `41
   failed` (that run included the flaky Windows socket-reset test, which passes on re-run).
@@ -241,7 +242,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M2 | `efe10fb` | `DocumentStructure` view in `normalized.json` (additive, deterministic) | `tests/unit/test_document_structure.py` |
 | M3 | `d36cf36` | PDF geometric reading order + page-furniture detection, recorded in the view only | `tests/evaluation/test_reading_order.py`, `tests/unit/test_document_reading_order.py` |
 | M4 | `7d4c0d5` | PDF table extraction (bordered/borderless/merged/multi-page) as `structure.tables` | `tests/evaluation/test_table_extraction.py`; 11 tables / 104 cells at 1.0 cell F1 |
-| M5 | *(this commit)* | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
+| M5 | `c6472ac` | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
+| M6 | *(this commit)* | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -264,6 +266,29 @@ document level; neither replaces the formula string, and a formula without a sto
 warning naming the cell rather than a fabricated `0`.
 
 Assumptions recorded as **Q59** in `docs/OPEN-QUESTIONS.md`.
+
+### M6 verification (actual commands, 2026-11-15)
+- `uv run --no-sync pytest tests/unit/test_document_docx_structure.py -o addopts="" -q` →
+  **11 passed** (3.9 s).
+- `uv run --no-sync pytest tests/unit/test_document_docx_structure.py
+tests/unit/test_document_structure.py tests/unit/test_document_tables.py
+tests/unit/test_document_xlsx_cached_values.py tests/unit/test_document_reading_order.py
+tests/unit/test_ocr_provider_seam.py tests/unit/test_parsers.py tests/unit/test_chunking.py
+tests/evaluation -o addopts="" -q` → **165 passed, 1 xfailed** (62.1 s).
+- Full offline suite `pytest -m "not integration" -o addopts="" -q` → **1491 passed, 39 failed,
+  2 skipped, 126 deselected, 1 xfailed** (140.9 s). A test-by-test diff against the pre-M6 run shows
+  **zero new failures**; the 39 are the same native-Windows host limitations (the flaky Windows
+  socket-reset test passed this run, hence 39 rather than 40).
+- `ruff check` + `ruff format --check` on `src`/`tests` → **clean**; `pyright` on the changed modules
+  and the new test → **0 errors**.
+
+Flag-off contract: `DocxParser(capture_structure=False)` emits exactly `heading`/`paragraph`/
+`table_row` blocks with empty block metadata, `metadata == {}`, and no `list_item`/`cell_coordinates`
+keys. Flag-on adds `level`/`level_source` on headings, `level`/`marker` on list items,
+`cell_coordinates` on table rows, and document-level `core_properties`. `list_item` keeps its text and
+`paragraph_index` locator, so chunk ids, chunk text and chunk locators are unchanged (asserted).
+
+Assumptions recorded as **Q60** in `docs/OPEN-QUESTIONS.md`.
 
 ---
 
@@ -289,10 +314,10 @@ Assumptions recorded as **Q59** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M6 — DOCX structure** (outline level, numbered lists, table cell
-coordinates, core properties), then M8 confidence, M9 resource limits, M10 embedded-image OCR, M7
-cross-sheet relations and M11 the benchmark/adoption decision. M5 is complete and its evidence is
-recorded above; Phase 1 exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+Continue **Phase 2** with **M8 — confidence recording** (per-page OCR confidence beside native text
+that reports none), then M9 resource limits, M10 embedded-image OCR, M7 cross-sheet relations and M11
+the benchmark/adoption decision. M6 is complete and its evidence is recorded above; Phase 1 exit
+criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

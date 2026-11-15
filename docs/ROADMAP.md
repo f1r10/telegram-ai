@@ -617,9 +617,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       table/reading-order scorers; M1 `OCRProvider` seam (behaviour-preserving); M2 additive
       `DocumentStructure`; M3 PDF reading order and page furniture; M4 PDF table extraction
       (1.0 cell F1 on 11 generated tables, pdfplumber measured and **not** adopted); M5 cached
-      formula values plus merged-region/declared-table metadata. Outstanding: M6 DOCX structure,
-      M8 confidence recording, M9 resource limits, M10 embedded-image OCR, M7 cross-sheet
-      relations, M11 Docling/PaddleOCR benchmark verdict and adoption decision.
+      formula values plus merged-region/declared-table metadata; M6 DOCX outline depth, numbered/
+      bulleted list items, table cell coordinates and core properties (structure view uses the
+      recorded levels and fills `lists[]`). Outstanding: M8 confidence recording, M9 resource
+      limits, M10 embedded-image OCR, M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark
+      verdict and adoption decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

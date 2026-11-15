@@ -1,3 +1,22 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M6: DOCX outline, lists, table cells, properties
+
+- The DOCX parser now records the hierarchy python-docx already exposes when
+  `gi_document_intelligence_enabled` is on: a heading's depth from its paragraph `outlineLvl` first
+  and the Word style depth second (`level`, `level_source`), numbered/bulleted list membership as
+  `list_item` blocks (`level`, `marker`), table row `cell_coordinates` aligned with the existing
+  `cells`, and the document's non-empty `core_properties` with datetimes as ISO 8601.
+- The structure view uses the recorded heading level instead of guessing from a numeric prefix, and
+  now populates `lists[]` with contiguous list runs (marker, level, item text and locators).
+- Flag-off behaviour is unchanged: with `gi_document_intelligence_enabled=False` the parser emits
+  exactly the pre-M6 blocks (heading/paragraph/table_row, empty block metadata, empty document
+  metadata), so `normalized.json` is the pre-M6 artifact.
+- `list_item` is additive for chunking: the block keeps its text and `paragraph_index` locator, and a
+  test proves identical `chunk_id`s, chunk text and chunk locators with and without it.
+- Verified: 11 new tests pass; 165 passed + 1 xfailed across the adjacent parser/structure/content
+  suites; the full offline suite is 1491 passed, 39 failed (the same native-Windows host failures as
+  before, zero regressions), with ruff/format/pyright clean on the changed files. Assumption recorded
+  as `Q60` in `docs/OPEN-QUESTIONS.md`, evidence in `docs/evaluation/BENCHMARK_RESULTS.md`.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M5: spreadsheet cached values and merged regions
 
 - The XLSX parser now reads the workbook a second time with `data_only=True` when
