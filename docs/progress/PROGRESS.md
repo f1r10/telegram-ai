@@ -191,6 +191,44 @@ understanding gates for A/I/K were flipped to hard assertions.
 
 ---
 
+## Verified findings and claim corrections (2026-11-15)
+
+Reviewed the actual files and re-ran the commands rather than trusting this ledger.
+
+**Genuinely satisfied:**
+
+- Phase 0 artifacts exist and are substantive: `docs/audit/BASELINE_AUDIT.md`,
+  `docs/audit/FAILURE_ANALYSIS.md`, `docs/architecture/TARGET_ARCHITECTURE.md`,
+  `docs/architecture/OPEN_SOURCE_INTEGRATION_MATRIX.md`,
+  `docs/architecture/IMPLEMENTATION_PLAN.md`, `docs/evaluation/BENCHMARK_RESULTS.md`; the harness in
+  `tests/evaluation/` runs offline and is a real harness (corpus, 13 scenarios, metrics, runner,
+  probe), not a stub.
+- Phase 1 code is real and exercised: `global_intelligence/{understanding,planning,evidence}` plus
+  `flags.py`/`engine.py`, and the deterministic router route for device/accessory questions is wired
+  into the **shipped** `internal_evidence/router.py`. The A/I/K understanding target is met by the
+  shipped `understand()`/`deterministic_plan()` functions measured offline.
+- Full suite re-run (`pytest -m "not integration"`): **1479 passed, 40 failed, 2 skipped,
+  126 deselected, 1 xfailed** (115 s). The 40 failures are the same native-Windows host limitations
+  recorded in Phase 0 (POSIX scripts, `os.getuid`, symlink privilege); **no failure is in
+  `global_intelligence`, `tests/evaluation` or any Phase-2 suite**. This also corrects P0.8's `41
+  failed` (that run included the flaky Windows socket-reset test, which passes on re-run).
+
+**Gaps and corrections (do not over-read the previous claims):**
+
+1. **The Phase-1 engine is not wired into the live answer path.** `GlobalIntelligenceEngine` is
+   constructed only in `tests/unit/test_gi_engine_skeleton.py`; no Telegram handler, worker or
+   orchestrator calls it (`grep` over `src/` finds only its own module, `flags.py` and settings).
+   So Phase 1's exit criteria are met at the understanding/planner/probe level, while an actual
+   user answer is still produced by the pre-existing path. End-to-end answers through the engine
+   are **NOT VERIFIED**, and wiring it in is Phase 5 work (orchestration), not a Phase 1 claim.
+2. The Phase-1 evidence is offline understanding only. Retrieval recall, citation accuracy,
+   hallucination rate, cross-document reasoning and every live-provider scenario (C, G, H, J, L, M)
+   remain **NOT VERIFIED** — unchanged from the previous record.
+3. This ledger previously said Phase 2 was `NOT STARTED` while M0–M4 were already committed locally.
+   Corrected; M0–M5 are now recorded with their commits and commands.
+
+---
+
 ## Phase 2 — completed milestones (M0–M5)
 
 Target: document intelligence behind `gi_document_intelligence_enabled` (default `False`). Each
