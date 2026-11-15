@@ -244,7 +244,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M4 | `7d4c0d5` | PDF table extraction (bordered/borderless/merged/multi-page) as `structure.tables` | `tests/evaluation/test_table_extraction.py`; 11 tables / 104 cells at 1.0 cell F1 |
 | M5 | `c6472ac` | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
 | M6 | `0703ad5` | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
-| M8 | *(this commit)* | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
+| M8 | `e41a7ad` | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
+| M9 | *(this commit)* | Opt-in killable parse boundary: wall-clock ceiling kills the child, `RLIMIT_AS` memory ceiling where available, sanitized abort codes, 256 MiB result cap, platform limitation reported as a warning | `tests/unit/test_parse_budget.py` — **14 passed, 1 skipped** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -318,6 +319,27 @@ engine reports no score keeps `None`; nothing is rounded up to `1.0` and nothing
 
 Assumptions recorded as **Q61** in `docs/OPEN-QUESTIONS.md`.
 
+### M9 verification (actual commands, 2026-11-15)
+- `uv run --no-sync pytest tests/unit/test_parse_budget.py -o addopts="" -q` →
+  **14 passed, 1 skipped** (9.8 s). The skip is the memory-ceiling abort: this Windows host has no
+  `RLIMIT_AS`, and the test is marked skip rather than pretending the ceiling was enforced.
+- Full offline suite `pytest -m "not integration" -o addopts="" -q` → **1514 passed, 40 failed,
+  3 skipped, 126 deselected, 1 xfailed** (72.6 s). 39 failures are the known native-Windows host
+  limitations; the 40th is the flaky
+  `test_v2_miniapp_http.py::test_stock_history_http_is_signed_and_read_only`, which **passed twice
+  on immediate re-run** (the same Windows socket flakiness seen in earlier sessions). No
+  functional regression.
+- `ruff check` + `ruff format --check` on `src`/`tests` → **clean** (416 files); `pyright` on
+  `budgets.py`, `worker_service.py`, `ingestion.py`, `settings.py` and the new test → **0 errors**.
+
+Flag-off contract: both settings default to `None`, `parse_budget_from_settings` returns `None` and
+`parse_with_budget` runs the previous in-process `parser.parse` call unchanged — no child process,
+no pickling. Flag-on with a ceiling adds the boundary; an abort surfaces as
+`DocumentProcessingStatus.FAILED` with `error_message` equal to the sanitized code (the worker's
+existing parse handler), never as a silent success.
+
+Assumptions recorded as **Q62** in `docs/OPEN-QUESTIONS.md`.
+
 ---
 
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
@@ -342,10 +364,10 @@ Assumptions recorded as **Q61** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M9 — resource limits and processing isolation** (a configurable per-parse
-wall-clock/memory ceiling whose defaults reproduce today's limits, with a visible abort), then M10
-embedded-image OCR, M7 cross-sheet relations and M11 the benchmark/adoption decision. M8 is complete
-and its evidence is recorded above; Phase 1 exit criteria remain recorded in
+Continue **Phase 2** with **M10 — embedded-image OCR wiring** (route a scanned picture inside a
+PDF/DOCX/XLSX through the same `OCRProvider` with locators pointing at the original image position),
+then M7 cross-sheet relations and M11 the benchmark/adoption decision. M9 is complete and its
+evidence is recorded above; Phase 1 exit criteria remain recorded in
 `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED

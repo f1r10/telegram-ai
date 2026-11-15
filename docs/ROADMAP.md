@@ -620,9 +620,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       formula values plus merged-region/declared-table metadata; M6 DOCX outline depth, numbered/
       bulleted list items, table cell coordinates and core properties (structure view uses the
       recorded levels and fills `lists[]`); M8 OCR confidence recorded per block and aggregated per
-      run (native pages carry no fabricated score, no threshold applied). Outstanding: M9 resource
-      limits, M10 embedded-image OCR, M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark
-      verdict and adoption decision.
+      run (native pages carry no fabricated score, no threshold applied); M9 opt-in killable parse
+      boundary (wall-clock kill, `RLIMIT_AS` memory ceiling where available, sanitized abort codes,
+      platform limitation reported not hidden; availability boundary, not a sandbox). Outstanding:
+      M10 embedded-image OCR, M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark verdict and
+      adoption decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

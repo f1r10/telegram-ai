@@ -1,3 +1,24 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M9: killable per-parse availability boundary
+
+- A configured parse budget now runs one parse in a child process the parent can kill:
+  `parse_wall_clock_seconds` expires it with `PARSE_TIME_LIMIT`, and `parse_memory_limit_mb` caps the
+  child's address space with `RLIMIT_AS` where the OS supports it. The worker records the run
+  `FAILED` with that sanitized code, so an over-budget document is a visible failure, never a hang
+  and never a silent success.
+- The boundary is **off by default**: both settings unset (the new defaults) reproduce today's
+  in-process parse exactly, and the gate is `gi_document_intelligence_enabled`. A budget that sets
+  no ceiling is rejected rather than accepted as a promise the code cannot keep.
+- A platform without `RLIMIT_AS` (Windows) reports `PARSE_MEMORY_CEILING_UNSUPPORTED` as a parse
+  warning instead of pretending the memory ceiling applies; the wall-clock boundary still does.
+- A parse result larger than 256 MiB aborts with `PARSE_RESULT_LIMIT` rather than filling the
+  parent's memory across the process boundary.
+- This is an **availability boundary, not a security sandbox** — documented in the module, the
+  benchmark record and `Q62`.
+- Verified: 14 new tests pass, 1 skipped (the memory-ceiling abort, which this Windows host cannot
+  exercise); full offline suite 1514 passed, 40 failed (39 host limitations plus one flaky Windows
+  socket test that passes on re-run), 3 skipped, zero functional regressions; ruff/format/pyright
+  clean on the changed files.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M8: OCR confidence recorded, never acted on
 
 - With `gi_document_intelligence_enabled` on, an OCR'd PDF page or uploaded image records the

@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     gi_conflict_classifier_enabled: bool = False
     gi_per_statement_confidence_enabled: bool = False
     gi_verification_enabled: bool = False
+    # Phase 2 M9 availability boundary. Both unset means today's in-process, unbounded parse; the
+    # boundary only applies when gi_document_intelligence_enabled is on and one ceiling is set.
+    parse_wall_clock_seconds: float | None = Field(default=None, gt=0)
+    parse_memory_limit_mb: int | None = Field(default=None, ge=64)
 
 
 def load_settings() -> Settings:

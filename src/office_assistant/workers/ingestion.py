@@ -19,6 +19,7 @@ from office_assistant.knowledge.indexing import KnowledgeIndexService
 from office_assistant.knowledge.models import ChunkingConfig
 from office_assistant.knowledge.qdrant_store import QdrantKnowledgeStore
 from office_assistant.orders.dispatch import OrderReminderDispatchService
+from office_assistant.processing.budgets import parse_budget_from_settings
 from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.ocr_replay import OcrReplayService
 from office_assistant.processing.pdf_ocr import PdfOcrConfig, PdfOcrService
@@ -74,6 +75,7 @@ async def run() -> None:
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
         document_intelligence_enabled=settings.gi_document_intelligence_enabled,
+        parse_budget=parse_budget_from_settings(settings),
         visual_ann=visual_ann,
         visual_semantic=(
             SemanticVisualSearch(

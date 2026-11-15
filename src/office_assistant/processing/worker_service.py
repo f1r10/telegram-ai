@@ -5,8 +5,9 @@ import logging
 import os
 import socket
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, cast
 from uuid import uuid4
 
@@ -39,6 +40,11 @@ from office_assistant.infrastructure.database.models import (
     User,
 )
 from office_assistant.infrastructure.storage.local import LocalFileStorage
+from office_assistant.processing.budgets import (
+    ParseBudget,
+    memory_limit_supported,
+    run_bounded,
+)
 from office_assistant.processing.image_assets import ImageAssetRegistry
 from office_assistant.processing.image_ocr import ImageOcrService
 from office_assistant.processing.models import ParsedDocument
@@ -69,6 +75,28 @@ class JobClaim:
     job_id: int
     session_id: int
     attempt: int
+
+
+def parse_with_budget(
+    parser: Any,
+    path: Any,
+    *,
+    source_file_id: int,
+    media_type: str,
+    budget: ParseBudget | None,
+) -> ParsedDocument:
+    """Run one parse, inside the killable boundary only when a budget is configured.
+
+    With no budget this is exactly the previous in-process call: no child process, no pickling and
+    no change to how a parser is invoked. A configured budget runs the same call in a child that the
+    parent can kill, and raises :class:`~office_assistant.processing.budgets.ParseAborted` with a
+    sanitized code instead of hanging.
+    """
+
+    operation = partial(parser.parse, path, source_file_id=source_file_id, media_type=media_type)
+    if budget is None:
+        return cast("ParsedDocument", operation())
+    return run_bounded(operation, budget)
 
 
 def build_normalized_payload(
@@ -116,6 +144,7 @@ class IngestionJobService:
         index_chunking_version: str = "v1-medium-1800-180",
         structured_extraction_enabled: bool = False,
         document_intelligence_enabled: bool = False,
+        parse_budget: ParseBudget | None = None,
         visual_semantic: SemanticVisualSearch | None = None,
         visual_ann: VisualANNIndex | None = None,
     ) -> None:
@@ -137,6 +166,8 @@ class IngestionJobService:
         self.index_chunking_version = index_chunking_version
         self.structured_extraction_enabled = structured_extraction_enabled
         self.document_intelligence_enabled = document_intelligence_enabled
+        # Phase 2 M9: None keeps the pre-M9 in-process parse; a configured budget adds the boundary.
+        self.parse_budget = parse_budget
         self.visual_semantic = visual_semantic
         self.visual_ann = visual_ann
 
@@ -280,8 +311,25 @@ class IngestionJobService:
 
         try:
             parsed = await asyncio.to_thread(
-                parser.parse, path, source_file_id=file_id, media_type=media_type
+                parse_with_budget,
+                parser,
+                path,
+                source_file_id=file_id,
+                media_type=media_type,
+                budget=self.parse_budget,
             )
+            if self.parse_budget is not None and not memory_limit_supported():
+                # Visible, never silent: the wall clock still applies, but the memory ceiling does
+                # not on this platform. The warning is stored in normalized.json and counted on
+                # the parse run.
+                parsed = replace(
+                    parsed,
+                    warnings=[
+                        *parsed.warnings,
+                        "PARSE_MEMORY_CEILING_UNSUPPORTED: this platform cannot cap a parse's "
+                        "address space; the wall-clock boundary still applies",
+                    ],
+                )
             payload = build_normalized_payload(
                 parsed,
                 context,

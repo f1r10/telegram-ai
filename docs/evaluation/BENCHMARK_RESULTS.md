@@ -373,6 +373,53 @@ behaviour remain **NOT VERIFIED**. The confidence is deliberately **not** in the
 (`structure.pages[]`), which has no per-page score source for DOCX/XLSX; it lives on the blocks and in
 the run metadata (Q61).
 
+## Phase 2 — M9 parse availability boundary (measured, off by default)
+
+Phase-2 M9 adds a **killable** per-parse boundary: a configured wall-clock ceiling and, where the OS
+exposes `RLIMIT_AS`, a child-process memory ceiling. It is an availability control, **not a security
+sandbox**, and it is off unless `gi_document_intelligence_enabled` is on **and** a ceiling is set, so
+the default parse path is the same in-process call as before, with no child process.
+
+**Measured behaviour** (`uv run --no-sync pytest tests/unit/test_parse_budget.py -o addopts="" -q` →
+**14 passed, 1 skipped**, 9.8 s; the skip is the memory-ceiling abort, which this Windows host cannot
+exercise):
+
+| case | result |
+| --- | --- |
+| `Settings()` defaults | `parse_wall_clock_seconds is None`, `parse_memory_limit_mb is None` → no boundary (today's behaviour) |
+| flag off, ceilings set | `parse_budget_from_settings` → `None` (the gate holds) |
+| flag on, ceilings set | `ParseBudget(wall_clock_seconds, memory_limit_mb)` |
+| flag on, no ceiling | `None` — no invented limit |
+| invalid budget (`{}`, `0`, `-1`, `32 MB`) | `ValueError` — a budget that enforces nothing is rejected |
+| fast operation | returns its value |
+| 60 s operation, 0.5 s ceiling | `ParseAborted(PARSE_TIME_LIMIT)`; the parent returns in ~1 s, not 60 s |
+| 512 MB allocation, 128 MB ceiling | `ParseAborted(PARSE_MEMORY_LIMIT)` — **skipped on Windows** (no `RLIMIT_AS`) |
+| child raises `ValueError` | `ParseAborted("ValueError")`; the message never carries document text |
+| worker with no budget | parses in process (`parser.calls == 1`) |
+| worker with a 0.5 s budget | `PARSE_TIME_LIMIT` raised; the parent-side parser was never called |
+| result larger than 256 MiB | `PARSE_RESULT_LIMIT` instead of filling the parent |
+
+The worker catches the abort in its existing parse `except` block, so the run is recorded `FAILED`
+with `error_message = "PARSE_TIME_LIMIT"` (a visible failure, never a silent success). On a platform
+without `RLIMIT_AS`, a configured budget adds the warning
+`PARSE_MEMORY_CEILING_UNSUPPORTED: …` to `normalized.json` instead of claiming enforcement.
+
+Full offline suite after M9: **1514 passed, 40 failed, 3 skipped, 126 deselected, 1 xfailed**
+(72.6 s). One of the 40 is the known flaky Windows socket test
+(`test_v2_miniapp_http.py::test_stock_history_http_is_signed_and_read_only`), which **passed twice on
+immediate re-run**; the other 39 are the same native-Windows host limitations as the pre-M6 baseline,
+so the diff shows **no functional regression**. `ruff check`/`ruff format --check` are clean (416
+files) and `pyright` reports **0 errors** on the changed modules and the new test.
+
+**Limitations, stated rather than hidden.** This is an availability boundary, not a sandbox: it
+does not confine filesystem or network access and does not make an untrusted parser safe. The memory
+ceiling is `RLIMIT_AS` and therefore **not enforced on Windows**; the platform limitation is reported
+as a warning rather than hidden. A budget with only a memory ceiling and no wall clock can still wait
+indefinitely on a child that neither allocates nor finishes. The parse result crosses the process
+boundary pickled, capped at 256 MiB; the ceiling is a bound, not a measured RSS guarantee. No real
+hostile document (zip bomb, decompression bomb) was used — the abort path is exercised with synthetic
+operations, and live ingestion was not run.
+
 ## Not measured (honest gaps)
 
 - End-to-end answers, retrieval quality (recall/MRR/nDCG), OCR and vision accuracy, graph reasoning,
