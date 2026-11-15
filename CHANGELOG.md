@@ -1,3 +1,24 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M11: benchmark record and the adoption verdicts
+
+- `docs/evaluation/BENCHMARK_RESULTS.md` now carries the Phase-2 adoption decision: host profile,
+  corpus digests, exact commands and engine versions for every published number, the status of all
+  nine planned benchmarks (B1–B9), and a verdict for each candidate engine.
+- **Docling: rejected for Phase 2.** It is not installed, so the evaluation arm returns
+  `{"status": "UNAVAILABLE"}` (exit 2) and no candidate number exists; the incumbent already reaches
+  1.0 cell precision/recall/F1 with zero false positives over 11 generated tables/104 cells and 1.0
+  phrase recall on the planted-label sample. Revisit only on a real corpus that measures a drop.
+- **PaddleOCR: rejected for Phase 2.** It is not installed and no labelled az/ru/tr image set exists,
+  so the per-language benchmark that would justify a swap cannot run; the shipped Tesseract path stays
+  default behind the `OCRProvider` seam, so a future engine is adopted by registration.
+- No ADR, because an ADR is written for an adopted engine and both verdicts are rejections; the
+  decisions are recorded in the integration matrix decision log with their evidence and revisit
+  triggers. No dependency was installed.
+- Measured incumbent arms: B1 native phrase recall 1.0 (smoke sample), B2 1.0 cell F1 (11 tables, 104
+  cells, 0 false positives), B3 exact reading-order sequence on every fixture, B7 one provenance-correct
+  cross-sheet edge, B8 DOCX heading levels `[1, 2, 3]`, B9 single-observation parse medians (PDF 0.69 ms,
+  DOCX 7.69 ms, XLSX 2.62 ms). B4/B5/B6 and B9's RSS/size envelope are **NOT MEASURED**, with reasons.
+- Every `gi_*` flag remains `False` by default in both settings and `.env.example`.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M7: cross-sheet structure is represented, not answered
 
 - With `gi_document_intelligence_enabled` on, the workbook structure view now fills `relations[]`

@@ -247,7 +247,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M8 | `e41a7ad` | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
 | M9 | `802f8ce` | Opt-in killable parse boundary: wall-clock ceiling kills the child, `RLIMIT_AS` memory ceiling where available, sanitized abort codes, 256 MiB result cap, platform limitation reported as a warning | `tests/unit/test_parse_budget.py` — **14 passed, 1 skipped** |
 | M10 | `a5b352e` | A picture inside a PDF/DOCX/XLSX is OCR'd through the same `OCRProvider`, its `image_ocr` block carrying the original position locator; caps and an OCR-pass count bound it; the gate is `gi_document_intelligence_enabled` **and** `IMAGE_OCR_ENABLED` | `tests/unit/test_embedded_image_ocr.py` — **11 passed** |
-| M7 | *(this commit)* | `structure.relations[]` carries deterministic cross-sheet edges with the cue that produced each one (shared key column, formula reference, defined name); both endpoints must resolve; read-only, no SQL | `tests/unit/test_document_cross_sheet_relations.py` — **9 passed** |
+| M7 | `ca9349a` | `structure.relations[]` carries deterministic cross-sheet edges with the cue that produced each one (shared key column, formula reference, defined name); both endpoints must resolve; read-only, no SQL | `tests/unit/test_document_cross_sheet_relations.py` — **9 passed** |
+| M11 | *(this commit)* | Benchmark record with corpus digests, commands, versions and host profile for every published number; B1–B9 status; Docling and PaddleOCR each **rejected for Phase 2** with the evidence that produced the verdict and a revisit trigger | `docs/evaluation/BENCHMARK_RESULTS.md` §M11; `tests/evaluation` — **79 passed, 1 xfailed** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -393,6 +394,31 @@ locators and every other metadata key are unchanged.
 
 Assumptions recorded as **Q64** in `docs/OPEN-QUESTIONS.md`.
 
+### M11 verification (actual commands, 2026-11-15)
+- Candidate availability: `.venv/Scripts/python.exe -c "import docling"` →
+  `ModuleNotFoundError: No module named 'docling'`; same for `paddleocr`/`paddle`; `pdfplumber` and
+  the `tesseract`/`pdftoppm` binaries are absent too.
+- `python -m office_assistant.scripts.evaluate_docling --pdf q.pdf --truth labels.json
+  --local-models models` → `{"status": "DRY_RUN", "samples": 2, "truth_sha256": "3febc3fd…"}`,
+  exit 0; with `--evaluate` → `{"status": "UNAVAILABLE", "content_disclosed": false}`, exit 2.
+- Native arm on the same sample: `native_phrase_recall = 1.0` (2/2 planted labels).
+- `pytest tests/evaluation -o addopts="" -q` → **79 passed, 1 xfailed**; the parser/structure suites
+  (`test_document_cross_sheet_relations`, `test_document_docx_structure`,
+  `test_document_xlsx_cached_values`, `test_document_tables`, `test_document_reading_order`) →
+  **55 passed**.
+- B9 single observation: median of 5 `ParserRegistry` parses on generated fixtures — PDF 0.69 ms,
+  DOCX 7.69 ms, XLSX 2.62 ms; no RSS and no size envelope (this host has no usable `ru_maxrss`).
+- No `gi_*` flag is enabled by default: `settings.py` shows every `gi_*_enabled = False` and
+  `.env.example` sets each `GI_*_ENABLED=false`.
+
+Phase-2 exit criteria: the plan's measurable exit criteria (1) and (2) are met as far as this host
+allows — the report carries measured incumbent numbers with their registration data and both
+candidates have an explicit, evidence-backed verdict. What is **not** met is a measured candidate
+comparison: Docling and PaddleOCR remain unmeasured because neither is installed and no dependency
+approval exists, which is recorded rather than papered over.
+
+Assumptions recorded as **Q65** in `docs/OPEN-QUESTIONS.md`.
+
 ---
 
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
@@ -417,10 +443,10 @@ Assumptions recorded as **Q64** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M11 — the benchmark report and adoption decision** (Docling and
-PaddleOCR each need an explicit verdict with the evidence that produced it). M7 and M10 are complete
-and their evidence is recorded above; Phase 1 exit criteria remain recorded in
-`docs/evaluation/BENCHMARK_RESULTS.md`.
+**Phase 2 is complete**: M0–M11 have all landed on `feature/global-intelligence-engine`, each with its
+own tests and recorded evidence, and M11 records the Docling/PaddleOCR verdicts. The next phase in the
+plan is **Phase 3 — entity resolution, aliases, relations and temporal facts**; it is not started
+here. Phase 1 exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

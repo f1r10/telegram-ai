@@ -613,7 +613,8 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       orchestration skeleton and three-state evidence aggregation. Defect **F1** fixed; offline
       understanding target **2/7 → 6/7** (scenarios A, I, K and B); F2 reproducer left in place.
       Target scenarios A, I, K met.
-- [~] Phase 2 — document intelligence (**in progress**). Landed: M0 generated fixture corpus and
+- [x] Phase 2 — document intelligence (**complete**; candidate engines measured only as far as this
+      host allows — see M11). Landed: M0 generated fixture corpus and
       table/reading-order scorers; M1 `OCRProvider` seam (behaviour-preserving); M2 additive
       `DocumentStructure`; M3 PDF reading order and page furniture; M4 PDF table extraction
       (1.0 cell F1 on 11 generated tables, pdfplumber measured and **not** adopted); M5 cached
@@ -627,8 +628,13 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       position locator, existing caps preserved and a visible per-parse OCR-pass bound); M7
       cross-sheet `structure.relations[]` edges with the cue that produced each one (shared key
       column, formula reference, defined name), both endpoints resolving to real cells, read-only
-      and with no SQL of its own. Outstanding: M11 Docling/PaddleOCR benchmark verdict and adoption
-      decision.
+      and with no SQL of its own); M11 benchmark record in `BENCHMARK_RESULTS.md` with corpus
+      digests, commands, versions and host profile, and an explicit verdict for each candidate:
+      **Docling and PaddleOCR both rejected for Phase 2** (neither installed, no measured gain, no
+      dependency approval) with stated revisit triggers. Measured incumbent arms: B2 1.0 cell F1 over
+      11 tables/104 cells, B3 exact reading order, B7 one provenance-correct cross-sheet edge, B8 DOCX
+      structure, B9 single-observation timings. B4/B5/B6 remain unmeasured (no OCR binary, no
+      labelled per-language images).
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

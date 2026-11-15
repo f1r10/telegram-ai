@@ -324,8 +324,22 @@ command, (c) the parser/engine version, (d) the host profile (CPU, RAM). This mi
 
 ### 6.1 Real, measured results
 
-**None.** No parser or OCR benchmark has been executed against real bytes in this repository. This
-section is deliberately empty rather than populated with estimates.
+> **Updated by Phase-2 M11 (2026-11-15).** Parsers and OCR *can* now be measured: M0 generates real
+> PDF/DOCX/XLSX/PNG bytes in-process, and M2–M10 added the vocabulary (structure, layout, tables,
+> cached values, cross-sheet relations, confidence) the scorers read. What has been measured, with
+> the exact command, corpus digest, engine version and host profile, lives in
+> [BENCHMARK_RESULTS.md](../evaluation/BENCHMARK_RESULTS.md) §Phase 2 — M11: **B2** (PDF tables,
+> 1.0 cell F1 over 11 tables/104 cells), **B3** (reading order, exact sequence on every fixture),
+> **B7** (cross-sheet, one provenance-correct edge), **B8** (DOCX structure), and single-observation
+> **B9** timings. **B4, B5 and B6 remain NOT MEASURED** — no `tesseract` binary, no labelled
+> per-language images, no PaddleOCR — and B1's candidate arms return `UNAVAILABLE`. Docling and
+> PaddleOCR are therefore **rejected for Phase 2** (M11), with revisit triggers recorded.
+>
+> The statements below describe the state before M11 and are kept for context.
+
+**None.** No parser or OCR benchmark has been executed against **real (non-generated) bytes** in this
+repository; the M11 numbers above are on code-generated fixtures. This section is deliberately empty
+rather than populated with estimates.
 
 ### 6.2 Published / upstream claims (not reproduced here)
 
