@@ -2,18 +2,34 @@
 
 External binaries never receive shell input. Private page text and process stderr
 are never logged. A damaged or slow page cannot block indexing of readable pages.
+
+The Tesseract invocation itself sits behind the OCR seam (``global_intelligence.providers``,
+Phase 2 gap G2); this module keeps only the rasterisation, the page/document budgets and
+the reason vocabulary, all unchanged by the seam.
 """
 
-import re
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory, TemporaryFile
+from tempfile import TemporaryDirectory
 
-_LANGUAGES = re.compile(r"[a-z]{3}(?:\+[a-z]{3})*\Z")
+from office_assistant.global_intelligence.providers import (
+    LANGUAGE_PATTERN,
+    RECOGNITION_FAILED,
+    TEXT_LIMIT,
+    OCRProvider,
+    OcrProviderError,
+    TesseractOcrProvider,
+)
+
 MAX_RASTER_BYTES = 16 * 1024 * 1024
-MAX_TEXT_BYTES = 1024 * 1024
+
+#: Provider failure codes translated into this module's unchanged reason vocabulary.
+_PROVIDER_REASONS = {
+    RECOGNITION_FAILED: "OCR_RECOGNITION_FAILED",
+    TEXT_LIMIT: "OCR_TEXT_SIZE_LIMIT",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +41,7 @@ class PdfOcrConfig:
     max_dimension_pixels: int = 2000
 
     def __post_init__(self) -> None:
-        if _LANGUAGES.fullmatch(self.languages) is None:
+        if LANGUAGE_PATTERN.fullmatch(self.languages) is None:
             raise ValueError("Invalid PDF OCR language configuration")
         if not 1 <= self.max_pages <= 250:
             raise ValueError("Invalid PDF OCR page limit")
@@ -48,17 +64,24 @@ class _OcrFailure(Exception):
 
 
 class PdfOcrService:
-    def __init__(self, config: PdfOcrConfig | None = None) -> None:
+    def __init__(
+        self, config: PdfOcrConfig | None = None, *, provider: OCRProvider | None = None
+    ) -> None:
         self.config = config or PdfOcrConfig()
+        # Tesseract is the only registered production provider; the seam exists so an
+        # alternative engine is adopted by registration, not by editing this service.
+        self.provider: OCRProvider = provider or TesseractOcrProvider()
 
     def session(self, path: Path) -> "PdfOcrSession":
-        return PdfOcrSession(path, self.config)
+        return PdfOcrSession(path, self.config, self.provider)
 
 
 class PdfOcrSession:
-    def __init__(self, path: Path, config: PdfOcrConfig) -> None:
+    def __init__(self, path: Path, config: PdfOcrConfig, provider: OCRProvider) -> None:
         self.path = path.resolve()
         self.config = config
+        self.provider = provider
+        self._languages = tuple(config.languages.split("+"))
         self._deadline = time.monotonic() + config.document_timeout_seconds
         self.attempted_pages = 0
         self.recovered_pages = 0
@@ -123,27 +146,15 @@ class PdfOcrSession:
             size = raster.stat().st_size
             if not 0 < size <= MAX_RASTER_BYTES:
                 raise _OcrFailure("OCR_RASTER_SIZE_LIMIT")
-            # A disk-backed pipe avoids holding unbounded subprocess stdout in memory.
-            with TemporaryFile(mode="w+b") as output:
-                result = subprocess.run(
-                    [
-                        "tesseract",
-                        str(raster),
-                        "stdout",
-                        "-l",
-                        self.config.languages,
-                        "--psm",
-                        "3",
-                    ],
-                    stdin=subprocess.DEVNULL,
-                    stdout=output,
-                    stderr=subprocess.DEVNULL,
-                    timeout=self._timeout(),
-                    check=False,
+            try:
+                result = self.provider.recognize(
+                    raster.read_bytes(),
+                    languages=self._languages,
+                    psm=3,
+                    timeout_seconds=self._timeout(),
                 )
-                if result.returncode != 0:
-                    raise _OcrFailure("OCR_RECOGNITION_FAILED")
-                if output.tell() > MAX_TEXT_BYTES:
-                    raise _OcrFailure("OCR_TEXT_SIZE_LIMIT")
-                output.seek(0)
-                return output.read(MAX_TEXT_BYTES + 1).decode("utf-8", errors="replace")
+            except OcrProviderError as error:
+                raise _OcrFailure(
+                    _PROVIDER_REASONS.get(str(error), "OCR_RECOGNITION_FAILED")
+                ) from error
+            return result.text

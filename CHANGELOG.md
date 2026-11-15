@@ -1,3 +1,69 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M6: DOCX outline, lists, table cells, properties
+
+- The DOCX parser now records the hierarchy python-docx already exposes when
+  `gi_document_intelligence_enabled` is on: a heading's depth from its paragraph `outlineLvl` first
+  and the Word style depth second (`level`, `level_source`), numbered/bulleted list membership as
+  `list_item` blocks (`level`, `marker`), table row `cell_coordinates` aligned with the existing
+  `cells`, and the document's non-empty `core_properties` with datetimes as ISO 8601.
+- The structure view uses the recorded heading level instead of guessing from a numeric prefix, and
+  now populates `lists[]` with contiguous list runs (marker, level, item text and locators).
+- Flag-off behaviour is unchanged: with `gi_document_intelligence_enabled=False` the parser emits
+  exactly the pre-M6 blocks (heading/paragraph/table_row, empty block metadata, empty document
+  metadata), so `normalized.json` is the pre-M6 artifact.
+- `list_item` is additive for chunking: the block keeps its text and `paragraph_index` locator, and a
+  test proves identical `chunk_id`s, chunk text and chunk locators with and without it.
+- Verified: 11 new tests pass; 165 passed + 1 xfailed across the adjacent parser/structure/content
+  suites; the full offline suite is 1491 passed, 39 failed (the same native-Windows host failures as
+  before, zero regressions), with ruff/format/pyright clean on the changed files. Assumption recorded
+  as `Q60` in `docs/OPEN-QUESTIONS.md`, evidence in `docs/evaluation/BENCHMARK_RESULTS.md`.
+
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M5: spreadsheet cached values and merged regions
+
+- The XLSX parser now reads the workbook a second time with `data_only=True` when
+  `gi_document_intelligence_enabled` is on, so a formula cell records the result the file cached
+  **beside** the formula string (`metadata.cached_values`, aligned with `values`/`formulas`) instead
+  of hiding it. The formula is never replaced by its result.
+- A formula whose stored result is missing keeps `None` and raises a warning naming the cell; no
+  zero is fabricated. A workbook that cannot be reopened in data-only mode warns and still parses.
+- Merged regions (`{range, anchor}`) and explicitly declared table ranges (`{name, range}`) are
+  recorded per sheet in document-level `metadata.xlsx.sheets[]`, and decorate the existing per-sheet
+  entry in `structure.tables` rather than creating a second table.
+- Flag-off behaviour is unchanged: with `gi_document_intelligence_enabled=False` the parser emits
+  exactly the pre-M5 row metadata (`values`, `formulas`, `columns`) and an empty document metadata,
+  so `normalized.json` and every `chunk_id` stay identical.
+- Verified: 9 new tests pass; 139 passed + 1 xfailed across the adjacent parser/structure/OCR/
+  evaluation suites; the strict inventory and sales intakes still pass unchanged (34 tests) and still
+  reject formulas; ruff, format check and pyright clean on the changed files. Assumption recorded as
+  `Q59` in `docs/OPEN-QUESTIONS.md`, evidence in `docs/evaluation/BENCHMARK_RESULTS.md`.
+
+## 2026-11-12 — Global Intelligence Engine, Phase 1: understanding, planning, evidence aggregation
+
+- New sibling package `src/office_assistant/global_intelligence/` behind nine `EngineFlags`
+  (`gi_*` env vars, **all default `False`**, master switch `gi_engine_enabled`). Nothing in the
+  shipped path changes while the flags are off; a deployment can restore the old behaviour instantly.
+- Deterministic understanding: Azerbaijani/Russian/English normalization with diacritic folding, a
+  code-safe bounded typo corrector (`plinter` → `printer`), concept and device/connector expansion,
+  and multi-topic decomposition. Product codes, model and serial numbers are never typo-corrected,
+  and an ambiguous correction returns its alternatives for clarification instead of picking one
+  (`promt.md` §5).
+- Deterministic-first planner (`planning/planner.py`): the deterministic router answers first; the
+  model is consulted only when the deterministic layer cannot decide, and a provider failure degrades
+  to the deterministic plan instead of raising (invariant 8). The planner policy treats the user
+  message as untrusted data.
+- Evidence aggregation with a three-state `StatementStatus` (`tesdiqlendi` / `ehtimal` / `namelum`)
+  derived from evidence and locator; concept-expansion outputs stay `PROBABLE`, never confirmed.
+- Fixes the measured defect **F1**: `"Plinter üçün kabel var?"` and `"Kamera üçün hansı kabellər
+  var?"` now route `DEVICE_ACCESSORY_LOOKUP` (internal, structured + documents) instead of
+  `GENERAL_CHAT`. The hard-coded internal-marker tuple moved into
+  `global_intelligence/understanding/lexicon.py` and gained the measured missing vocabulary.
+- Offline evaluation harness now measures the **shipped** understanding layer; the Phase-0
+  reproducers F1/F4 became regression guards and the A/I/K understanding gates flipped from `xfail`
+  to hard assertions. Offline understanding target **2/7 → 6/7** (A, I, K and B). Full matrix and
+  gates in `docs/evaluation/BENCHMARK_RESULTS.md`; ledger in `docs/progress/PROGRESS.md`.
+- 70 new/targeted offline tests pass (71 collected; 1 expected `xfail` for D); lint, format and type
+  checks report **0 errors in Phase-1 files**. Scenarios needing a live provider/corpus/database
+  remain **NOT VERIFIED**.
+
 ## 2026-11-11 — Milestone 3: the durable order reminder delivery engine
 
 - A confirmed order's plan now actually reaches its creator. `orders/dispatch.py`

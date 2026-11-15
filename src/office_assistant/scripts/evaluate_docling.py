@@ -25,9 +25,10 @@ class Recall:
     samples: int
     native_hits: int
     docling_hits: int
+    pdfplumber_hits: int | None = None
 
     def result(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "samples": self.samples,
             "native_phrase_recall": round(self.native_hits / self.samples, 4)
             if self.samples
@@ -36,13 +37,23 @@ class Recall:
             if self.samples
             else None,
         }
+        # ASSUMPTION: the third arm is reported additively. The two keys above and every status
+        # string stay exactly as they were, so a two-arm run is byte-for-byte unchanged; the extra
+        # key appears only when the pdfplumber arm actually ran (docs/OPEN-QUESTIONS.md Q53).
+        if self.pdfplumber_hits is not None:
+            payload["pdfplumber_phrase_recall"] = (
+                round(self.pdfplumber_hits / self.samples, 4) if self.samples else None
+            )
+        return payload
 
 
 def normalize(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
-def score_phrases(native: str, candidate: str, expected: list[str]) -> Recall:
+def score_phrases(
+    native: str, candidate: str, expected: list[str], alternative: str | None = None
+) -> Recall:
     """Human verified expected text is never copied into result output."""
     source = normalize(native)
     proposed = normalize(candidate)
@@ -53,6 +64,7 @@ def score_phrases(native: str, candidate: str, expected: list[str]) -> Recall:
         len(phrases),
         sum(item in source for item in phrases),
         sum(item in proposed for item in phrases),
+        None if alternative is None else sum(item in normalize(alternative) for item in phrases),
     )
 
 
@@ -97,6 +109,94 @@ def docling_pdf(pdf_path: Path, artifacts_root: Path) -> str:
         raise DoclingEvaluationError("docling_conversion_failed") from None
 
 
+def _check_pdf_input(pdf_path: Path) -> None:
+    """Refuse a hostile path before any candidate import: symlink, extension, size, ``%PDF-``."""
+
+    if pdf_path.is_symlink() or not pdf_path.is_file() or pdf_path.suffix.casefold() != ".pdf":
+        raise DoclingEvaluationError("invalid_pdf")
+    if not 0 < pdf_path.stat().st_size <= _MAX_PDF_BYTES:
+        raise DoclingEvaluationError("pdf_size_limit")
+    try:
+        with pdf_path.open("rb") as stream:
+            if stream.read(5) != b"%PDF-":
+                raise DoclingEvaluationError("invalid_pdf_header")
+    except OSError:
+        raise DoclingEvaluationError("invalid_pdf") from None
+
+
+def pdfplumber_pdf(pdf_path: Path) -> str:
+    """Second benchmark-only candidate arm (audit risk R7; DEPENDENCY_REVIEW.md).
+
+    Same input validation as the Docling arm — symlink, extension, size, ``%PDF-`` header — so a
+    hostile path is refused before any import. There is no offline-environment guard because
+    pdfplumber is pure Python and downloads no model artifacts. pdfplumber is never a production
+    dependency: this module measures, it does not ship.
+    """
+
+    _check_pdf_input(pdf_path)
+    try:
+        module = cast(Any, import_module("pdfplumber"))
+    except (ModuleNotFoundError, ImportError):
+        raise DoclingEvaluationError("pdfplumber_not_installed") from None
+    try:
+        with module.open(str(pdf_path)) as document:
+            output = "\n".join(page.extract_text() or "" for page in document.pages)
+        if len(output) > _MAX_EXTRACTED_CHARS:
+            raise DoclingEvaluationError("extracted_text_limit")
+        return output
+    except DoclingEvaluationError:
+        raise
+    except Exception:
+        raise DoclingEvaluationError("pdfplumber_conversion_failed") from None
+
+
+def pdfplumber_tables(pdf_path: Path) -> list[dict[str, Any]]:
+    """Benchmark-only: the tables pdfplumber finds, shaped like the shipped ``structure`` tables.
+
+    Phase 2 M4 evaluates pdfplumber as a *candidate* table extractor, so this arm returns the same
+    shape the native detector produces (``source``/``locator``/``rows``/``columns``/``cells``/
+    ``bbox``) and can be scored by the identical metric. Nothing here is imported by the shipped
+    pipeline. Two pdfplumber conventions are translated: an empty cell is ``None`` and its box is
+    top-down, so ``bbox`` is flipped into the PDF bottom-up frame the fixtures use. Same input
+    validation and unavailability label as :func:`pdfplumber_pdf` (DEPENDENCY_REVIEW.md;
+    docs/OPEN-QUESTIONS.md Q58).
+    """
+
+    _check_pdf_input(pdf_path)
+    try:
+        module = cast(Any, import_module("pdfplumber"))
+    except (ModuleNotFoundError, ImportError):
+        raise DoclingEvaluationError("pdfplumber_not_installed") from None
+    try:
+        tables: list[dict[str, Any]] = []
+        with module.open(str(pdf_path)) as document:
+            for page_number, page in enumerate(document.pages, start=1):
+                height = float(page.height)
+                for index, table in enumerate(page.find_tables(), start=1):
+                    grid = table.extract()
+                    cells = [
+                        {"row": row, "col": column, "text": value or ""}
+                        for row, line in enumerate(grid, start=1)
+                        for column, value in enumerate(line, start=1)
+                    ]
+                    x0, top, x1, bottom = (float(value) for value in table.bbox)
+                    tables.append(
+                        {
+                            "source": {"format": "pdf", "page": page_number, "table_index": index},
+                            "locator": {"page": page_number, "table_index": index},
+                            "rows": len(grid),
+                            "columns": max((len(line) for line in grid), default=0),
+                            "cells": cells,
+                            "bbox": [x0, height - bottom, x1, height - top],
+                        }
+                    )
+        return tables
+    except DoclingEvaluationError:
+        raise
+    except Exception:
+        raise DoclingEvaluationError("pdfplumber_conversion_failed") from None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Private PDF parser comparison")
     parser.add_argument("--pdf", type=Path, required=True)
@@ -130,10 +230,14 @@ def main() -> None:
     try:
         baseline = PdfParser().parse(args.pdf, source_file_id=0, media_type="application/pdf")
         proposed = docling_pdf(args.pdf, args.local_models)
-        scores = score_phrases(baseline.text(), proposed, labels).result()
     except (DoclingEvaluationError, ValueError):
         print(json.dumps({"status": "UNAVAILABLE", "content_disclosed": False}))
         raise SystemExit(2) from None
+    try:
+        alternative = pdfplumber_pdf(args.pdf)
+    except DoclingEvaluationError:
+        alternative = None
+    scores = score_phrases(baseline.text(), proposed, labels, alternative).result()
     print(json.dumps({"status": "EVALUATED", "truth_sha256": digest, **scores}))
 
 

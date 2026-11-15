@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from office_assistant.ai.provider import LanguageModel, ModelResponse
+from office_assistant.global_intelligence.understanding.lexicon import (
+    DEVICE_ACCESSORY_STEMS,
+    INTERNAL_MARKERS,
+)
 from office_assistant.internal_evidence.models import (
     EvidencePlan,
     PlannedToolCall,
@@ -219,25 +223,22 @@ def deterministic_plan(question: str, *, force_internal: bool = False) -> Eviden
             ],
             reason_code="deterministic_proposal_query",
         )
-    internal_markers = (
-        "azn",
-        "mmc",
-        "bizim",
-        "musteri",
-        "menbe",
-        "fayl",
-        "sened",
-        "mehsul",
-        "bizde",
-        "biz ",
-        "satiriq",
-        "neceye",
-        "qiymet",
-        "markali",
-    )
+    # A device or accessory question ("Plinter üçün kabel var?", "Kamera üçün hansı
+    # kabellər var?") is about company records, but it carries no machine code, so none of
+    # the branches above can answer it. Phase 0 sent it to the general-chat path and answered
+    # it from model memory (defect F1). The cable/connector catalogue and the indexed
+    # documents are the only sources allowed to answer it.
+    if _asks_device_or_accessory(text):
+        return EvidencePlan(
+            category=RoutingCategory.INTERNAL_HYBRID,
+            intent="DEVICE_ACCESSORY_LOOKUP",
+            use_structured_tools=True,
+            use_document_search=True,
+            reason_code="device_accessory_requires_internal_sources",
+        )
     if force_internal:
         return None
-    if not product and not any(item in text for item in internal_markers):
+    if not product and not any(item in text for item in INTERNAL_MARKERS):
         return EvidencePlan(
             category=RoutingCategory.GENERAL_CHAT,
             intent="GENERAL_WORLD",
@@ -269,6 +270,20 @@ def _asks_packaging_facts(normalized: str) -> bool:
     )
     batch = any(word in normalized for word in ("partiya", "lot", "batch"))
     return box or batch
+
+
+def _asks_device_or_accessory(normalized: str) -> bool:
+    """True when the folded question names a device or an accessory we stock.
+
+    The stems come from the shared lexicon, so this test and the understanding layer can
+    never disagree about what counts as a device. Matching is a token-prefix test, which
+    recognizes inflected forms ("kabellər", "printerə") but never a typo: resolving typos
+    needs the understanding layer, and importing it here would close an import cycle,
+    because that layer's normalizer already depends on ``query_normalization``.
+    """
+
+    tokens = normalized.split()
+    return any(token.startswith(stem) for token in tokens for stem in DEVICE_ACCESSORY_STEMS)
 
 
 def _product_code(question: str) -> str | None:

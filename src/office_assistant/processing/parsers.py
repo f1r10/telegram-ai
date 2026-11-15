@@ -2,9 +2,12 @@
 
 # Third-party document libraries do not all ship complete Pyright stubs. The
 # adapter boundary keeps that uncertainty out of the normalized model/worker.
-# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportArgumentType=false, reportOptionalMemberAccess=false, reportPrivateUsage=false, reportUnknownArgumentType=false
 
+import math
+import re
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from posixpath import normpath
 from typing import Any, Protocol, cast
@@ -39,6 +42,37 @@ from office_assistant.processing.pdf_ocr import PdfOcrService
 # write marathon. Both caps are ASSUMPTION values (Master Spec §23 leaves them open, Q29).
 MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_EMBEDDED_IMAGES_PER_DOCUMENT = 200
+
+#: Phase 2 M6: a Word heading style's depth (``Heading 1`` -> 1). The paragraph's own
+#: ``outlineLvl`` wins when it is present; see docs/OPEN-QUESTIONS.md Q60.
+_HEADING_STYLE = re.compile(r"heading\s+(\d+)", re.IGNORECASE)
+
+#: The document properties python-docx exposes. Only the non-empty ones are recorded, so a plain
+#: document does not gain a wall of empty strings. Datetimes are serialised as ISO 8601.
+_CORE_PROPERTY_FIELDS = (
+    "title",
+    "subject",
+    "author",
+    "last_modified_by",
+    "keywords",
+    "category",
+    "comments",
+    "content_status",
+    "identifier",
+    "language",
+    "version",
+    "created",
+    "modified",
+    "revision",
+)
+
+
+def _style_depth(style: str) -> int | None:
+    """The depth of a Word heading style (``Heading 3`` -> 3), or ``None`` for any other style."""
+
+    match = _HEADING_STYLE.search(style)
+    return int(match.group(1)) if match is not None else None
+
 
 _RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -139,13 +173,23 @@ class PdfParser:
     version = pypdf.__version__
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.PDF_EMBEDDED
 
-    def __init__(self, ocr_service: PdfOcrService | None = None) -> None:
+    def __init__(
+        self,
+        ocr_service: PdfOcrService | None = None,
+        *,
+        capture_layout: bool = False,
+    ) -> None:
         self.ocr_service = ocr_service
+        #: Phase 2 M3: record each page's text-line geometry so the structure layer can compute a
+        #: geometric reading order and detect repeated bands. Off by default, so a deployment that
+        #: has not opted in keeps byte-for-byte the pre-M3 blocks (no extra metadata is emitted).
+        self.capture_layout = capture_layout
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         blocks: list[ContentBlock] = []
         text_warnings: list[str] = []
         extraction_warnings: list[str] = []
+        page_layouts: list[dict[str, Any]] = []
         reader = PdfReader(str(path), strict=True)
         ocr = self.ocr_service.session(path) if self.ocr_service is not None else None
         for page_number, page in enumerate(reader.pages, start=1):
@@ -155,6 +199,12 @@ class PdfParser:
                 extraction_warnings.append(f"Page {page_number}: native text extraction failed")
                 text = ""
             if text:
+                if self.capture_layout:
+                    layout = _page_layout(page, page_number, extraction_warnings)
+                    if layout is not None:
+                        # Additive only: the page's text and locator are exactly what they were.
+                        # The geometry is a document-level sidecar, so ``blocks`` never changes.
+                        page_layouts.append(layout)
                 blocks.append(
                     ContentBlock(
                         len(blocks) + 1,
@@ -194,6 +244,11 @@ class PdfParser:
                 "recovered_pages": ocr.recovered_pages,
                 "unresolved_pages": len(text_warnings),
             }
+        if page_layouts:
+            # Phase 2 M3: per-line geometry of every page that carried native text, for the
+            # structure layer's geometric reading order and repeated-band detection. Recorded at
+            # document level, never on a block, so ``blocks`` stays exactly as it was.
+            metadata["layout"] = {"pages": page_layouts}
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -341,6 +396,137 @@ def _page_locator(page_number: int, image_index: int, name: str) -> dict[str, An
     return {"page": page_number, "image_index": image_index, "xobject": name}
 
 
+#: A drawn path segment shorter than this (PDF points) is a glyph stroke or a tick, not a table
+#: rule, so it is not recorded as a grid line. ASSUMPTION (docs/OPEN-QUESTIONS.md Q58).
+_RULE_MIN_LENGTH = 8.0
+#: Two coordinates within this distance (PDF points) are the same rule or the same grid line —
+#: a hand-authored rule rarely lands on an exact integer. ASSUMPTION (Q58).
+_RULE_TOLERANCE = 0.5
+
+
+def _append_rule(segments: list[list[float]], x0: float, y0: float, x1: float, y1: float) -> None:
+    """Keep one axis-aligned segment long enough to be a table rule; drop everything else."""
+
+    if abs(y1 - y0) <= _RULE_TOLERANCE and abs(x1 - x0) >= _RULE_MIN_LENGTH:
+        segments.append([round(min(x0, x1), 2), round(y0, 2), round(max(x0, x1), 2), round(y0, 2)])
+    elif abs(x1 - x0) <= _RULE_TOLERANCE and abs(y1 - y0) >= _RULE_MIN_LENGTH:
+        segments.append([round(x0, 2), round(min(y0, y1), 2), round(x0, 2), round(max(y0, y1), 2)])
+
+
+def _page_rules(page: Any) -> list[list[float]] | None:
+    """The axis-aligned rule segments a page draws, for ruled-table detection (Phase 2 M4).
+
+    A bordered table is a drawn grid, so the structure layer needs the page's straight rules. The
+    content stream is read *without* applying any ``cm`` transform, so a page that scales its
+    content with ``cm`` reports rules in un-transformed space — the documented assumption for the
+    generated fixtures (Q58). Only ``m``/``l`` paths and ``re`` rectangles are read; a curve is
+    never an axis-aligned rule. ``None`` (never a crash) is returned when the stream is unreadable,
+    so the caller can record an honest warning instead of silently losing a possible table.
+    """
+
+    try:
+        contents = page.get_contents()
+        operations = list(contents.operations) if contents is not None else []
+    except Exception:  # noqa: BLE001 - geometry is optional; a bad page keeps parser order
+        return None
+    segments: list[list[float]] = []
+    current: tuple[float, float] | None = None
+    for operands, operator in operations:
+        if operator == b"m" and len(operands) >= 2:
+            current = (_finite_float(operands[0]), _finite_float(operands[1]))
+        elif operator == b"l" and len(operands) >= 2 and current is not None:
+            x, y = _finite_float(operands[0]), _finite_float(operands[1])
+            _append_rule(segments, current[0], current[1], x, y)
+            current = (x, y)
+        elif operator == b"re" and len(operands) >= 4:
+            x0 = _finite_float(operands[0])
+            y0 = _finite_float(operands[1])
+            x1 = x0 + _finite_float(operands[2])
+            y1 = y0 + _finite_float(operands[3])
+            _append_rule(segments, x0, y0, x1, y0)
+            _append_rule(segments, x0, y1, x1, y1)
+            _append_rule(segments, x0, y0, x0, y1)
+            _append_rule(segments, x1, y0, x1, y1)
+    return segments
+
+
+def _page_layout(page: Any, page_number: int, warnings: list[str]) -> dict[str, Any] | None:
+    """One PDF page's text-fragment geometry, or ``None`` when it cannot be read.
+
+    Phase 2 M3: a content stream writes a page's text in the writer's order, which for a
+    multi-column page interleaves the columns (audit gap G7). Recording where each text fragment
+    sits lets the structure layer recover a geometric reading order and spot repeated bands. This
+    is read-only: the page's own text and locator are produced by a separate, unchanged call.
+
+    Phase 2 M4 adds ``rules`` — the page's drawn straight segments — but only when the page has at
+    least one, so a page with no rules records byte-identical geometry to M3. A stream that cannot
+    be read records a warning instead of losing a possible table silently.
+    """
+
+    fragments: list[dict[str, Any]] = []
+
+    def visit(text: str, cm: Any, tm: Any, font_dict: Any, font_size: Any) -> None:
+        value = str(text).strip()
+        if not value:
+            return
+        origin = _text_origin(tm) or _text_origin(cm)
+        if origin is None:
+            return
+        x, y = origin
+        size = _finite_float(font_size)
+        fragments.append({"text": value, "x": x, "y": y, "size": round(size, 2)})
+
+    try:
+        page.extract_text(visitor_text=visit)
+    except Exception:  # noqa: BLE001 - geometry is optional; a bad page keeps parser order
+        return None
+    if not fragments:
+        return None
+    width = _finite_float(getattr(getattr(page, "mediabox", None), "width", None))
+    height = _finite_float(getattr(getattr(page, "mediabox", None), "height", None))
+    if width <= 0 or height <= 0:
+        return None
+    layout: dict[str, Any] = {
+        "page": page_number,
+        "width": round(width, 2),
+        "height": round(height, 2),
+        "lines": fragments,
+    }
+    rules = _page_rules(page)
+    if rules is None:
+        warnings.append(
+            f"Page {page_number}: content stream unreadable, its table rules are not recorded"
+        )
+    elif rules:
+        layout["rules"] = rules
+    return layout
+
+
+def _text_origin(matrix: Any) -> tuple[float, float] | None:
+    """``(x, y)`` from a PDF text/current matrix, or ``None`` when the matrix is unusable."""
+
+    if matrix is None:
+        return None
+    try:
+        x = float(matrix[4])
+        y = float(matrix[5])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return None
+    return round(x, 2), round(y, 2)
+
+
+def _finite_float(value: Any) -> float:
+    """A finite float for ``value``, or ``0.0`` when it is missing or not a finite number."""
+
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return result if math.isfinite(result) else 0.0
+
+
 def _zip_root(archive: zipfile.ZipFile, name: str) -> ElementTree.Element | None:
     """Parse one XML member of a package, or report nothing for a member that is absent."""
 
@@ -417,6 +603,12 @@ class DocxParser:
     version = "1.2.0"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.DOCX_EMBEDDED
 
+    def __init__(self, *, capture_structure: bool = False) -> None:
+        #: Phase 2 M6: record the outline depth, list membership, table cell coordinates and the
+        #: document's core properties. Off by default, so an opted-out deployment produces exactly
+        #: the pre-M6 blocks and an empty document metadata.
+        self.capture_structure = capture_structure
+
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         document = Document(str(path))
         blocks: list[ContentBlock] = []
@@ -435,12 +627,22 @@ class DocxParser:
                 if text:
                     style = paragraph.style.name if paragraph.style else ""
                     block_type = "heading" if style.lower().startswith("heading") else "paragraph"
+                    block_metadata: dict[str, Any] = {}
+                    if self.capture_structure:
+                        if block_type == "heading":
+                            block_metadata.update(self._heading_metadata(paragraph, style))
+                        listing = self._list_metadata(paragraph, style)
+                        if listing is not None:
+                            # A list paragraph keeps its text and locator; only its type is named.
+                            block_type = "list_item"
+                            block_metadata.update(listing)
                     blocks.append(
                         ContentBlock(
                             len(blocks) + 1,
                             block_type,
                             text,
                             {"paragraph_index": current_paragraph_index},
+                            block_metadata,
                         )
                     )
             elif element.tag.endswith("}tbl"):
@@ -450,6 +652,14 @@ class DocxParser:
                 for row_index, row in enumerate(table.rows, start=1):
                     values = [cell.text.strip() for cell in row.cells]
                     if any(values):
+                        row_metadata: dict[str, Any] = {"cells": values}
+                        if self.capture_structure:
+                            # Grid coordinates, aligned index-for-index with ``cells``. A merged
+                            # cell repeats its text at each grid position python-docx reports (Q60).
+                            row_metadata["cell_coordinates"] = [
+                                {"row": row_index, "column": column_index}
+                                for column_index in range(1, len(values) + 1)
+                            ]
                         blocks.append(
                             ContentBlock(
                                 len(blocks) + 1,
@@ -459,19 +669,87 @@ class DocxParser:
                                     "table_index": current_table_index,
                                     "row": row_index,
                                 },
-                                {"cells": values},
+                                row_metadata,
                             )
                         )
+        metadata: dict[str, Any] = {}
+        if self.capture_structure:
+            properties = self._core_properties(document)
+            if properties:
+                metadata["core_properties"] = properties
         return ParsedDocument(
             source_file_id,
             self.name,
             self.version,
             media_type,
-            {},
+            metadata,
             blocks,
             warnings,
             embedded_images=collected.images,
         )
+
+    @staticmethod
+    def _heading_metadata(paragraph: Paragraph, style: str) -> dict[str, Any]:
+        """A heading's depth and where it came from: ``outlineLvl`` first, then the style depth."""
+
+        properties = paragraph._p.pPr
+        outline = properties.outlineLvl if properties is not None else None
+        if outline is not None and outline.val is not None:
+            return {"level": int(outline.val) + 1, "level_source": "outline"}
+        depth = _style_depth(style)
+        if depth is not None:
+            return {"level": depth, "level_source": "style"}
+        return {"level": 1, "level_source": "default"}
+
+    @staticmethod
+    def _list_metadata(paragraph: Paragraph, style: str) -> dict[str, Any] | None:
+        """List membership, level and marker kind, or ``None`` when the paragraph is body text.
+
+        A paragraph-level ``w:numPr`` is the strongest signal; ``numId=0`` means numbering was
+        explicitly removed and is **not** a list. The default template's ``List Number`` /
+        ``List Bullet`` styles carry no paragraph-level ``numPr``, so the style name is the
+        fallback. ``List Paragraph`` alone is a container style, not a list, and is ignored.
+        """
+
+        properties = paragraph._p.pPr
+        numbering = properties.numPr if properties is not None else None
+        level: int | None = None
+        numbering_id: int | None = None
+        if numbering is not None:
+            if numbering.ilvl is not None and numbering.ilvl.val is not None:
+                level = int(numbering.ilvl.val) + 1
+            if numbering.numId is not None and numbering.numId.val is not None:
+                numbering_id = int(numbering.numId.val)
+        if numbering is not None and numbering_id is not None:
+            if numbering_id == 0:
+                return None
+            return {"level": level or 1, "marker": "numbered", "numbering_id": numbering_id}
+        lowered = style.strip().casefold()
+        marker = None
+        if lowered.startswith("list number"):
+            marker = "numbered"
+        elif lowered.startswith("list bullet"):
+            marker = "bulleted"
+        if marker is None:
+            return None
+        return {"level": level or _style_depth(style) or 1, "marker": marker}
+
+    @staticmethod
+    def _core_properties(document: Any) -> dict[str, Any]:
+        """The document's non-empty core properties, with datetimes as ISO 8601 strings."""
+
+        properties = document.core_properties
+        collected: dict[str, Any] = {}
+        for name in _CORE_PROPERTY_FIELDS:
+            value = getattr(properties, name, None)
+            if isinstance(value, datetime):
+                collected[name] = value.isoformat()
+            elif isinstance(value, str):
+                if value.strip():
+                    collected[name] = value
+            elif value is not None:
+                collected[name] = value
+        return collected
 
     @classmethod
     def _collect_section_images(cls, collected: _ExtractedImages, document: Any) -> None:
@@ -580,15 +858,45 @@ class XlsxParser:
     version = "3.1.5"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.XLSX_EMBEDDED
 
+    def __init__(self, *, capture_cached_values: bool = False) -> None:
+        #: Phase 2 M5: read the workbook a second time with ``data_only=True`` so a formula cell
+        #: records the result the file cached beside the formula string. Off by default, so an
+        #: opted-out deployment keeps exactly the row metadata pre-M5 produced (golden contract).
+        self.capture_cached_values = capture_cached_values
+
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         workbook = load_workbook(path, data_only=False)
+        cached_workbook: Any = None
         blocks: list[ContentBlock] = []
         warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+        if self.capture_cached_values:
+            try:
+                cached_workbook = load_workbook(path, data_only=True)
+            except Exception:  # noqa: BLE001 - cached values enrich, they never gate a parse
+                # A workbook that opens one way and not the other is surfaced, not guessed at.
+                warnings.append(
+                    "Cached spreadsheet values are unavailable: the workbook could not be "
+                    "reopened in data-only mode"
+                )
         try:
             for sheet in workbook.worksheets:
-                self._parse_sheet(sheet, blocks, warnings)
+                cached_sheet = (
+                    cached_workbook[sheet.title]
+                    if cached_workbook is not None and sheet.title in cached_workbook.sheetnames
+                    else None
+                )
+                self._parse_sheet(sheet, cached_sheet, blocks, warnings)
+            if cached_workbook is not None:
+                # Additive document-level metadata: where a merged region sits and which table
+                # ranges the workbook declares. The flat row blocks keep their own locators.
+                metadata["xlsx"] = {
+                    "sheets": [self._sheet_metadata(sheet) for sheet in workbook.worksheets]
+                }
         finally:
             workbook.close()
+            if cached_workbook is not None:
+                cached_workbook.close()
         collected = _ExtractedImages(warnings)
         self._collect_images(path, collected)
         return ParsedDocument(
@@ -596,11 +904,34 @@ class XlsxParser:
             self.name,
             self.version,
             media_type,
-            {},
+            metadata,
             blocks,
             warnings,
             embedded_images=collected.images,
         )
+
+    @staticmethod
+    def _sheet_metadata(sheet: Worksheet) -> dict[str, Any]:
+        """Merged regions and declared table ranges for one sheet (M5).
+
+        Empty collections are omitted so a plain workbook adds no structural noise. A merged region
+        is reported with its range and the anchor cell that holds its value, because openpyxl
+        returns ``None`` for every other cell in the merged area.
+        """
+
+        entry: dict[str, Any] = {"sheet": sheet.title}
+        merged_regions = [
+            {"range": str(cells_range), "anchor": str(cells_range).split(":", 1)[0]}
+            for cells_range in sheet.merged_cells.ranges
+        ]
+        if merged_regions:
+            entry["merged_regions"] = merged_regions
+        declared_tables = [
+            {"name": table.name, "range": table.ref} for table in sheet.tables.values()
+        ]
+        if declared_tables:
+            entry["declared_tables"] = declared_tables
+        return entry
 
     @classmethod
     def _collect_images(cls, path: Path, collected: _ExtractedImages) -> None:
@@ -682,7 +1013,12 @@ class XlsxParser:
         return sheets
 
     @staticmethod
-    def _parse_sheet(sheet: Worksheet, blocks: list[ContentBlock], warnings: list[str]) -> None:
+    def _parse_sheet(
+        sheet: Worksheet,
+        cached_sheet: Worksheet | None,
+        blocks: list[ContentBlock],
+        warnings: list[str],
+    ) -> None:
         unlabeled_numeric_columns: set[str] = set()
         for row in sheet.iter_rows():
             non_empty = [cell for cell in row if cell.value is not None]
@@ -704,6 +1040,26 @@ class XlsxParser:
                 heading = sheet.cell(row=1, column=cell.column).value
                 if heading is None or not str(heading).strip():
                     unlabeled_numeric_columns.add(get_column_letter(cell.column))
+            row_metadata: dict[str, Any] = {
+                "values": values,
+                "formulas": formulas,
+                "columns": columns,
+            }
+            if cached_sheet is not None:
+                # ``iter_rows`` cells always carry their integer coordinates; the openpyxl stubs
+                # type them as optional, so the invariant is stated here rather than guessed at.
+                cached_values: list[Any] = [
+                    cached_sheet.cell(cast("int", cell.row), cast("int", cell.column)).value
+                    for cell in cells
+                ]
+                row_metadata["cached_values"] = cached_values
+                for cell, cached_value in zip(cells, cached_values, strict=True):
+                    if cell.data_type == TYPE_FORMULA and cached_value is None:
+                        # Never fabricate a result: a formula with no cached value is unknown.
+                        warnings.append(
+                            f"Sheet {sheet.title} cell {cell.coordinate}: formula has no cached "
+                            "value; its result stayed unrecorded rather than assumed"
+                        )
             blocks.append(
                 ContentBlock(
                     len(blocks) + 1,
@@ -713,7 +1069,7 @@ class XlsxParser:
                         "sheet": sheet.title,
                         "range": f"{cells[0].coordinate}:{cells[-1].coordinate}",
                     },
-                    {"values": values, "formulas": formulas, "columns": columns},
+                    row_metadata,
                 )
             )
         for column in sorted(unlabeled_numeric_columns):
@@ -788,12 +1144,15 @@ class ParserRegistry:
         *,
         pdf_ocr: PdfOcrService | None = None,
         image_ocr: ImageOcrService | None = None,
+        capture_layout: bool = False,
+        capture_cached_values: bool = False,
+        capture_structure: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
-            ".pdf": PdfParser(ocr_service=pdf_ocr),
-            ".docx": DocxParser(),
-            ".xlsx": XlsxParser(),
+            ".pdf": PdfParser(ocr_service=pdf_ocr, capture_layout=capture_layout),
+            ".docx": DocxParser(capture_structure=capture_structure),
+            ".xlsx": XlsxParser(capture_cached_values=capture_cached_values),
             ".jpg": ImageProbeParser(image_ocr=image_ocr),
             ".jpeg": ImageProbeParser(image_ocr=image_ocr),
             ".png": ImageProbeParser(image_ocr=image_ocr),

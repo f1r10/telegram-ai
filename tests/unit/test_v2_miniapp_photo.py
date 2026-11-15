@@ -201,6 +201,10 @@ def test_only_near_candidates_without_model_never_auto_confirm(
         b"\x89PNG\r\n\x1a\n" + b"junk",
         b"x" * (4 * 1024 * 1024 + 1),
     ],
+    # Windows caps a single environment variable at 32767 characters and pytest writes
+    # PYTEST_CURRENT_TEST from the node id, so the 4 MiB oversize case must not render
+    # four million characters into the test id.
+    ids=["empty", "not_an_image", "png_header_only", "oversize_body"],
 )
 def test_invalid_photographs_do_not_start_database_lookup(tmp_path: Path, body: bytes) -> None:
     session = FakeSession([])

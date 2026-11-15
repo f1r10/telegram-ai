@@ -69,6 +69,7 @@ async def run() -> None:
         index_embedding_model=settings.embedding_model,
         index_chunking_version=settings.chunking_version,
         structured_extraction_enabled=settings.structured_extraction_enabled,
+        document_intelligence_enabled=settings.gi_document_intelligence_enabled,
         visual_ann=visual_ann,
         visual_semantic=(
             SemanticVisualSearch(
