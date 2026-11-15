@@ -36,7 +36,7 @@ class MatchStrength(StrEnum):
 class ResolutionStatus(StrEnum):
     """What the caller may do with the result.
 
-    ``DISABLED`` means the feature is off, which is not the same answer as "no idea".
+    ``DISABLED`` means the feature is off, which is a different answer from "no idea".
     """
 
     DISABLED = "disabled"

@@ -87,6 +87,5 @@ def entity_scope(access: EntityAccess) -> ColumnElement[bool]:
     actor who may see no entity type at all.
     """
 
-    return Entity.entity_type.in_(
-        [entity_type.value for entity_type in sorted(access.entity_types, key=str)]
-    )
+    entity_types = sorted(access.entity_types, key=str)
+    return Entity.entity_type.in_([entity_type.value for entity_type in entity_types])
