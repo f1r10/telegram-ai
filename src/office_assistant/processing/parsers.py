@@ -733,15 +733,45 @@ class XlsxParser:
     version = "3.1.5"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.XLSX_EMBEDDED
 
+    def __init__(self, *, capture_cached_values: bool = False) -> None:
+        #: Phase 2 M5: read the workbook a second time with ``data_only=True`` so a formula cell
+        #: records the result the file cached beside the formula string. Off by default, so an
+        #: opted-out deployment keeps exactly the row metadata pre-M5 produced (golden contract).
+        self.capture_cached_values = capture_cached_values
+
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         workbook = load_workbook(path, data_only=False)
+        cached_workbook: Any = None
         blocks: list[ContentBlock] = []
         warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+        if self.capture_cached_values:
+            try:
+                cached_workbook = load_workbook(path, data_only=True)
+            except Exception:  # noqa: BLE001 - cached values enrich, they never gate a parse
+                # A workbook that opens one way and not the other is surfaced, not guessed at.
+                warnings.append(
+                    "Cached spreadsheet values are unavailable: the workbook could not be "
+                    "reopened in data-only mode"
+                )
         try:
             for sheet in workbook.worksheets:
-                self._parse_sheet(sheet, blocks, warnings)
+                cached_sheet = (
+                    cached_workbook[sheet.title]
+                    if cached_workbook is not None and sheet.title in cached_workbook.sheetnames
+                    else None
+                )
+                self._parse_sheet(sheet, cached_sheet, blocks, warnings)
+            if cached_workbook is not None:
+                # Additive document-level metadata: where a merged region sits and which table
+                # ranges the workbook declares. The flat row blocks keep their own locators.
+                metadata["xlsx"] = {
+                    "sheets": [self._sheet_metadata(sheet) for sheet in workbook.worksheets]
+                }
         finally:
             workbook.close()
+            if cached_workbook is not None:
+                cached_workbook.close()
         collected = _ExtractedImages(warnings)
         self._collect_images(path, collected)
         return ParsedDocument(
@@ -749,11 +779,34 @@ class XlsxParser:
             self.name,
             self.version,
             media_type,
-            {},
+            metadata,
             blocks,
             warnings,
             embedded_images=collected.images,
         )
+
+    @staticmethod
+    def _sheet_metadata(sheet: Worksheet) -> dict[str, Any]:
+        """Merged regions and declared table ranges for one sheet (M5).
+
+        Empty collections are omitted so a plain workbook adds no structural noise. A merged region
+        is reported with its range and the anchor cell that holds its value, because openpyxl
+        returns ``None`` for every other cell in the merged area.
+        """
+
+        entry: dict[str, Any] = {"sheet": sheet.title}
+        merged_regions = [
+            {"range": str(cells_range), "anchor": str(cells_range).split(":", 1)[0]}
+            for cells_range in sheet.merged_cells.ranges
+        ]
+        if merged_regions:
+            entry["merged_regions"] = merged_regions
+        declared_tables = [
+            {"name": table.name, "range": table.ref} for table in sheet.tables.values()
+        ]
+        if declared_tables:
+            entry["declared_tables"] = declared_tables
+        return entry
 
     @classmethod
     def _collect_images(cls, path: Path, collected: _ExtractedImages) -> None:
@@ -835,7 +888,12 @@ class XlsxParser:
         return sheets
 
     @staticmethod
-    def _parse_sheet(sheet: Worksheet, blocks: list[ContentBlock], warnings: list[str]) -> None:
+    def _parse_sheet(
+        sheet: Worksheet,
+        cached_sheet: Worksheet | None,
+        blocks: list[ContentBlock],
+        warnings: list[str],
+    ) -> None:
         unlabeled_numeric_columns: set[str] = set()
         for row in sheet.iter_rows():
             non_empty = [cell for cell in row if cell.value is not None]
@@ -857,6 +915,26 @@ class XlsxParser:
                 heading = sheet.cell(row=1, column=cell.column).value
                 if heading is None or not str(heading).strip():
                     unlabeled_numeric_columns.add(get_column_letter(cell.column))
+            row_metadata: dict[str, Any] = {
+                "values": values,
+                "formulas": formulas,
+                "columns": columns,
+            }
+            if cached_sheet is not None:
+                # ``iter_rows`` cells always carry their integer coordinates; the openpyxl stubs
+                # type them as optional, so the invariant is stated here rather than guessed at.
+                cached_values: list[Any] = [
+                    cached_sheet.cell(cast("int", cell.row), cast("int", cell.column)).value
+                    for cell in cells
+                ]
+                row_metadata["cached_values"] = cached_values
+                for cell, cached_value in zip(cells, cached_values, strict=True):
+                    if cell.data_type == TYPE_FORMULA and cached_value is None:
+                        # Never fabricate a result: a formula with no cached value is unknown.
+                        warnings.append(
+                            f"Sheet {sheet.title} cell {cell.coordinate}: formula has no cached "
+                            "value; its result stayed unrecorded rather than assumed"
+                        )
             blocks.append(
                 ContentBlock(
                     len(blocks) + 1,
@@ -866,7 +944,7 @@ class XlsxParser:
                         "sheet": sheet.title,
                         "range": f"{cells[0].coordinate}:{cells[-1].coordinate}",
                     },
-                    {"values": values, "formulas": formulas, "columns": columns},
+                    row_metadata,
                 )
             )
         for column in sorted(unlabeled_numeric_columns):
@@ -942,12 +1020,13 @@ class ParserRegistry:
         pdf_ocr: PdfOcrService | None = None,
         image_ocr: ImageOcrService | None = None,
         capture_layout: bool = False,
+        capture_cached_values: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
             ".pdf": PdfParser(ocr_service=pdf_ocr, capture_layout=capture_layout),
             ".docx": DocxParser(),
-            ".xlsx": XlsxParser(),
+            ".xlsx": XlsxParser(capture_cached_values=capture_cached_values),
             ".jpg": ImageProbeParser(image_ocr=image_ocr),
             ".jpeg": ImageProbeParser(image_ocr=image_ocr),
             ".png": ImageProbeParser(image_ocr=image_ocr),

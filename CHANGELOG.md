@@ -1,3 +1,22 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M5: spreadsheet cached values and merged regions
+
+- The XLSX parser now reads the workbook a second time with `data_only=True` when
+  `gi_document_intelligence_enabled` is on, so a formula cell records the result the file cached
+  **beside** the formula string (`metadata.cached_values`, aligned with `values`/`formulas`) instead
+  of hiding it. The formula is never replaced by its result.
+- A formula whose stored result is missing keeps `None` and raises a warning naming the cell; no
+  zero is fabricated. A workbook that cannot be reopened in data-only mode warns and still parses.
+- Merged regions (`{range, anchor}`) and explicitly declared table ranges (`{name, range}`) are
+  recorded per sheet in document-level `metadata.xlsx.sheets[]`, and decorate the existing per-sheet
+  entry in `structure.tables` rather than creating a second table.
+- Flag-off behaviour is unchanged: with `gi_document_intelligence_enabled=False` the parser emits
+  exactly the pre-M5 row metadata (`values`, `formulas`, `columns`) and an empty document metadata,
+  so `normalized.json` and every `chunk_id` stay identical.
+- Verified: 9 new tests pass; 139 passed + 1 xfailed across the adjacent parser/structure/OCR/
+  evaluation suites; the strict inventory and sales intakes still pass unchanged (34 tests) and still
+  reject formulas; ruff, format check and pyright clean on the changed files. Assumption recorded as
+  `Q59` in `docs/OPEN-QUESTIONS.md`, evidence in `docs/evaluation/BENCHMARK_RESULTS.md`.
+
 ## 2026-11-12 — Global Intelligence Engine, Phase 1: understanding, planning, evidence aggregation
 
 - New sibling package `src/office_assistant/global_intelligence/` behind nine `EngineFlags`

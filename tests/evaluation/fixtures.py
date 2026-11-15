@@ -21,6 +21,7 @@ real phone-photo Azerbaijani accurately (TEST_STRATEGY.md §3.3).
 
 from __future__ import annotations
 
+import re
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -885,6 +886,42 @@ def xlsx_bytes(sheets: Sequence[tuple[str, Sequence[Sequence[object]]]]) -> byte
     return buffer.getvalue()
 
 
+def xlsx_with_cached_values(
+    sheets: Sequence[tuple[str, Sequence[Sequence[object]]]],
+    cached: dict[int, dict[str, object]] | None = None,
+) -> bytes:
+    """Build an XLSX whose formula cells also carry the cached result a spreadsheet would store.
+
+    openpyxl writes a formula as ``<f>…</f><v></v>`` and evaluates nothing, so a ``data_only`` read
+    returns ``None``. ``cached`` maps a zero-based sheet position to ``{coordinate: value}`` and
+    injects the value, which is exactly what M5 has to read beside the formula string.
+    """
+
+    data = xlsx_bytes(sheets)
+    if not cached:
+        return data
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    for index, values in cached.items():
+        part = f"xl/worksheets/sheet{index + 1}.xml"
+        if part not in parts:
+            raise AssertionError(f"fixture sheet part {part} is missing")
+        text = parts[part].decode("utf-8")
+        for coordinate, value in values.items():
+            pattern = re.compile(
+                rf'(<c r="{coordinate}"[^>]*>)(<f>[^<]*</f>)(?:<v\s*/>|<v>[^<]*</v>)?(</c>)'
+            )
+            text, replaced = pattern.subn(rf"\1\2<v>{value}</v>\3", text, count=1)
+            if not replaced:
+                raise AssertionError(f"formula cell {coordinate} is missing from {part}")
+        parts[part] = text.encode("utf-8")
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, payload in parts.items():
+            archive.writestr(name, payload)
+    return buffer.getvalue()
+
+
 def png_bytes(text: str, size: tuple[int, int] = (360, 96)) -> bytes:
     """Render ``text`` into a real PNG raster with Pillow's built-in bitmap font."""
 
@@ -985,4 +1022,5 @@ __all__ = [
     "png_bytes",
     "table_pdf_bytes",
     "xlsx_bytes",
+    "xlsx_with_cached_values",
 ]

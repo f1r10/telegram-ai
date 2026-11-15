@@ -12,7 +12,34 @@ phase's exit criteria are met **and** recorded here with evidence. Anything not 
   durably without duplicates (#175)"*.
 - **Phase 0 commit:** `5d9a398` — *"Phase 0: audit, reproduce the defects, and build the evaluation
   harness"* — committed **and pushed** to `origin/feature/global-intelligence-engine`.
-- **Session date:** 2026-11-12.
+- **Session date:** 2026-11-12; re-verified 2026-11-15.
+
+---
+
+## Git synchronization verification (2026-11-15)
+
+Run before continuing implementation, to prove the workspace matches GitHub rather than trusting the
+previous session's report.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Remote | `git remote -v` | `origin` = `https://github.com/f1r10/telegram-ai.git` (fetch + push) |
+| Expected base | `git rev-parse origin/main` | `e3d04ba654e836d5c2616eac24e26104d7312319` — **matches** the required base `e3d04ba` |
+| Feature ancestry | `git merge-base --is-ancestor origin/main feature/global-intelligence-engine` | exit 0 — `origin/main` **is** an ancestor; the branch contains `e3d04ba` |
+| Divergence | `git rev-list --left-right --count origin/main...feature/global-intelligence-engine` | `0 8` — **0 behind, 8 ahead**; no rebase, merge or reset needed |
+| Local vs remote branch | `git rev-parse` of both | remote `origin/feature/...` = `d86516c`; local = `7d4c0d5` (5 unpushed Phase-2 commits, no remote work lost) |
+| Working tree | `git status --porcelain` | clean before and after checkout |
+
+Nothing was reset, recreated or discarded: the feature branch already contained the latest
+`origin/main`. The only correction needed was documentary — this ledger claimed Phase 2 was
+`NOT STARTED` while five Phase 2 commits (`3df8641`, `776d791`, `efe10fb`, `d36cf36`, `7d4c0d5`) were
+already committed locally. That claim is corrected below.
+
+**Re-verified Phase 0/1 exit criteria (2026-11-15, actual run):**
+`uv run --no-sync pytest tests/unit/test_gi_typos.py tests/unit/test_gi_understanding.py
+tests/unit/test_gi_concepts.py tests/unit/test_gi_planner.py tests/unit/test_gi_engine_skeleton.py
+tests/evaluation -o addopts="" -q` → **120 passed, 1 xfailed** (20.1 s). The xfail is scenario D, the
+documented Phase-5 gap. Phase 0/1 claims are therefore still true on the synced tree.
 
 ---
 
@@ -22,7 +49,7 @@ phase's exit criteria are met **and** recorded here with evidence. Anything not 
 | --- | --- | --- | --- |
 | 0 | Audit + reproduce the problem + evaluation harness | **COMPLETE** — committed `5d9a398`, pushed | `docs/audit/*`, `docs/architecture/*`, `tests/evaluation/*`, this file |
 | 1 | Query understanding, planner, orchestration, evidence aggregation | **COMPLETE** — committed on the feature branch | `src/office_assistant/global_intelligence/*`, `docs/evaluation/BENCHMARK_RESULTS.md`, `tests/unit/test_gi_*.py` |
-| 2 | Document intelligence (parser/OCR adapters, Docling benchmark) | NOT STARTED | — |
+| 2 | Document intelligence (parser/OCR adapters, Docling benchmark) | **IN PROGRESS** — M0–M5 complete; M6–M11 open | `docs/phase-2/*`, `docs/evaluation/BENCHMARK_RESULTS.md`, `tests/unit/test_document_*.py` |
 | 3 | Entity resolution, aliases, relations, temporal facts | NOT STARTED | — |
 | 4 | Multimodal vision/OCR providers, candidate verification | NOT STARTED | — |
 | 5 | Global reasoning (multi-hop, SQL tools, conflicts, verification) | NOT STARTED | — |
@@ -164,6 +191,44 @@ understanding gates for A/I/K were flipped to hard assertions.
 
 ---
 
+## Phase 2 — completed milestones (M0–M5)
+
+Target: document intelligence behind `gi_document_intelligence_enabled` (default `False`). Each
+milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for byte.
+
+| Milestone | Commit | What landed | Evidence |
+| --- | --- | --- | --- |
+| M0 | `3df8641` | Runtime fixture corpus (generated PDF/DOCX/XLSX/PNG, no committed binaries), third benchmark arm, table/reading-order scorers | `tests/evaluation/test_document_fixtures.py`; corpus sha256 in `BENCHMARK_RESULTS.md` |
+| M1 | `776d791` | `OCRProvider` seam; Tesseract moved behind it with caps, timeouts, `--psm` and language set unchanged | `tests/unit/test_ocr_provider_seam.py` (existing OCR tests unchanged) |
+| M2 | `efe10fb` | `DocumentStructure` view in `normalized.json` (additive, deterministic) | `tests/unit/test_document_structure.py` |
+| M3 | `d36cf36` | PDF geometric reading order + page-furniture detection, recorded in the view only | `tests/evaluation/test_reading_order.py`, `tests/unit/test_document_reading_order.py` |
+| M4 | `7d4c0d5` | PDF table extraction (bordered/borderless/merged/multi-page) as `structure.tables` | `tests/evaluation/test_table_extraction.py`; 11 tables / 104 cells at 1.0 cell F1 |
+| M5 | *(this commit)* | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
+
+### M5 verification (actual commands, 2026-11-15)
+- `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
+  **9 passed** (3.8 s).
+- `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py
+tests/unit/test_document_structure.py tests/unit/test_document_tables.py
+tests/unit/test_document_reading_order.py tests/unit/test_ocr_provider_seam.py tests/evaluation
+-o addopts="" -q` → **139 passed, 1 xfailed** (34.3 s).
+- Strict business intakes unchanged: `pytest tests/unit/test_inventory_xlsx.py
+tests/unit/test_v2_sales_xlsx_import.py tests/unit/test_v2_inventory_parsing.py
+tests/unit/test_miniapp_stock_xlsx.py -o addopts="" -q` → **34 passed** (4.0 s); they still reject
+  formulas, so M5 enriches only the document view and never the business records.
+- `ruff check` + `ruff format --check` on the five changed files → **clean**; `pyright` on the
+  changed modules and the new test → **0 errors**.
+
+Flag-off contract: `XlsxParser(capture_cached_values=False)` leaves `parsed.metadata == {}` and every
+row's metadata exactly `{"values", "formulas", "columns"}` (asserted), so `normalized.json` is the
+pre-M5 artifact. Flag-on adds `metadata["cached_values"]` per row and `metadata["xlsx"]["sheets"]` at
+document level; neither replaces the formula string, and a formula without a stored result raises a
+warning naming the cell rather than a fabricated `0`.
+
+Assumptions recorded as **Q59** in `docs/OPEN-QUESTIONS.md`.
+
+---
+
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
 
 | # | Decision | Why |
@@ -186,10 +251,10 @@ understanding gates for A/I/K were flipped to hard assertions.
   reported rather than retried blindly.
 
 ## Next step
-Begin **Phase 2 — document intelligence** (parser benchmark, OCR per language, Excel cross-sheet
-understanding, Docling behind an adapter), targeting scenarios H and the parser/OCR metrics defined in
-`docs/architecture/IMPLEMENTATION_PLAN.md`. Phase 1 is complete and its exit criteria are recorded in
-`docs/evaluation/BENCHMARK_RESULTS.md`.
+Continue **Phase 2** with **M6 — DOCX structure** (outline level, numbered lists, table cell
+coordinates, core properties), then M8 confidence, M9 resource limits, M10 embedded-image OCR, M7
+cross-sheet relations and M11 the benchmark/adoption decision. M5 is complete and its evidence is
+recorded above; Phase 1 exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

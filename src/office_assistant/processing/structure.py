@@ -79,7 +79,9 @@ class DocumentStructure:
 
 
 def build_document_structure(
-    blocks: list[dict[str, Any]], layout: dict[str, Any] | None = None
+    blocks: list[dict[str, Any]],
+    layout: dict[str, Any] | None = None,
+    sheet_metadata: dict[str, Any] | None = None,
 ) -> DocumentStructure:
     """Derive the structure view from the flat, parser-produced content blocks.
 
@@ -87,12 +89,16 @@ def build_document_structure(
     the page view falls back to the parser's own order and reports no furniture, exactly as it did
     before M3, and no PDF table is reported. PDF table extraction (M4) reads only that sidecar, so
     the flat ``blocks`` list and every existing table entry stay exactly as they were.
+
+    ``sheet_metadata`` is the optional spreadsheet sidecar a flag-on ``XlsxParser`` records (M5:
+    merged regions and declared table ranges, keyed by sheet). It only decorates the existing
+    per-sheet table entries; with it absent the tables are exactly what M2 produced.
     """
 
     return DocumentStructure(
         pages=_pages(blocks, layout),
         sections=_sections(blocks),
-        tables=[*_tables(blocks), *_pdf_tables(layout)],
+        tables=[*_tables(blocks, sheet_metadata), *_pdf_tables(layout)],
         lists=[],
         relations=[],
         blocks=[dict(block) for block in blocks],
@@ -402,7 +408,28 @@ def _append_row(table: dict[str, Any], row_number: int | None, cells: list[str])
         table["cells"].append({"row": row, "col": column, "text": text})
 
 
-def _tables(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _sheet_regions(sheet_metadata: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """The per-sheet sidecar entries keyed by sheet name (M5); empty when none were recorded."""
+
+    if not isinstance(sheet_metadata, dict):
+        return {}
+    entries = sheet_metadata.get("sheets")
+    if not isinstance(entries, list):
+        return {}
+    regions: dict[str, dict[str, Any]] = {}
+    for item in cast("list[object]", entries):
+        if not isinstance(item, dict):
+            continue
+        entry = cast("dict[str, Any]", item)
+        name = entry.get("sheet")
+        if isinstance(name, str):
+            regions[name] = entry
+    return regions
+
+
+def _tables(
+    blocks: list[dict[str, Any]], sheet_metadata: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Group table rows into tables: one per DOCX ``table_index``, one per spreadsheet sheet.
 
     PDF tables are extracted from page geometry by :func:`_pdf_tables` (M4) and are appended after
@@ -410,6 +437,7 @@ def _tables(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     are 1-based row/column positions in the table.
     """
 
+    regions = _sheet_regions(sheet_metadata)
     tables: list[dict[str, Any]] = []
     by_docx_table: dict[int, dict[str, Any]] = {}
     by_sheet: dict[str, dict[str, Any]] = {}
@@ -444,6 +472,12 @@ def _tables(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     {"format": "xlsx", "sheet": sheet},
                     {"sheet": sheet},
                 )
+                attached = regions.get(sheet)
+                if attached is not None:
+                    for key in ("merged_regions", "declared_tables"):
+                        value = attached.get(key)
+                        if value:
+                            table[key] = value
                 by_sheet[sheet] = table
                 tables.append(table)
             _append_row(table, _range_row(locator), _row_cells(block, _metadata(block)))

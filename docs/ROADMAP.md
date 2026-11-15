@@ -613,8 +613,13 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       orchestration skeleton and three-state evidence aggregation. Defect **F1** fixed; offline
       understanding target **2/7 → 6/7** (scenarios A, I, K and B); F2 reproducer left in place.
       Target scenarios A, I, K met.
-- [ ] Phase 2 — document intelligence: parser benchmark (existing vs Docling behind an adapter), OCR
-      per language, Excel cross-sheet understanding, PDF table/scan handling, provenance.
+- [~] Phase 2 — document intelligence (**in progress**). Landed: M0 generated fixture corpus and
+      table/reading-order scorers; M1 `OCRProvider` seam (behaviour-preserving); M2 additive
+      `DocumentStructure`; M3 PDF reading order and page furniture; M4 PDF table extraction
+      (1.0 cell F1 on 11 generated tables, pdfplumber measured and **not** adopted); M5 cached
+      formula values plus merged-region/declared-table metadata. Outstanding: M6 DOCX structure,
+      M8 confidence recording, M9 resource limits, M10 embedded-image OCR, M7 cross-sheet
+      relations, M11 Docling/PaddleOCR benchmark verdict and adoption decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

@@ -88,9 +88,11 @@ def build_normalized_payload(
     payload["session_items"] = context
     if document_intelligence_enabled:
         layout = parsed.metadata.get("layout")
+        sheets = parsed.metadata.get("xlsx")
         payload["structure"] = build_document_structure(
             payload["blocks"],
             cast("dict[str, Any] | None", layout if isinstance(layout, dict) else None),
+            cast("dict[str, Any] | None", sheets if isinstance(sheets, dict) else None),
         ).as_dict()
     return payload
 
@@ -125,6 +127,7 @@ class IngestionJobService:
             pdf_ocr=pdf_ocr,
             image_ocr=image_ocr,
             capture_layout=document_intelligence_enabled,
+            capture_cached_values=document_intelligence_enabled,
         )
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name
