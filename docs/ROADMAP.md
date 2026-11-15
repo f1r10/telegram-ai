@@ -635,7 +635,16 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       11 tables/104 cells, B3 exact reading order, B7 one provenance-correct cross-sheet edge, B8 DOCX
       structure, B9 single-observation timings. B4/B5/B6 remain unmeasured (no OCR binary, no
       labelled per-language images).
-- [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
+- [~] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
+      **In progress.** Landed: additive migration `0028_entity_registry` (`entities`, `entity_aliases`,
+      `entity_candidates`) that points at the existing product/customer rows rather than copying them;
+      deterministic resolution using the strength order exact identifier > exact canonical name >
+      exact alias with the shipped normalisers, a tie reported as `AMBIGUOUS` and similarity able only
+      to propose candidates (never a merge); access enforced through the shipped feature policy
+      (`product` → `product_search`, `customer` → `sales_reports`) with the allowed types placed in
+      the query itself; all behind `gi_entity_resolution_enabled`, off by default. Not yet built:
+      `entity_relations`, `entity_relation_evidence`, `query_traces`, `valid_from`/`valid_until` and
+      the recursive-CTE multi-hop; the migration has not been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

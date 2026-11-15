@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Index,
@@ -1903,6 +1904,112 @@ class OrderReminder(Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class EntityType(StrEnum):
+    """The business-record types the Phase-3 entity registry can name."""
+
+    PRODUCT = "product"
+    CUSTOMER = "customer"
+
+
+class Entity(Base):
+    """One canonical identity, pointing at the business record it names.
+
+    The registry never duplicates the record: it holds the type, the record id and the name the
+    record carries, so a later relation can say "this product" without a second copy of the
+    product row (additive-only rule, TARGET_ARCHITECTURE §6).
+    """
+
+    __tablename__ = "entities"
+    __table_args__ = (
+        CheckConstraint("entity_type IN ('product', 'customer')", name="ck_entities_type"),
+        UniqueConstraint("entity_type", "business_record_id", name="uq_entities_business_record"),
+        Index("ix_entities_lookup", "entity_type", "normalized_name"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    business_record_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    canonical_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
+class EntityAlias(Base):
+    """A surface form accepted for one entity, with the evidence that it was seen.
+
+    ``product_aliases``/``customer_aliases`` stay the record-level truth for those two tables; this
+    one holds the forms the registry needs for any entity type, and resolution reads both.
+    """
+
+    __tablename__ = "entity_aliases"
+    __table_args__ = (
+        UniqueConstraint("entity_id", "normalized_alias", name="uq_entity_alias_form"),
+        Index("ix_entity_aliases_lookup", "normalized_alias"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    entity_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("entities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    alias: Mapped[str] = mapped_column(String(512), nullable=False)
+    normalized_alias: Mapped[str] = mapped_column(String(512), nullable=False)
+    locator: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_reference_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("source_references.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
+class EntityCandidate(Base):
+    """A mention that could not be resolved, kept for the existing human review path.
+
+    A near match is evidence, never an identity: the row records what was seen, which entity it
+    resembled and how strongly, and stays ``pending`` until a person accepts or rejects it.
+    """
+
+    __tablename__ = "entity_candidates"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'rejected')", name="ck_entity_candidates_status"
+        ),
+        CheckConstraint("score >= 0 AND score <= 1", name="ck_entity_candidates_score"),
+        UniqueConstraint(
+            "proposed_entity_id", "normalized_mention", name="uq_entity_candidate_mention"
+        ),
+        Index("ix_entity_candidates_review", "normalized_mention", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    mention: Mapped[str] = mapped_column(String(512), nullable=False)
+    normalized_mention: Mapped[str] = mapped_column(String(512), nullable=False)
+    proposed_entity_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("entities.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
 

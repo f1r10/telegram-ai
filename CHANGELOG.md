@@ -1,3 +1,34 @@
+## 2026-11-15 — Phase 3 (first increment): entity registry, aliases and deterministic resolution
+
+- New additive migration `0028_entity_registry` creates `entities`, `entity_aliases` and
+  `entity_candidates`. The registry **points at** the existing `products`/`customers` rows instead of
+  copying them, alias forms are read from both `entity_aliases` and the record-level alias tables so
+  the two cannot drift, and a weak match lands in `entity_candidates` as `pending` for the existing
+  human review path.
+- `global_intelligence/entities/resolution.py` decides deterministically: exact business identifier
+  > exact canonical name > exact accepted alias, using the shipped business normalisers (NFKC,
+  casefold, separator rules) so a form matches in this path exactly as it does elsewhere. A tie at
+  the deciding strength is `AMBIGUOUS` with every tied record as a candidate; **similarity never
+  resolves** — a near match can only propose candidates, so no score can silently merge two records.
+- Access is the shipped policy, not a parallel one: `entity_access` reuses `require_actor` and
+  `can_use_feature`, maps product → `product_search` and customer → `sales_reports`, and every query
+  carries the resulting `entity_scope` condition, so a hidden entity type is filtered out of the
+  query itself rather than hidden after the fact. An inactive account is denied; an admin is not
+  grant-limited.
+- `EntityResolutionService` is gated by `gi_entity_resolution_enabled` (already `False` by default in
+  settings and `.env.example`): with the flag off it opens no session, reads no row and returns
+  `DISABLED`, so an opted-out deployment behaves exactly as before.
+- One visible bound: at most 500 identities per resolution pass, and at most 5 candidates per
+  mention. Candidate rows are idempotent (unique `(proposed_entity_id, normalized_mention)` with
+  `ON CONFLICT DO NOTHING`), so a repeated mention is one review row.
+- Verified: 15 new unit tests pass (strength order, ambiguity, similarity-never-merges, Azerbaijani
+  casing, candidate cap, access filtering and scope clause, flag-off no-read, flag default); full
+  suite 1550 passed, 40 failed (the known native-Windows host limitations plus one PostgreSQL test),
+  no new failures; `ruff`/`ruff format` clean on the new files, `pyright` 0 errors. The migration is
+  the single head (`alembic heads` → `0028_entity_registry`) and its SQL renders offline in both
+  directions (upgrade creates three tables, two checks and five indexes; downgrade drops exactly
+  those), but it **was not applied**: no PostgreSQL is available on this host.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M11: benchmark record and the adoption verdicts
 
 - `docs/evaluation/BENCHMARK_RESULTS.md` now carries the Phase-2 adoption decision: host profile,

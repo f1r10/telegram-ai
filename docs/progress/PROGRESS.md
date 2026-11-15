@@ -421,6 +421,47 @@ Assumptions recorded as **Q65** in `docs/OPEN-QUESTIONS.md`.
 
 ---
 
+## Phase 3 — entity resolution, aliases and access (in progress, increment 1)
+
+Phase 3's plan (`docs/architecture/IMPLEMENTATION_PLAN.md`) asks for the entity registry, a resolver
+with a strength order, ambiguity routed to human review, and no relation without a source. This first
+increment lands the registry, aliases, deterministic resolution and the access filter; **relations,
+temporal facts and multi-hop are not built yet** and are the next increment.
+
+| Item | What landed | Evidence |
+| --- | --- | --- |
+| Schema | Additive migration `0028_entity_registry`: `entities` (type + business record pointer + normalised name), `entity_aliases` (form + locator + provenance), `entity_candidates` (mention, proposed entity, score, reason, `pending/accepted/rejected`) with checks, unique constraints and indexes | `alembic heads` → `0028_entity_registry` (single head); migration **not applied** — no PostgreSQL on this host |
+| Resolution | `global_intelligence/entities/resolution.py`: exact identifier > exact canonical name > exact alias, using the shipped `business.normalization`; a tie is `AMBIGUOUS` with no record chosen; similarity can only produce candidates (≤ 5, ≥ 0.80) | `tests/unit/test_entity_resolution.py` — **15 passed** |
+| Access | `entity_access` reuses `require_actor` + `can_use_feature`; product → `product_search`, customer → `sales_reports`; every registry query carries `entity_scope`, so a hidden type is filtered in SQL | same suite (grants, baseline, inactive, admin, compiled scope clause) |
+| Store | `EntityStore`: access-scoped load of identities with aliases from `entity_aliases` **and** `product_aliases`/`customer_aliases`, product codes as identifiers, idempotent candidate writes, `register`, `add_alias` | compile/typecheck only — **NOT VERIFIED** against a database |
+| Flag | `EntityResolutionService` / `entity_resolution_service(settings)` behind `gi_entity_resolution_enabled`; off → no session, `DISABLED` | same suite (flag-off uses a session factory that raises) |
+
+### Phase-3 increment 1 verification (actual commands, 2026-11-15)
+- `.venv/Scripts/python.exe -m pytest tests/unit/test_entity_resolution.py -o addopts="" -q` →
+  **15 passed** (0.6 s).
+- Full offline suite `pytest -o addopts="" -q` → **1550 passed, 40 failed, 128 skipped, 1 xfailed**
+  (75.8 s). The 40 are the same known set as before this increment (39 native-Windows host
+  limitations plus the PostgreSQL integration test needing `POSTGRES_*`); the four
+  `test_v2_miniapp_http.py` socket tests passed this run. **No new failures.**
+- `ruff check` / `ruff format --check` clean on the new package, the model file, the migration and the
+  new test (the only `E501`s in `migrations/` are pre-existing in 0019/0020); `pyright` **0 errors**.
+- `alembic heads` → `0028_entity_registry (head)`, i.e. one head, chained after
+  `0027_order_reminder_delivery`.
+- Migration SQL rendered **offline in both directions** (placeholder `POSTGRES_*` values; `--sql`
+  never connects): `alembic upgrade 0027…:0028… --sql` emits the three `CREATE TABLE`s, the two
+  `CHECK` constraints and all five `CREATE INDEX`s, and `alembic downgrade 0028…:0027… --sql` emits
+  exactly the matching `DROP INDEX`/`DROP TABLE` set — so the revision is reversible by construction.
+  Actually applying it needs a PostgreSQL the host does not have.
+
+Honest gaps: the migration was not applied and no DB-backed path ran (load, candidate write,
+register, add_alias), so those are **NOT VERIFIED**; entity-resolution precision/recall against the
+scenario B targets is **not measured** (it needs a real corpus and a database); `entity_relations`,
+`entity_relation_evidence`, `query_traces` and the recursive-CTE multi-hop are **not built**.
+
+Assumptions recorded as **Q66** in `docs/OPEN-QUESTIONS.md`.
+
+---
+
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
 
 | # | Decision | Why |
@@ -443,10 +484,14 @@ Assumptions recorded as **Q65** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-**Phase 2 is complete**: M0–M11 have all landed on `feature/global-intelligence-engine`, each with its
-own tests and recorded evidence, and M11 records the Docling/PaddleOCR verdicts. The next phase in the
-plan is **Phase 3 — entity resolution, aliases, relations and temporal facts**; it is not started
-here. Phase 1 exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+**Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
+progress**: increment 1 (registry, aliases, deterministic resolution, access filter) is landed and
+recorded above. The next increment is the relation layer — `entity_relations` and
+`entity_relation_evidence` with a mandatory `source_id`, `verification_status`
+(`confirmed|inferred|rejected`), `valid_from`/`valid_until`, a one-hop query first and the recursive
+CTE multi-hop after it — followed by applying migration `0028` (and its successor) to a disposable
+`*_test` database, which this host cannot do. Phase 1 exit criteria remain recorded in
+`docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or
