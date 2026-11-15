@@ -245,7 +245,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M5 | `c6472ac` | XLSX cached formula values recorded beside the formula; merged regions and declared table ranges per sheet; structure tables carry that sidecar | `tests/unit/test_document_xlsx_cached_values.py` — **9 passed** |
 | M6 | `0703ad5` | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
 | M8 | `e41a7ad` | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
-| M9 | *(this commit)* | Opt-in killable parse boundary: wall-clock ceiling kills the child, `RLIMIT_AS` memory ceiling where available, sanitized abort codes, 256 MiB result cap, platform limitation reported as a warning | `tests/unit/test_parse_budget.py` — **14 passed, 1 skipped** |
+| M9 | `802f8ce` | Opt-in killable parse boundary: wall-clock ceiling kills the child, `RLIMIT_AS` memory ceiling where available, sanitized abort codes, 256 MiB result cap, platform limitation reported as a warning | `tests/unit/test_parse_budget.py` — **14 passed, 1 skipped** |
+| M10 | *(this commit)* | A picture inside a PDF/DOCX/XLSX is OCR'd through the same `OCRProvider`, its `image_ocr` block carrying the original position locator; caps and an OCR-pass count bound it; the gate is `gi_document_intelligence_enabled` **and** `IMAGE_OCR_ENABLED` | `tests/unit/test_embedded_image_ocr.py` — **11 passed** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -340,6 +341,32 @@ existing parse handler), never as a silent success.
 
 Assumptions recorded as **Q62** in `docs/OPEN-QUESTIONS.md`.
 
+### M10 verification (actual commands, 2026-11-15)
+- `.venv/Scripts/python.exe -m pytest tests/unit/test_embedded_image_ocr.py -o addopts="" -q` →
+  **11 passed** (3.3 s). The fixtures are real DOCX/XLSX/PDF packages built in the test — a fake PNG
+  or JPEG payload is enough because the parser never decodes pixels — and the OCR engine is a stub
+  provider, so the assertions are about routing, locators and caps.
+- Adjacent suites (`test_embedded_image_ocr`, `test_ocr_provider_seam`, `test_standalone_image_ocr`,
+  `test_document_ocr_confidence`, `test_parsers`, `test_phase12a_embedded_images`,
+  `test_document_docx_structure`, `test_document_xlsx_cached_values`, `test_parse_budget`) →
+  **130 passed, 1 skipped** (12.7 s); the skip is M9's Windows-only memory-ceiling test.
+- Full offline suite `pytest -o addopts="" -q` → **1526 passed, 40 failed, 128 skipped, 1 xfailed**
+  (67.4 s). The 40 are the 39 known native-Windows host limitations plus
+  `tests/integration/test_phase11_web_cache.py::test_postgres_cache_write_read_and_parameter_isolation`,
+  which fails on a missing `POSTGRES_*` configuration (no database on this host); the flaky
+  `test_v2_miniapp_http.py::test_stock_history_http_is_signed_and_read_only` passed this run. Zero
+  functional regressions.
+- `ruff check` / `ruff format --check` on `src` and the new test → **clean** (221 files formatted);
+  `pyright` on `parsers.py`, `image_ocr.py`, `worker_service.py` and the new test → **0 errors**.
+
+Gate and compatibility contract: a picture is recognised only when the milestone flag is on **and**
+`IMAGE_OCR_ENABLED` supplied an `ImageOcrService`. Recognised text is appended, so the document's own
+blocks keep their sequence numbers; a document with no pictures parses byte-identically with the gate
+on and off (parametrised over DOCX/XLSX/PDF), and the provider is never called. A provider failure
+leaves the picture stored, adds `IMAGE_OCR_RECOGNITION_FAILED` and invents no block.
+
+Assumptions recorded as **Q63** in `docs/OPEN-QUESTIONS.md`.
+
 ---
 
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
@@ -364,11 +391,9 @@ Assumptions recorded as **Q62** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M10 — embedded-image OCR wiring** (route a scanned picture inside a
-PDF/DOCX/XLSX through the same `OCRProvider` with locators pointing at the original image position),
-then M7 cross-sheet relations and M11 the benchmark/adoption decision. M9 is complete and its
-evidence is recorded above; Phase 1 exit criteria remain recorded in
-`docs/evaluation/BENCHMARK_RESULTS.md`.
+Continue **Phase 2** with **M7 — cross-sheet representation**, then M11 the benchmark/adoption
+decision. M10 is complete and its evidence is recorded above; Phase 1 exit criteria remain recorded
+in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

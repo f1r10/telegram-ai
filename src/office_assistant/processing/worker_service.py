@@ -159,6 +159,10 @@ class IngestionJobService:
             capture_cached_values=document_intelligence_enabled,
             capture_structure=document_intelligence_enabled,
             capture_confidence=document_intelligence_enabled,
+            # Phase 2 M10: a picture inside a document becomes searchable only when the milestone
+            # is on and the image OCR service is available (``IMAGE_OCR_ENABLED``). Otherwise the
+            # parse is exactly the pre-M10 one: no engine call, no block, no metadata.
+            ocr_embedded_images=document_intelligence_enabled and image_ocr is not None,
         )
         self.index_collection_alias = index_collection_alias
         self.index_collection_name = index_collection_name

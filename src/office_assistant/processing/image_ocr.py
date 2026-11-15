@@ -71,40 +71,56 @@ class ImageOcrService:
             size = path.stat().st_size
             if size <= 0 or size > MAX_INPUT_BYTES or path.is_symlink():
                 return ImageOcrResult(reason="IMAGE_OCR_SIZE_LIMIT")
-            # PNG IHDR dimensions are readily accessible without decoding the image.
-            if media_type == "image/png":
-                with path.open("rb") as source:
-                    header = source.read(24)
-                if len(header) != 24 or header[12:16] != b"IHDR":
-                    return ImageOcrResult(reason="IMAGE_OCR_INVALID_HEADER")
-                width = int.from_bytes(header[16:20], "big")
-                height = int.from_bytes(header[20:24], "big")
-                if (
-                    not width
-                    or not height
-                    or width > MAX_IMAGE_SIDE
-                    or height > MAX_IMAGE_SIDE
-                    or width * height > MAX_IMAGE_PIXELS
-                ):
-                    return ImageOcrResult(reason="IMAGE_OCR_PIXEL_LIMIT")
-            try:
-                result = self.provider.recognize(
-                    path.read_bytes(),
-                    languages=self._languages,
-                    psm=6,
-                    timeout_seconds=self.timeout_seconds,
-                )
-            except OcrProviderError as error:
-                return ImageOcrResult(
-                    reason=_PROVIDER_REASONS.get(str(error), "IMAGE_OCR_RECOGNITION_FAILED")
-                )
-            text = result.text.strip()
-            if not text:
-                return ImageOcrResult(reason="IMAGE_OCR_NO_TEXT")
-            return ImageOcrResult(text=text, confidence=result.confidence)
+            return self.read_bytes(path.read_bytes(), media_type=media_type)
+        except OSError:
+            return ImageOcrResult(reason="IMAGE_OCR_LOCAL_IO_FAILURE")
+
+    def read_bytes(self, data: bytes, *, media_type: str) -> ImageOcrResult:
+        """Read printed text from picture bytes already in memory (Phase 2 M10).
+
+        A picture embedded in a document gets no privilege a standalone upload does not have: the
+        same media, size, header and provider contract applies, and the bytes still never leave
+        the process. ``read`` is this method with the file checks in front of it, so there is one
+        place where the cheap refusals live.
+        """
+
+        if media_type not in {"image/png", "image/jpeg"}:
+            return ImageOcrResult(reason="IMAGE_OCR_MEDIA_UNSUPPORTED")
+        if not data or len(data) > MAX_INPUT_BYTES:
+            return ImageOcrResult(reason="IMAGE_OCR_SIZE_LIMIT")
+        # PNG IHDR dimensions are readily accessible without decoding the image.
+        if media_type == "image/png":
+            header = data[:24]
+            if len(header) != 24 or header[12:16] != b"IHDR":
+                return ImageOcrResult(reason="IMAGE_OCR_INVALID_HEADER")
+            width = int.from_bytes(header[16:20], "big")
+            height = int.from_bytes(header[20:24], "big")
+            if (
+                not width
+                or not height
+                or width > MAX_IMAGE_SIDE
+                or height > MAX_IMAGE_SIDE
+                or width * height > MAX_IMAGE_PIXELS
+            ):
+                return ImageOcrResult(reason="IMAGE_OCR_PIXEL_LIMIT")
+        try:
+            result = self.provider.recognize(
+                data,
+                languages=self._languages,
+                psm=6,
+                timeout_seconds=self.timeout_seconds,
+            )
+        except OcrProviderError as error:
+            return ImageOcrResult(
+                reason=_PROVIDER_REASONS.get(str(error), "IMAGE_OCR_RECOGNITION_FAILED")
+            )
         except subprocess.TimeoutExpired:
             return ImageOcrResult(reason="IMAGE_OCR_TIMEOUT")
         except FileNotFoundError:
             return ImageOcrResult(reason="IMAGE_OCR_ENGINE_UNAVAILABLE")
         except OSError:
             return ImageOcrResult(reason="IMAGE_OCR_LOCAL_IO_FAILURE")
+        text = result.text.strip()
+        if not text:
+            return ImageOcrResult(reason="IMAGE_OCR_NO_TEXT")
+        return ImageOcrResult(text=text, confidence=result.confidence)

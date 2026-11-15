@@ -622,9 +622,10 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       recorded levels and fills `lists[]`); M8 OCR confidence recorded per block and aggregated per
       run (native pages carry no fabricated score, no threshold applied); M9 opt-in killable parse
       boundary (wall-clock kill, `RLIMIT_AS` memory ceiling where available, sanitized abort codes,
-      platform limitation reported not hidden; availability boundary, not a sandbox). Outstanding:
-      M10 embedded-image OCR, M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark verdict and
-      adoption decision.
+      platform limitation reported not hidden; availability boundary, not a sandbox); M10 embedded
+      picture OCR through the same provider seam, with the block carrying the picture's original
+      position locator, existing caps preserved and a visible per-parse OCR-pass bound. Outstanding:
+      M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark verdict and adoption decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

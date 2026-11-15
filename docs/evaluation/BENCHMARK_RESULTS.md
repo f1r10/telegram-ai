@@ -420,6 +420,46 @@ boundary pickled, capped at 256 MiB; the ceiling is a bound, not a measured RSS 
 hostile document (zip bomb, decompression bomb) was used — the abort path is exercised with synthetic
 operations, and live ingestion was not run.
 
+## Phase 2 — M10 embedded-picture OCR (measured, off by default)
+
+Phase-2 M10 recognises the text printed on a picture that a PDF, DOCX or XLSX carries, using the same
+`ImageOcrService` a standalone upload uses. It is gated by `gi_document_intelligence_enabled` **and**
+`IMAGE_OCR_ENABLED`, and the added block carries the picture's own position locator rather than a
+position that has to be guessed.
+
+**Measured behaviour** (`pytest tests/unit/test_embedded_image_ocr.py -o addopts="" -q` →
+**11 passed**, 3.3 s). The fixtures are real DOCX/XLSX/PDF packages built in the test; the OCR engine
+is a stub provider, so these numbers are about routing, locators and bounds, **not** OCR accuracy:
+
+| case | result |
+| --- | --- |
+| PDF picture OCR | `image_ocr` block with locator `{page: 1, image_index: 1, xobject: "/Im", extraction: "tesseract"}`; one engine call, `psm=6`, the service's 15 s timeout; run becomes `SUCCEEDED` (searchable) instead of deferred |
+| DOCX, logo in a paragraph and in a table cell | two blocks, `{paragraph_index: 0, image_index: 1, relationship_id}` and `{table_index: 0, row: 1, column: 2, …}`; the same picture twice stays two positions |
+| XLSX picture anchored on B3 | block locator `{sheet: "Qiymətlər", image_index: 1, relationship_id: "rId1", anchor_cell: "B3", extraction: "tesseract"}` |
+| document with no pictures, gate on vs off (DOCX/XLSX/PDF) | `as_dict()` identical, no `image_ocr` metadata, provider never called |
+| provider raises `RECOGNITION_FAILED` | picture still in `embedded_images`, blocks identical to the gate-off parse, warning `Page 1 picture /Im: IMAGE_OCR_RECOGNITION_FAILED`, `{attempted: 1, recovered: 0, unresolved: 1}` |
+| OCR-pass count cap at 1 with two pictures | one block, one engine call, both pictures still stored, warning says the pass stopped |
+| picture above the 4 MiB image-input cap | no block, **no engine call**, `IMAGE_OCR_SIZE_LIMIT` warning |
+| gate on, no `ImageOcrService` (`IMAGE_OCR_ENABLED` off) | nothing read, nothing claimed |
+
+Adjacent parser/OCR suites (nine files, including the M1 seam and the pre-M10 embedded-image
+extraction suite): **130 passed, 1 skipped**. Full offline suite after M10: **1526 passed, 40 failed,
+128 skipped, 1 xfailed** (67.4 s). The 40 are the 39 native-Windows host limitations plus one
+PostgreSQL integration test that needs `POSTGRES_*` (absent on this host); the known flaky Windows
+socket test passed. `ruff check`/`ruff format --check` clean (221 files formatted), `pyright`
+**0 errors** on the changed modules and the new test.
+
+**Limitations, stated rather than hidden.** Recognition is a **stub engine** in these tests: real
+Tesseract accuracy on Azerbaijani/Russian pictures inside documents is **NOT VERIFIED**, and the
+openpyxl fixture even logs that its hand-built PNG "cannot be read" by Pillow — irrelevant here,
+because the parser reads pixels only through the engine seam. The picture's text is appended after
+the document's own blocks, so sequence order is not reading order; the structure view is what
+represents reading order, and the locator carries the true position. The pass is bounded by count
+(20 pictures) and by the shared 4 MiB/15 s image limits, not by a byte or wall-clock budget of its
+own. Image confidence is recorded on the block only when `capture_confidence` is on and is
+deliberately **not** merged into the per-page `metadata["confidence"]` summary (Q63). No live
+ingestion with an embedded picture was run.
+
 ## Not measured (honest gaps)
 
 - End-to-end answers, retrieval quality (recall/MRR/nDCG), OCR and vision accuracy, graph reasoning,

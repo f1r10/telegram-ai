@@ -1,3 +1,25 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M10: a picture inside a document becomes searchable
+
+- A scanned picture carried by a PDF, DOCX or XLSX now has its text recognised and stored as an
+  `image_ocr` block, so a price list photographed into a Word file is found by search like typed
+  text. Where the picture sits is kept: the block's locator is the picture's own extraction locator
+  (`{page, image_index, xobject}`, `{sheet, …, anchor_cell}`, paragraph or header part) plus
+  `extraction: "tesseract"`.
+- Routed through the same seam, caps and reason vocabulary as a standalone upload: a picture inside
+  a document never becomes a separate upload, and its bytes still never leave the process.
+- Gated by `gi_document_intelligence_enabled` **and** `IMAGE_OCR_ENABLED`. Flag off (or no image
+  service) means no engine call, no block and no metadata; a document with no pictures parses
+  byte-identically with the gate on.
+- Additive by construction: OCR blocks are appended, so every pre-existing block keeps its sequence
+  number, and a picture that yields no text keeps its stored bytes plus a named warning
+  (`IMAGE_OCR_*`) instead of an empty or invented block.
+- A second, visible bound: at most 20 pictures per parse are handed to the engine
+  (`MAX_EMBEDDED_IMAGE_OCR`), with the remainder reported as a warning rather than quietly unread.
+- Verified: 11 new tests pass; 130 passed + 1 skipped across nine adjacent parser/OCR suites; full
+  suite 1526 passed, 40 failed (39 native-Windows host limitations plus one PostgreSQL integration
+  test that needs `POSTGRES_*`), zero functional regressions; ruff/format/pyright clean on the
+  changed files. Assumption recorded as `Q63` in `docs/OPEN-QUESTIONS.md`.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M9: killable per-parse availability boundary
 
 - A configured parse budget now runs one parse in a child process the parent can kill:

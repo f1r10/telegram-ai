@@ -156,6 +156,89 @@ class _ExtractedImages:
         return True
 
 
+#: Phase 2 M10: how many embedded pictures one parse may hand to the OCR engine. Extraction is
+#: already bounded (8 MiB per picture, 200 per document), but recognising two hundred pictures is
+#: still two hundred engine invocations, so the OCR pass carries a count of its own. A picture
+#: beyond it keeps its stored bytes and a visible warning; it is never silently read less. This is
+#: an ASSUMPTION (docs/OPEN-QUESTIONS.md Q63), not a measured optimum.
+MAX_EMBEDDED_IMAGE_OCR = 20
+
+
+def _picture_label(locator: dict[str, Any]) -> str:
+    """A readable position for one picture, built only from keys its own locator carries."""
+
+    if "page" in locator:
+        where = f"Page {locator['page']}"
+    elif "sheet" in locator:
+        where = f"Sheet {locator['sheet']}"
+    elif "part" in locator:
+        where = str(locator["part"])
+    elif "paragraph_index" in locator:
+        where = f"Paragraph {locator['paragraph_index']}"
+    else:
+        where = "Document"
+    # A PDF picture has a resource name (``/Im``); a package part one has an ordinal.
+    name = locator.get("xobject") or locator.get("image_index", "?")
+    return f"{where} picture {name}"
+
+
+def _add_embedded_image_ocr(
+    images: list[EmbeddedImage],
+    *,
+    image_ocr: ImageOcrService | None,
+    capture_confidence: bool,
+    blocks: list[ContentBlock],
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    """Recognise the text printed on the pictures a document carries (Phase 2 M10).
+
+    Recognised text is *appended* after the document's own blocks, so every existing block keeps
+    the sequence number it had and a document with no pictures is unchanged. Where a picture sits
+    is not thrown away to gain that property: each OCR block carries the picture's own extraction
+    locator (page/``image_index``/``xobject``, sheet/``anchor_cell``, paragraph or header part)
+    plus the engine that read it.
+
+    A picture that yields no text keeps its stored bytes and gains a named warning here; it never
+    becomes an empty or invented block, so "stored but not read" and "read as nothing" stay
+    distinguishable downstream.
+    """
+
+    if image_ocr is None or not images:
+        return None
+    attempted = 0
+    recovered = 0
+    for image in images:
+        if attempted >= MAX_EMBEDDED_IMAGE_OCR:
+            warnings.append(
+                f"Embedded-picture OCR stopped at {MAX_EMBEDDED_IMAGE_OCR} pictures; the rest "
+                "keep their stored bytes and are not read as text"
+            )
+            break
+        attempted += 1
+        result = image_ocr.read_bytes(image.data, media_type=image.content_type)
+        if not result.text:
+            warnings.append(
+                f"{_picture_label(image.locator)}: {result.reason or 'IMAGE_OCR_NO_TEXT'}"
+            )
+            continue
+        recovered += 1
+        block_metadata: dict[str, Any] = {}
+        if capture_confidence:
+            block_metadata["extraction"] = "tesseract"
+            if result.confidence is not None:
+                block_metadata["confidence"] = result.confidence
+        blocks.append(
+            ContentBlock(
+                len(blocks) + 1,
+                "image_ocr",
+                result.text,
+                {**image.locator, "extraction": "tesseract"},
+                block_metadata,
+            )
+        )
+    return {"attempted": attempted, "recovered": recovered, "unresolved": attempted - recovered}
+
+
 class DocumentParser(Protocol):
     name: str
     version: str
@@ -199,8 +282,14 @@ class PdfParser:
         *,
         capture_layout: bool = False,
         capture_confidence: bool = False,
+        image_ocr: ImageOcrService | None = None,
+        ocr_embedded_images: bool = False,
     ) -> None:
         self.ocr_service = ocr_service
+        #: Phase 2 M10: the same bounded image service standalone uploads use, so a picture inside
+        #: a PDF is read by exactly the engine, caps and reason vocabulary that an upload is.
+        self.image_ocr = image_ocr
+        self.ocr_embedded_images = ocr_embedded_images
         #: Phase 2 M8: name each page's extraction source and record the OCR engine's confidence
         #: when it reported one. A native-text page records ``extraction: "native"`` and no score.
         #: Off by default, so the pre-M8 block metadata (empty) is unchanged.
@@ -282,6 +371,17 @@ class PdfParser:
                 )
         image_warnings: list[str] = []
         images = self._embedded_images(reader, image_warnings)
+        image_ocr_summary = (
+            _add_embedded_image_ocr(
+                images,
+                image_ocr=self.image_ocr,
+                capture_confidence=self.capture_confidence,
+                blocks=blocks,
+                warnings=image_warnings,
+            )
+            if self.ocr_embedded_images
+            else None
+        )
         metadata: dict[str, Any] = {}
         if ocr is not None:
             metadata["ocr"] = {
@@ -299,6 +399,10 @@ class PdfParser:
             # Phase 2 M8: the parse run's confidence summary. Recorded, never acted on: no
             # threshold is applied here (consumption is Phase 5).
             metadata["confidence"] = _confidence_summary(page_sources)
+        if image_ocr_summary is not None:
+            # Phase 2 M10: how many pictures were offered to the engine and what came back. Counts
+            # only — a failure is a warning above, never a quiet zero.
+            metadata["image_ocr"] = image_ocr_summary
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -653,11 +757,23 @@ class DocxParser:
     version = "1.2.0"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.DOCX_EMBEDDED
 
-    def __init__(self, *, capture_structure: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        capture_structure: bool = False,
+        capture_confidence: bool = False,
+        image_ocr: ImageOcrService | None = None,
+        ocr_embedded_images: bool = False,
+    ) -> None:
         #: Phase 2 M6: record the outline depth, list membership, table cell coordinates and the
         #: document's core properties. Off by default, so an opted-out deployment produces exactly
         #: the pre-M6 blocks and an empty document metadata.
         self.capture_structure = capture_structure
+        #: Phase 2 M8/M10: record the OCR engine's confidence beside the text it recognised.
+        self.capture_confidence = capture_confidence
+        #: Phase 2 M10: recognise text printed on the document's own pictures.
+        self.image_ocr = image_ocr
+        self.ocr_embedded_images = ocr_embedded_images
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         document = Document(str(path))
@@ -727,6 +843,16 @@ class DocxParser:
             properties = self._core_properties(document)
             if properties:
                 metadata["core_properties"] = properties
+        if self.ocr_embedded_images:
+            image_ocr_summary = _add_embedded_image_ocr(
+                collected.images,
+                image_ocr=self.image_ocr,
+                capture_confidence=self.capture_confidence,
+                blocks=blocks,
+                warnings=warnings,
+            )
+            if image_ocr_summary is not None:
+                metadata["image_ocr"] = image_ocr_summary
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -908,11 +1034,23 @@ class XlsxParser:
     version = "3.1.5"
     embedded_origin: ImageAssetOrigin | None = ImageAssetOrigin.XLSX_EMBEDDED
 
-    def __init__(self, *, capture_cached_values: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        capture_cached_values: bool = False,
+        capture_confidence: bool = False,
+        image_ocr: ImageOcrService | None = None,
+        ocr_embedded_images: bool = False,
+    ) -> None:
         #: Phase 2 M5: read the workbook a second time with ``data_only=True`` so a formula cell
         #: records the result the file cached beside the formula string. Off by default, so an
         #: opted-out deployment keeps exactly the row metadata pre-M5 produced (golden contract).
         self.capture_cached_values = capture_cached_values
+        #: Phase 2 M8/M10: record the OCR engine's confidence beside the text it recognised.
+        self.capture_confidence = capture_confidence
+        #: Phase 2 M10: recognise text printed on pictures anchored on the workbook's sheets.
+        self.image_ocr = image_ocr
+        self.ocr_embedded_images = ocr_embedded_images
 
     def parse(self, path: Path, *, source_file_id: int, media_type: str) -> ParsedDocument:
         workbook = load_workbook(path, data_only=False)
@@ -949,6 +1087,16 @@ class XlsxParser:
                 cached_workbook.close()
         collected = _ExtractedImages(warnings)
         self._collect_images(path, collected)
+        if self.ocr_embedded_images:
+            image_ocr_summary = _add_embedded_image_ocr(
+                collected.images,
+                image_ocr=self.image_ocr,
+                capture_confidence=self.capture_confidence,
+                blocks=blocks,
+                warnings=warnings,
+            )
+            if image_ocr_summary is not None:
+                metadata["image_ocr"] = image_ocr_summary
         return ParsedDocument(
             source_file_id,
             self.name,
@@ -1214,6 +1362,7 @@ class ParserRegistry:
         capture_cached_values: bool = False,
         capture_structure: bool = False,
         capture_confidence: bool = False,
+        ocr_embedded_images: bool = False,
     ) -> None:
         self._parsers: dict[str, DocumentParser] = {
             ".txt": TxtParser(),
@@ -1221,9 +1370,21 @@ class ParserRegistry:
                 ocr_service=pdf_ocr,
                 capture_layout=capture_layout,
                 capture_confidence=capture_confidence,
+                image_ocr=image_ocr,
+                ocr_embedded_images=ocr_embedded_images,
             ),
-            ".docx": DocxParser(capture_structure=capture_structure),
-            ".xlsx": XlsxParser(capture_cached_values=capture_cached_values),
+            ".docx": DocxParser(
+                capture_structure=capture_structure,
+                capture_confidence=capture_confidence,
+                image_ocr=image_ocr,
+                ocr_embedded_images=ocr_embedded_images,
+            ),
+            ".xlsx": XlsxParser(
+                capture_cached_values=capture_cached_values,
+                capture_confidence=capture_confidence,
+                image_ocr=image_ocr,
+                ocr_embedded_images=ocr_embedded_images,
+            ),
             ".jpg": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
             ".jpeg": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
             ".png": ImageProbeParser(image_ocr=image_ocr, capture_confidence=capture_confidence),
