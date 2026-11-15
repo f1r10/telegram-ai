@@ -246,7 +246,8 @@ milestone is additive; the flag-off path is the pre-Phase-2 pipeline byte for by
 | M6 | `0703ad5` | DOCX heading depth (`outlineLvl` then style), numbered/bulleted `list_item` blocks, table `cell_coordinates`, non-empty `core_properties`; structure uses the recorded heading level and fills `lists[]` | `tests/unit/test_document_docx_structure.py` — **11 passed** |
 | M8 | `e41a7ad` | OCR confidence recorded per block and aggregated per run; native pages say `extraction: "native"` and carry no score; one `txt tsv` invocation behind an opt-in | `tests/unit/test_document_ocr_confidence.py` — **10 passed** |
 | M9 | `802f8ce` | Opt-in killable parse boundary: wall-clock ceiling kills the child, `RLIMIT_AS` memory ceiling where available, sanitized abort codes, 256 MiB result cap, platform limitation reported as a warning | `tests/unit/test_parse_budget.py` — **14 passed, 1 skipped** |
-| M10 | *(this commit)* | A picture inside a PDF/DOCX/XLSX is OCR'd through the same `OCRProvider`, its `image_ocr` block carrying the original position locator; caps and an OCR-pass count bound it; the gate is `gi_document_intelligence_enabled` **and** `IMAGE_OCR_ENABLED` | `tests/unit/test_embedded_image_ocr.py` — **11 passed** |
+| M10 | `a5b352e` | A picture inside a PDF/DOCX/XLSX is OCR'd through the same `OCRProvider`, its `image_ocr` block carrying the original position locator; caps and an OCR-pass count bound it; the gate is `gi_document_intelligence_enabled` **and** `IMAGE_OCR_ENABLED` | `tests/unit/test_embedded_image_ocr.py` — **11 passed** |
+| M7 | *(this commit)* | `structure.relations[]` carries deterministic cross-sheet edges with the cue that produced each one (shared key column, formula reference, defined name); both endpoints must resolve; read-only, no SQL | `tests/unit/test_document_cross_sheet_relations.py` — **9 passed** |
 
 ### M5 verification (actual commands, 2026-11-15)
 - `uv run --no-sync pytest tests/unit/test_document_xlsx_cached_values.py -o addopts="" -q` →
@@ -367,6 +368,31 @@ leaves the picture stored, adds `IMAGE_OCR_RECOGNITION_FAILED` and invents no bl
 
 Assumptions recorded as **Q63** in `docs/OPEN-QUESTIONS.md`.
 
+### M7 verification (actual commands, 2026-11-15)
+- `.venv/Scripts/python.exe -m pytest tests/unit/test_document_cross_sheet_relations.py -o addopts="" -q`
+  → **9 passed** (1.3 s). Fixtures are real openpyxl workbooks; the assertions are on edges,
+  endpoints and cues.
+- Adjacent suites (`test_document_cross_sheet_relations`, `test_document_xlsx_cached_values`,
+  `test_document_structure`, `test_document_docx_structure`, `test_document_tables`,
+  `test_document_reading_order`, `test_parsers`, `test_embedded_image_ocr`,
+  `test_inventory_xlsx`, `test_v2_sales_xlsx_import`, `test_v2_inventory_parsing`,
+  `tests/evaluation`) → **203 passed, 1 xfailed** (19.5 s).
+- Full offline suite `pytest -o addopts="" -q` → **1531 passed, 44 failed, 128 skipped, 1 xfailed**
+  (74.5 s). 40 of the failures are the same set as after M10 (39 native-Windows host limitations
+  plus the PostgreSQL integration test needing `POSTGRES_*`); the four extra are
+  `tests/unit/test_v2_miniapp_http.py` socket tests failing with `WinError 10053`, which
+  **passed 26/26 on isolated re-run**. Zero functional regressions.
+- `ruff check`/`ruff format --check` clean (24 files in the touched package set); `pyright` on
+  `structure.py`, `parsers.py` and the new test → **0 errors**.
+
+Gate and compatibility contract: relations are produced only inside the flag-on structure view, so
+an opted-out deployment is unaffected. A single-sheet workbook, or a multi-sheet one with no shared
+key column and no cross-sheet formula, yields `relations: []` and a structure equal to the pre-M7
+view (golden test). `XlsxParser` gains one additive metadata key (`xlsx.defined_names`); row blocks,
+locators and every other metadata key are unchanged.
+
+Assumptions recorded as **Q64** in `docs/OPEN-QUESTIONS.md`.
+
 ---
 
 ## Decisions made (also appended to `docs/OPEN-QUESTIONS.md` as Q50–Q52)
@@ -391,9 +417,10 @@ Assumptions recorded as **Q63** in `docs/OPEN-QUESTIONS.md`.
   reported rather than retried blindly.
 
 ## Next step
-Continue **Phase 2** with **M7 — cross-sheet representation**, then M11 the benchmark/adoption
-decision. M10 is complete and its evidence is recorded above; Phase 1 exit criteria remain recorded
-in `docs/evaluation/BENCHMARK_RESULTS.md`.
+Continue **Phase 2** with **M11 — the benchmark report and adoption decision** (Docling and
+PaddleOCR each need an explicit verdict with the evidence that produced it). M7 and M10 are complete
+and their evidence is recorded above; Phase 1 exit criteria remain recorded in
+`docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

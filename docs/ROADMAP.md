@@ -624,8 +624,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       boundary (wall-clock kill, `RLIMIT_AS` memory ceiling where available, sanitized abort codes,
       platform limitation reported not hidden; availability boundary, not a sandbox); M10 embedded
       picture OCR through the same provider seam, with the block carrying the picture's original
-      position locator, existing caps preserved and a visible per-parse OCR-pass bound. Outstanding:
-      M7 cross-sheet relations, M11 Docling/PaddleOCR benchmark verdict and adoption decision.
+      position locator, existing caps preserved and a visible per-parse OCR-pass bound); M7
+      cross-sheet `structure.relations[]` edges with the cue that produced each one (shared key
+      column, formula reference, defined name), both endpoints resolving to real cells, read-only
+      and with no SQL of its own. Outstanding: M11 Docling/PaddleOCR benchmark verdict and adoption
+      decision.
 - [ ] Phase 3 — entity resolution, aliases, relations, temporal facts (scenario B depth).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement

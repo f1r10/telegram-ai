@@ -57,8 +57,10 @@ class DocumentStructure:
     """A JSON-serialisable structural view of one document's flat blocks.
 
     ``blocks`` mirrors the flat, ordered ``ContentBlock`` list unchanged; the other entries are
-    additive relations over it. ``lists`` and ``relations`` are reserved by the design but stay
-    empty in this milestone (list markers and cross-sheet edges arrive in M6/M7).
+    additive relations over it. ``lists`` is filled from the list blocks M6 records and
+    ``relations`` from the cross-sheet cues M7 reads (a shared key column or a formula reference);
+    both stay empty when the document carries no such cue, so a view without them is exactly the
+    pre-M6/M7 view.
     """
 
     pages: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
@@ -101,7 +103,7 @@ def build_document_structure(
         sections=_sections(blocks),
         tables=[*_tables(blocks, sheet_metadata), *_pdf_tables(layout)],
         lists=_lists(blocks),
-        relations=[],
+        relations=_relations(blocks, sheet_metadata),
         blocks=[dict(block) for block in blocks],
     )
 
@@ -929,3 +931,351 @@ def _pdf_tables(layout: dict[str, Any] | None) -> list[dict[str, Any]]:
             table["locator"] = {"page": number, "table_index": index}
             tables.append(table)
     return tables
+
+
+# --- M7: cross-sheet relations -------------------------------------------------------------------
+
+#: Phase 2 M7: an upper bound on the edges one workbook may produce. Sheets that share many
+#: headers could otherwise yield a quadratic number of edges, and this view is a reading aid rather
+#: than a query engine. Reaching the bound stops the pass; it never invents an edge to fill it.
+#: ASSUMPTION (docs/OPEN-QUESTIONS.md Q64).
+_MAX_CROSS_SHEET_RELATIONS = 50
+
+#: ``A1`` or ``A1:B9``, with or without the ``$`` a formula writes.
+_RANGE_REFERENCE = re.compile(r"^\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?$")
+#: A sheet-qualified reference inside a formula: ``'Qiymətlər'!B2:B10``, ``Sales!TOTALS``.
+_SHEET_REFERENCE = re.compile(
+    r"(?:'((?:[^']|'')+)'|([^\s'!(),:+\-*/=&<>^%]+))!"
+    r"(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|[A-Za-z_][A-Za-z0-9_.]*)"
+)
+
+
+def _column_index(column: str) -> int:
+    """A column letter's 1-based index (``A`` -> 1, ``AA`` -> 27)."""
+
+    index = 0
+    for char in column:
+        index = index * 26 + (ord(char) - 64)
+    return index
+
+
+def _range_bounds(cells_range: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """``(start column, start row)`` and ``(end column, end row)`` of an A1 range, or ``None``."""
+
+    match = _RANGE_REFERENCE.match(cells_range.strip().upper())
+    if match is None:
+        return None
+    start_column = _column_index(match.group(1))
+    end_column = _column_index(match.group(3) or match.group(1))
+    return (start_column, int(match.group(2))), (end_column, int(match.group(4) or match.group(2)))
+
+
+def _sheet_reference(raw: str) -> tuple[str, str] | None:
+    """``'Qiymətlər'!B2:B10`` -> ``("Qiymətlər", "B2:B10")``; ``None`` when unqualified."""
+
+    text = raw.strip()
+    if "!" not in text:
+        return None
+    sheet, _, cells_range = text.rpartition("!")
+    sheet = sheet.strip()
+    if len(sheet) >= 2 and sheet.startswith("'") and sheet.endswith("'"):
+        sheet = sheet[1:-1].replace("''", "'")
+    cells_range = cells_range.strip()
+    return (sheet, cells_range) if sheet and cells_range else None
+
+
+def _formula_references(formula: str) -> list[tuple[str, str]]:
+    """Every sheet-qualified reference a formula names, in the order it names them."""
+
+    found: list[tuple[str, str]] = []
+    for match in _SHEET_REFERENCE.finditer(formula):
+        sheet = (match.group(1) or match.group(2) or "").replace("''", "'").strip()
+        tail = match.group(3) or ""
+        if sheet and tail:
+            found.append((sheet, tail))
+    return found
+
+
+def _sheet_models(blocks: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The populated cells of every worksheet the blocks describe, in first-seen sheet order.
+
+    Only the vocabulary ``XlsxParser`` already writes is read: a row block names its sheet and its
+    ``range``, and its metadata carries ``values``, ``columns`` (the letter per cell) and
+    ``formulas`` (which cells are formulas). Nothing is re-read from the file.
+    """
+
+    models: dict[str, dict[str, Any]] = {}
+    for block in blocks:
+        if _block_type(block) not in TABLE_BLOCK_TYPES:
+            continue
+        locator = _locator(block)
+        sheet = locator.get("sheet")
+        if not isinstance(sheet, str) or not sheet:
+            continue
+        row_number = _range_row(locator)
+        metadata = _metadata(block)
+        raw_columns = metadata.get("columns")
+        if row_number is None or not isinstance(raw_columns, list):
+            continue
+        columns = [str(item) for item in cast("list[Any]", raw_columns)]
+        values = _row_cells(block, metadata)
+        raw_formulas = metadata.get("formulas")
+        formulas: list[bool] = (
+            [bool(flag) for flag in cast("list[Any]", raw_formulas)]
+            if isinstance(raw_formulas, list)
+            else []
+        )
+        model = models.setdefault(
+            sheet,
+            {"cells": {}, "header": {}, "formulas": [], "max_row": 0, "max_column": 0},
+        )
+        model["max_row"] = max(int(model["max_row"]), row_number)
+        for index, column in enumerate(columns):
+            text = values[index] if index < len(values) else ""
+            if not text.strip():
+                continue
+            cast("dict[str, str]", model["cells"])[f"{column}{row_number}"] = text
+            model["max_column"] = max(int(model["max_column"]), _column_index(column))
+            if row_number == 1:
+                cast("dict[str, str]", model["header"])[column] = text.strip()
+            if index < len(formulas) and formulas[index] and text.startswith("="):
+                cast("list[tuple[str, str]]", model["formulas"]).append(
+                    (f"{column}{row_number}", text)
+                )
+    return models
+
+
+def _resolves(models: dict[str, dict[str, Any]], sheet: str, cells_range: str) -> bool:
+    """Whether a ``{sheet, range}`` endpoint names cells the workbook actually holds.
+
+    An edge is only recorded when both of its ends resolve: a formula pointing at a sheet this
+    workbook does not have, or at rows or columns it never populates, produces no relation rather
+    than a locator a reader cannot follow.
+    """
+
+    model = models.get(sheet)
+    bounds = _range_bounds(cells_range)
+    if model is None or bounds is None:
+        return False
+    (start_column, start_row), (end_column, end_row) = bounds
+    if start_row < 1 or end_row < start_row or end_column < start_column:
+        return False
+    return end_row <= int(model["max_row"]) and end_column <= int(model["max_column"])
+
+
+def _column_values(model: dict[str, Any], column: str) -> dict[int, str]:
+    """The non-empty values of one column below the header row, keyed by row number."""
+
+    values: dict[int, str] = {}
+    for address, text in cast("dict[str, str]", model["cells"]).items():
+        match = _RANGE_REFERENCE.match(address)
+        if match is None or match.group(1) != column:
+            continue
+        row = int(match.group(2))
+        if row > 1 and text.strip():
+            values[row] = text.strip()
+    return values
+
+
+def _column_range(column: str, rows: dict[int, str]) -> str:
+    """The A1 range a populated column occupies, from its first value to its last."""
+
+    return f"{column}{min(rows)}:{column}{max(rows)}"
+
+
+def _add_relation(
+    relations: list[dict[str, Any]],
+    source: dict[str, Any],
+    target: dict[str, Any],
+    cue: dict[str, Any],
+) -> None:
+    """Record one edge unless it duplicates an existing one or the bound is already reached."""
+
+    if len(relations) >= _MAX_CROSS_SHEET_RELATIONS:
+        return
+    key = (source["sheet"], source["range"], target["sheet"], target["range"], cue["type"])
+    for relation in relations:
+        existing = (
+            relation["source"]["sheet"],
+            relation["source"]["range"],
+            relation["target"]["sheet"],
+            relation["target"]["range"],
+            relation["cue"]["type"],
+        )
+        if existing == key:
+            return
+    relations.append(
+        {
+            "id": f"relation-{len(relations) + 1}",
+            "source": source,
+            "target": target,
+            "cue": cue,
+        }
+    )
+
+
+def _key_column_relations(
+    models: dict[str, dict[str, Any]], relations: list[dict[str, Any]]
+) -> None:
+    """Sheets whose identically headed columns carry at least one shared value.
+
+    The shared header is the cue and the shared values are the evidence: two sheets with a ``SKU``
+    column that hold no value in common are not related by it. Matching is on the header text
+    case-folded and on the value text stripped, so nothing is guessed about what a code means.
+    """
+
+    names = list(models)
+    for position, left in enumerate(names):
+        for right in names[position + 1 :]:
+            left_model = models[left]
+            right_model = models[right]
+            right_columns = {
+                header.casefold(): column
+                for column, header in cast("dict[str, str]", right_model["header"]).items()
+            }
+            headers = cast("dict[str, str]", left_model["header"])
+            for column in sorted(headers):
+                header = headers[column]
+                other = right_columns.get(header.casefold())
+                if other is None:
+                    continue
+                left_values = _column_values(left_model, column)
+                right_values = _column_values(right_model, other)
+                shared = set(left_values.values()) & set(right_values.values())
+                if not shared or not left_values or not right_values:
+                    continue
+                left_range = _column_range(column, left_values)
+                right_range = _column_range(other, right_values)
+                if not _resolves(models, left, left_range) or not _resolves(
+                    models, right, right_range
+                ):
+                    continue
+                _add_relation(
+                    relations,
+                    {"sheet": left, "range": left_range},
+                    {"sheet": right, "range": right_range},
+                    {
+                        "type": "shared_key_column",
+                        "header": header,
+                        "shared_values": len(shared),
+                    },
+                )
+
+
+def _defined_names(sheet_metadata: dict[str, Any] | None) -> dict[str, tuple[str, str]]:
+    """The workbook's defined names that point at one sheet range, keyed by name (M7 cue).
+
+    A name that points at a constant, a formula or several areas is not a cell locator and is
+    ignored: M7 represents structure, it does not evaluate what a name computes.
+    """
+
+    if not isinstance(sheet_metadata, dict):
+        return {}
+    entries = sheet_metadata.get("defined_names")
+    if not isinstance(entries, list):
+        return {}
+    names: dict[str, tuple[str, str]] = {}
+    for item in cast("list[object]", entries):
+        if not isinstance(item, dict):
+            continue
+        entry = cast("dict[str, Any]", item)
+        name = entry.get("name")
+        destination = entry.get("destination")
+        if not isinstance(name, str) or not isinstance(destination, str):
+            continue
+        parsed = _sheet_reference(destination)
+        if parsed is None:
+            continue
+        sheet, cells_range = parsed
+        if _range_bounds(cells_range) is None:
+            continue
+        names[name] = (sheet, cells_range.replace("$", ""))
+    return names
+
+
+def _formula_relations(
+    models: dict[str, dict[str, Any]],
+    sheet_metadata: dict[str, Any] | None,
+    relations: list[dict[str, Any]],
+) -> None:
+    """Cell-to-cell edges from a formula that names another sheet, or a name that lives on one.
+
+    The formula text is the parser's own cell value; nothing is evaluated. A reference is recorded
+    only when the sheet it names exists in this workbook and the range it names falls inside the
+    cells this parse actually saw, so an endpoint is always followable.
+    """
+
+    defined = _defined_names(sheet_metadata)
+    for sheet, model in models.items():
+        formulas = sorted(
+            cast("list[tuple[str, str]]", model["formulas"]),
+            key=lambda item: _range_bounds(item[0]) or ((0, 0), (0, 0)),
+        )
+        for address, formula in formulas:
+            for target_sheet, tail in _formula_references(formula):
+                if _range_bounds(tail) is not None:
+                    cells_range = tail.upper().replace("$", "")
+                    if not _resolves(models, target_sheet, cells_range):
+                        continue
+                    _add_relation(
+                        relations,
+                        {"sheet": sheet, "range": address},
+                        {"sheet": target_sheet, "range": cells_range},
+                        {
+                            "type": "formula_reference",
+                            "reference": f"{target_sheet}!{cells_range}",
+                        },
+                    )
+                    continue
+                destination = defined.get(tail)
+                if destination is None or not _resolves(models, destination[0], destination[1]):
+                    continue
+                _add_relation(
+                    relations,
+                    {"sheet": sheet, "range": address},
+                    {"sheet": destination[0], "range": destination[1]},
+                    {
+                        "type": "defined_name",
+                        "name": tail,
+                        "reference": f"{destination[0]}!{destination[1]}",
+                    },
+                )
+            # A workbook-scoped name is written without a sheet prefix (``=TOTAL``), so it is
+            # matched as a whole token rather than through the ``sheet!`` form above.
+            for name, (destination_sheet, destination_range) in defined.items():
+                if not re.search(
+                    rf"(?<![A-Za-z0-9_.]){re.escape(name)}(?![A-Za-z0-9_.(])", formula
+                ):
+                    continue
+                if not _resolves(models, destination_sheet, destination_range):
+                    continue
+                _add_relation(
+                    relations,
+                    {"sheet": sheet, "range": address},
+                    {"sheet": destination_sheet, "range": destination_range},
+                    {
+                        "type": "defined_name",
+                        "name": name,
+                        "reference": f"{destination_sheet}!{destination_range}",
+                    },
+                )
+
+
+def _relations(
+    blocks: list[dict[str, Any]], sheet_metadata: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Cross-sheet edges over a workbook's own cues (Phase 2 M7) — represent, never answer.
+
+    Two cues are read: a key column two sheets share values in, and a formula that names another
+    sheet or a defined name. A single-sheet document, or one with no cue, yields ``[]``, so the
+    view is byte-identical to the pre-M7 one. Every edge carries the cue that produced it and two
+    ``{sheet, range}`` endpoints; nothing here aggregates, computes or resolves business data.
+    """
+
+    models = _sheet_models(blocks)
+    if len(models) < 2:
+        return []
+    relations: list[dict[str, Any]] = []
+    _key_column_relations(models, relations)
+    _formula_relations(models, sheet_metadata, relations)
+    return relations

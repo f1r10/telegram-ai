@@ -1,3 +1,26 @@
+## 2026-11-15 — Global Intelligence Engine, Phase 2 M7: cross-sheet structure is represented, not answered
+
+- With `gi_document_intelligence_enabled` on, the workbook structure view now fills `relations[]`
+  with deterministic edges `{source: {sheet, range}, target: {sheet, range}, cue: {...}}`.
+- Two cues are read, and only two: two sheets with an identically headed key column that share at
+  least one value (`shared_key_column`, carrying the header and the shared count), and a formula
+  that names another sheet or a workbook-level defined name (`formula_reference` / `defined_name`).
+- An edge is recorded only when **both** endpoints name cells the workbook actually holds: a formula
+  pointing at a missing sheet, or at rows or columns the parse never saw, produces no relation.
+- `XlsxParser` records the workbook's defined names verbatim (`metadata.xlsx.defined_names`, name
+  and destination text) so the view can resolve them; it never evaluates a name, and the row blocks
+  are unchanged.
+- Read-only by construction: no SQL is generated or duplicated, no free-form query is introduced,
+  and nothing is aggregated or computed. A single-sheet workbook, or one with no cue, keeps
+  `relations: []` and an otherwise byte-identical view (golden test).
+- One visible bound: at most 50 edges per workbook, after which the pass stops without inventing
+  one to fill the list.
+- Verified: 9 new tests pass; 203 passed + 1 xfailed across the adjacent parser/structure/evaluation
+  suites; full suite 1531 passed, 44 failed (the 39 native-Windows host limitations, one PostgreSQL
+  integration test needing `POSTGRES_*`, and four flaky Windows socket tests that pass 26/26 on
+  isolated re-run); ruff/format/pyright clean on the changed files. Assumption recorded as `Q64` in
+  `docs/OPEN-QUESTIONS.md`.
+
 ## 2026-11-15 — Global Intelligence Engine, Phase 2 M10: a picture inside a document becomes searchable
 
 - A scanned picture carried by a PDF, DOCX or XLSX now has its text recognised and stored as an

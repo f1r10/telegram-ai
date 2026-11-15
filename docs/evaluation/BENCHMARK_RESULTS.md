@@ -460,6 +460,43 @@ own. Image confidence is recorded on the block only when `capture_confidence` is
 deliberately **not** merged into the per-page `metadata["confidence"]` summary (Q63). No live
 ingestion with an embedded picture was run.
 
+## Phase 2 — M7 cross-sheet relations (measured, view-only)
+
+Phase-2 M7 fills `structure.relations[]` with deterministic edges over a workbook's own cues. It is
+part of the flag-on structure view, it *represents* structure rather than answering questions, and it
+generates no SQL.
+
+**Measured behaviour** (`pytest tests/unit/test_document_cross_sheet_relations.py -o addopts="" -q`
+→ **9 passed**, 1.3 s; fixtures are real openpyxl workbooks):
+
+| case | result |
+| --- | --- |
+| two sheets with a `SKU` column sharing `KA45` | one edge, `{Qiymətlər!A2:A3}` → `{Satışlar!A2:A3}`, cue `{type: shared_key_column, header: SKU, shared_values: 1}` |
+| both endpoints | every corner address of both ranges exists in the parsed row blocks |
+| same shape, headers `SKU` vs `Kod`, no shared value | `relations: []` — no cue, no edge |
+| `=SUM(Qiymətlər!B2:B3)` in `Satışlar!B4` | edge `{Satışlar!B4}` → `{Qiymətlər!B2:B3}`, cue `formula_reference` |
+| `=TOTAL*2` with `TOTAL` = `'Qiymətlər'!$B$2:$B$3` | edge `{Hesab!A4}` → `{Qiymətlər!B2:B3}`, cue `{type: defined_name, name: TOTAL}` |
+| `=Yoxdur!A1` (no such sheet) and `=Qiymətlər!A99` (row never seen) | no edge — an endpoint that cannot be followed is not recorded |
+| single-sheet workbook with a formula and a defined name | `relations: []` and the view equals `build_document_structure(blocks).as_dict()` |
+| three sheets sharing one key column, bound patched to 2 | exactly 2 edges, ids `relation-1`, `relation-2` |
+| parser flag off / on | no `metadata.xlsx`; with the flag on `defined_names` is `[{name, destination}]` recorded verbatim |
+
+Adjacent parser/structure/evaluation suites (twelve files): **203 passed, 1 xfailed**. Full offline
+suite after M7: **1531 passed, 44 failed, 128 skipped, 1 xfailed** (74.5 s). 40 of the failures are the
+same set as after M10 (39 native-Windows host limitations plus one PostgreSQL integration test); the
+four extra are `tests/unit/test_v2_miniapp_http.py` socket tests failing with `WinError 10053`, which
+**passed 26/26 on isolated re-run**. `ruff check`/`ruff format --check` clean, `pyright` **0 errors**
+on the changed modules and the new test.
+
+**Limitations, stated rather than hidden.** The cues are narrow on purpose: a key column that is only
+*implied* by layout (two sheets listing the same codes under different headers) produces **no** edge,
+and a formula that references a sheet by a scoped name, a structured table reference
+(`Table1[SKU]`) or an external workbook is ignored. Edges are recorded, not consumed: nothing in this
+milestone joins the sheets, aggregates values or answers a question, and no SQL is produced or
+duplicated (§11). Sheet-scoped (`localSheetId`) names are not resolved. The 50-edge bound is a
+reading-aid limit, **not** a measured optimum; a workbook that hits it silently stops adding edges
+rather than reporting which were dropped.
+
 ## Not measured (honest gaps)
 
 - End-to-end answers, retrieval quality (recall/MRR/nDCG), OCR and vision accuracy, graph reasoning,

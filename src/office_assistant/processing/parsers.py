@@ -1081,6 +1081,12 @@ class XlsxParser:
                 metadata["xlsx"] = {
                     "sheets": [self._sheet_metadata(sheet) for sheet in workbook.worksheets]
                 }
+                # Phase 2 M7: the names a workbook defines and the text each points at, recorded
+                # verbatim. Resolving a name into a cell locator is the structure view's job; the
+                # parser neither evaluates it nor decides what it means.
+                defined_names = self._defined_names(workbook)
+                if defined_names:
+                    metadata["xlsx"]["defined_names"] = defined_names
         finally:
             workbook.close()
             if cached_workbook is not None:
@@ -1107,6 +1113,26 @@ class XlsxParser:
             warnings,
             embedded_images=collected.images,
         )
+
+    @staticmethod
+    def _defined_names(workbook: Any) -> list[dict[str, Any]]:
+        """Every workbook-level defined name, with the text it points at (Phase 2 M7).
+
+        Read, never evaluated: a name can point at a range, a constant or a formula, and only the
+        structure view decides which of those it can turn into a locator.
+        """
+
+        try:
+            entries = list(workbook.defined_names.values())
+        except Exception:  # noqa: BLE001 - a workbook without a names collection has none
+            return []
+        names: list[dict[str, Any]] = []
+        for entry in entries:
+            name = getattr(entry, "name", None)
+            destination = getattr(entry, "attr_text", None)
+            if isinstance(name, str) and isinstance(destination, str):
+                names.append({"name": name, "destination": destination})
+        return sorted(names, key=lambda item: cast(str, item["name"]))
 
     @staticmethod
     def _sheet_metadata(sheet: Worksheet) -> dict[str, Any]:
