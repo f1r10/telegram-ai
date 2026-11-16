@@ -1,7 +1,10 @@
-"""Phase-3 entity registry, aliases and deterministic resolution.
+"""Phase-3 entity registry, deterministic resolution and the sourced relation layer.
 
 ``resolution.resolve`` decides; ``access`` says what the actor may see; ``store`` reads and writes
-the rows; ``service`` ties them together behind ``gi_entity_resolution_enabled``.
+the registry rows; ``service`` ties them together behind ``gi_entity_resolution_enabled``.
+``relations`` holds the one-hop query over ``entity_relations`` and the store that cannot write a
+relation without a source; ``types`` is the relation/verification vocabulary the migration and the
+code share.
 """
 
 from office_assistant.global_intelligence.entities.access import (
@@ -10,6 +13,14 @@ from office_assistant.global_intelligence.entities.access import (
     allowed_entity_types,
     entity_access,
     entity_scope,
+    entity_type_scope,
+)
+from office_assistant.global_intelligence.entities.relations import (
+    MAX_RELATION_HOPS,
+    MAX_RELATIONS_PER_ENTITY,
+    RelationHop,
+    RelationStore,
+    one_hop_statement,
 )
 from office_assistant.global_intelligence.entities.resolution import (
     CANDIDATE_SIMILARITY,
@@ -30,12 +41,21 @@ from office_assistant.global_intelligence.entities.service import (
     entity_resolution_service,
 )
 from office_assistant.global_intelligence.entities.store import MAX_ENTITY_RECORDS, EntityStore
+from office_assistant.global_intelligence.entities.types import (
+    RELATION_ENDPOINTS,
+    RelationType,
+    VerificationStatus,
+    relation_endpoints,
+)
 
 __all__ = [
     "CANDIDATE_SIMILARITY",
     "ENTITY_FEATURES",
     "MAX_CANDIDATES",
     "MAX_ENTITY_RECORDS",
+    "MAX_RELATION_HOPS",
+    "MAX_RELATIONS_PER_ENTITY",
+    "RELATION_ENDPOINTS",
     "Candidate",
     "CandidateReason",
     "EntityAccess",
@@ -43,14 +63,21 @@ __all__ = [
     "EntityResolutionService",
     "EntityStore",
     "MatchStrength",
+    "RelationHop",
+    "RelationStore",
+    "RelationType",
     "Resolution",
     "ResolutionStatus",
+    "VerificationStatus",
     "allowed_entity_types",
     "disabled",
     "entity_access",
     "entity_resolution_service",
     "entity_scope",
+    "entity_type_scope",
     "normalize_identifier",
     "normalize_mention",
+    "one_hop_statement",
+    "relation_endpoints",
     "resolve",
 ]

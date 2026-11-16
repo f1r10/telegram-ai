@@ -485,13 +485,12 @@ Assumptions recorded as **Q66** in `docs/OPEN-QUESTIONS.md`.
 
 ## Next step
 **Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
-progress**: increment 1 (registry, aliases, deterministic resolution, access filter) is landed and
-recorded above. The next increment is the relation layer — `entity_relations` and
-`entity_relation_evidence` with a mandatory `source_id`, `verification_status`
-(`confirmed|inferred|rejected`), `valid_from`/`valid_until`, a one-hop query first and the recursive
-CTE multi-hop after it — followed by applying migration `0028` (and its successor) to a disposable
-`*_test` database, which this host cannot do. Phase 1 exit criteria remain recorded in
-`docs/evaluation/BENCHMARK_RESULTS.md`.
+progress**: increment 1 (registry, aliases, deterministic resolution, access filter) and increment 2
+(sourced `entity_relations`, append-only `entity_relation_evidence`, `RelationStore.one_hop`) are
+landed and recorded above. Next: the recursive-CTE multi-hop with its own budget, `query_traces`, and
+applying migrations `0028`+`0029` to a disposable `*_test` database and exercising the DB-backed paths
+(register/alias, relation record/evidence, one-hop read), which this host cannot do without
+PostgreSQL. Phase 1 exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

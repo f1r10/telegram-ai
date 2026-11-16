@@ -1,3 +1,33 @@
+## 2026-11-16 — Phase 3 (second increment): sourced relations and the one-hop query
+
+- New additive migration `0029_entity_relations` (revises `0028_entity_registry`) creates
+  `entity_relations` and `entity_relation_evidence`. A relation stores the registry entity it starts
+  from, the relation kind, the related registry entity, a `verification_status`
+  (`confirmed|inferred|rejected`, default `inferred`) and a `valid_from`/`valid_until` window; every
+  relation row also carries the `source_reference` that justifies it, so a relation without provenance
+  cannot be stored (the column is `NOT NULL` and the store takes the source as a required keyword
+  argument).
+- `entity_relation_evidence` is append-only: it records each source, a reason and an optional locator
+  per relation, unique on `(relation_id, source_reference_id)`, so a second sighting of the same source
+  is one row and a rejected relation keeps the evidence a reviewer saw.
+- `global_intelligence/entities/relations.py` adds `RelationStore.one_hop`: a single statement
+  (`one_hop_statement`) that returns the relations of one seed identity at one instant, applies the
+  shared access filter to **both** ends (seed type and related entity type), honours the validity
+  window with a half-open upper bound, and is bounded by `MAX_RELATIONS_PER_ENTITY = 50`. The walk
+  stays one hop (`MAX_RELATION_HOPS = 1`); recursive multi-hop is a later, separately budgeted step.
+  `RelationStore.record` writes a relation and its first evidence row in one flush, and refuses a
+  backwards validity window or an empty reason before any row is added.
+- `global_intelligence/entities/types.py` holds the vocabulary both the migration check constraints and
+  the code use: `RelationType.SUPPLIED_TO` (`product` → `customer` via `RELATION_ENDPOINTS`) and
+  `VerificationStatus`. The access filter gained `entity_type_scope(column, access)` so the registry and
+  the relation layer share one builder instead of a second, weaker filter.
+- Verified: 12 new unit tests pass (relation vocabulary and endpoints, status strings against the
+  model's server default, one-hop statement contents — kind, both access conditions, validity window,
+  row bound — empty-access no-query path, and the no-source/no-reason/backwards-window refusals);
+  `ruff`, `ruff format` and `pyright` are clean on the touched files; migration `0029` is the single
+  head and renders offline in both directions. It **was not applied**: no PostgreSQL on this host, so no
+  relation row was written or read against a real database.
+
 ## 2026-11-15 — Phase 3 (first increment): entity registry, aliases and deterministic resolution
 
 - New additive migration `0028_entity_registry` creates `entities`, `entity_aliases` and

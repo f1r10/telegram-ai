@@ -2013,6 +2013,107 @@ class EntityCandidate(Base):
     )
 
 
+class EntityRelation(Base):
+    """One sourced, reviewable relation between two registry entities.
+
+    A relation is a claim with a window, not an eternal fact: it names the source that justifies it
+    (``source_reference_id`` is mandatory), the verification status a person has settled on, and the
+    ``valid_from``/``valid_until`` window in which the claim holds. The related identity must be a
+    registry entity too, so a relation can never point at a name the registry does not know.
+    """
+
+    __tablename__ = "entity_relations"
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('product', 'customer')", name="ck_entity_relations_entity_type"
+        ),
+        CheckConstraint(
+            "relation_type IN ('supplied_to')", name="ck_entity_relations_relation_type"
+        ),
+        CheckConstraint(
+            "verification_status IN ('confirmed', 'inferred', 'rejected')",
+            name="ck_entity_relations_verification",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until > valid_from",
+            name="ck_entity_relations_validity",
+        ),
+        UniqueConstraint(
+            "entity_id",
+            "relation_type",
+            "related_entity_id",
+            "valid_from",
+            name="uq_entity_relations_window",
+        ),
+        Index("ix_entity_relations_hop", "entity_id", "relation_type", "verification_status"),
+        Index("ix_entity_relations_related", "related_entity_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    entity_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("entities.id", ondelete="RESTRICT"), nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    relation_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    related_entity_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("entities.id", ondelete="RESTRICT"), nullable=False
+    )
+    verification_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="inferred"
+    )
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_reference_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("source_references.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class EntityRelationEvidence(Base):
+    """One source that supports one relation, kept even after the relation is rejected.
+
+    The evidence is what a reviewer saw, so it is append-only: a relation is reviewed by adding or
+    changing status, never by deleting the source. One source can justify a relation once; a second
+    insertion of the same pair is a no-op.
+    """
+
+    __tablename__ = "entity_relation_evidence"
+    __table_args__ = (
+        CheckConstraint("length(reason) > 0", name="ck_entity_relation_evidence_reason"),
+        UniqueConstraint(
+            "relation_id", "source_reference_id", name="uq_entity_relation_evidence_source"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    relation_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("entity_relations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_reference_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("source_references.id", ondelete="RESTRICT"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(512), nullable=False)
+    locator: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
 class OrderAttachment(Base):
     """Reference to a committed file object; the bytes stay owned by file_objects.
 

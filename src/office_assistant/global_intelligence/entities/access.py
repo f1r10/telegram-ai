@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from office_assistant.application.business_common import require_actor
@@ -80,12 +81,21 @@ async def entity_access(session: AsyncSession, telegram_user_id: int) -> EntityA
     )
 
 
-def entity_scope(access: EntityAccess) -> ColumnElement[bool]:
-    """The SQL condition that limits a query to the actor's entity types.
+def entity_type_scope(
+    column: InstrumentedAttribute[str], access: EntityAccess
+) -> ColumnElement[bool]:
+    """The condition that keeps a query to the entity types the actor may see.
 
-    An empty set compiles to a condition that matches nothing, which is the honest result for an
-    actor who may see no entity type at all.
+    One builder serves every table that names an entity type — the registry and the relation layer —
+    so a new query cannot invent a second, weaker filter. An empty set compiles to a condition that
+    matches nothing, which is the honest result for an actor who may see no entity type at all.
     """
 
     entity_types = sorted(access.entity_types, key=str)
-    return Entity.entity_type.in_([entity_type.value for entity_type in entity_types])
+    return column.in_([entity_type.value for entity_type in entity_types])
+
+
+def entity_scope(access: EntityAccess) -> ColumnElement[bool]:
+    """The registry's own access condition, built by the one shared builder above."""
+
+    return entity_type_scope(Entity.entity_type, access)

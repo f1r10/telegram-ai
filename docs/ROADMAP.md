@@ -642,9 +642,13 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       exact alias with the shipped normalisers, a tie reported as `AMBIGUOUS` and similarity able only
       to propose candidates (never a merge); access enforced through the shipped feature policy
       (`product` → `product_search`, `customer` → `sales_reports`) with the allowed types placed in
-      the query itself; all behind `gi_entity_resolution_enabled`, off by default. Not yet built:
-      `entity_relations`, `entity_relation_evidence`, `query_traces`, `valid_from`/`valid_until` and
-      the recursive-CTE multi-hop; the migration has not been applied (no PostgreSQL on this host).
+      the query itself; all behind `gi_entity_resolution_enabled`, off by default. Also landed:
+      migration `0029_entity_relations` with `entity_relations` (sourced claim, `verification_status`
+      `confirmed|inferred|rejected`, `valid_from`/`valid_until`, mandatory `source_reference`) and
+      append-only `entity_relation_evidence`, plus `RelationStore.one_hop` — one statement, access
+      filter on both endpoints, validity window at an instant, bounded to one hop and 50 relations.
+      Not yet built: `query_traces`, the recursive-CTE multi-hop and any relation UI; neither migration
+      has been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).
