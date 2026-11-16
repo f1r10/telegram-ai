@@ -656,7 +656,9 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       `tests/evaluation/entity_resolution.py`: 9/9 resolvable mentions reach the right identity,
       0 wrong claims, and a shared name returns `AMBIGUOUS` (`BENCHMARK_RESULTS.md`). Not yet built:
       any relation UI; the precision/recall figure is on a generated corpus, not real contracts;
-      none of migrations `0028`–`0030` has been applied (no PostgreSQL on this host).
+      relation reads now write their `query_traces` row when the caller supplies a `trace_id`
+      (tracing off by default, a trace failure never fails the read); none of migrations
+      `0028`–`0030` has been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

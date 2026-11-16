@@ -12,13 +12,17 @@ separate planned step with its own budget, not something this query grows into b
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from time import perf_counter
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Select, String, cast, literal, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
@@ -34,11 +38,18 @@ from office_assistant.global_intelligence.entities.types import (
     VerificationStatus,
     relation_endpoints,
 )
+from office_assistant.global_intelligence.traces import (
+    QueryStage,
+    QueryTraceService,
+    statement_plan,
+)
 from office_assistant.infrastructure.database.models import (
     Entity,
     EntityRelation,
     EntityRelationEvidence,
 )
+
+logger = logging.getLogger(__name__)
 
 #: How many edges one query may follow from the seed identity. One hop means the identities directly
 #: related to the seed, never the identities related to those.
@@ -329,6 +340,10 @@ class RelationService:
     A caller asks for an identity's neighbours and gets the sourced relations around it, or nothing
     at all. With ``gi_relations_enabled`` off no session opens and the answer is empty, so an
     opted-out deployment behaves exactly as it did before this layer existed.
+
+    When a ``trace_id`` is supplied and a trace service is configured, the statement that ran is
+    recorded with its measured latency. Tracing is observability, so its failure is logged and the
+    answer is still returned: an audit row is never worth losing a sourced fact over.
     """
 
     FLAG = "gi_relations_enabled"
@@ -338,9 +353,11 @@ class RelationService:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         enabled: bool = False,
+        trace: QueryTraceService | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.enabled = enabled
+        self.trace = trace
 
     async def neighbors(
         self,
@@ -350,6 +367,7 @@ class RelationService:
         relation_type: RelationType,
         max_hops: int = MAX_RELATION_HOPS,
         as_of: date | None = None,
+        trace_id: UUID | None = None,
     ) -> tuple[RelationHop, ...]:
         """The relations around one identity, at most ``max_hops`` away, for one actor.
 
@@ -359,24 +377,79 @@ class RelationService:
 
         if not self.enabled:
             return ()
+        started = perf_counter()
         async with self.session_factory() as session:
             access = await entity_access(session, telegram_user_id)
             store = RelationStore(session, access)
-            if max_hops <= MAX_RELATION_HOPS:
-                return await store.one_hop(
+            one_hop = max_hops <= MAX_RELATION_HOPS
+            if one_hop:
+                hops = await store.one_hop(
                     entity_id=entity_id, relation_type=relation_type, as_of=as_of
                 )
-            return await store.multi_hop(
-                entity_id=entity_id,
-                relation_type=relation_type,
-                max_hops=max_hops,
-                as_of=as_of,
+                statement = one_hop_statement(
+                    access, entity_id=entity_id, relation_type=relation_type, as_of=as_of
+                )
+            else:
+                hops = await store.multi_hop(
+                    entity_id=entity_id,
+                    relation_type=relation_type,
+                    max_hops=max_hops,
+                    as_of=as_of,
+                )
+                statement = multi_hop_statement(
+                    access,
+                    entity_id=entity_id,
+                    relation_type=relation_type,
+                    max_hops=max_hops,
+                    as_of=as_of,
+                )
+        if self.trace is not None and trace_id is not None:
+            await self._trace(
+                telegram_user_id,
+                trace_id=trace_id,
+                one_hop=one_hop,
+                statement=statement,
+                row_count=len(hops),
+                latency_ms=int((perf_counter() - started) * 1000),
             )
+        return hops
+
+    async def _trace(
+        self,
+        telegram_user_id: int,
+        *,
+        trace_id: UUID,
+        one_hop: bool,
+        statement: Select[Any],
+        row_count: int,
+        latency_ms: int,
+    ) -> None:
+        """Record the read that just happened; a trace failure never fails the read."""
+
+        assert self.trace is not None
+        try:
+            await self.trace.record(
+                telegram_user_id,
+                trace_id=trace_id,
+                stage=QueryStage.RELATION_ONE_HOP if one_hop else QueryStage.RELATION_MULTI_HOP,
+                plan=statement_plan(statement),
+                row_count=row_count,
+                latency_ms=latency_ms,
+            )
+        except SQLAlchemyError:
+            logger.warning("relation trace not recorded", extra={"stage": "relation_trace"})
 
 
 def relation_service(
-    session_factory: async_sessionmaker[AsyncSession], settings: Settings
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    *,
+    trace: QueryTraceService | None = None,
 ) -> RelationService:
-    """Build the relation service from configuration, so the flag has one home."""
+    """Build the relation service from configuration, so the flag has one home.
 
-    return RelationService(session_factory, enabled=settings.gi_relations_enabled)
+    The trace service is passed in rather than built here, because it rides its own flag and a
+    caller may already hold one for the answer it is composing.
+    """
+
+    return RelationService(session_factory, enabled=settings.gi_relations_enabled, trace=trace)

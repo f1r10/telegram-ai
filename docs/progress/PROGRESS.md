@@ -530,18 +530,37 @@ retrieval-and-merge half is Phase 5's.
 
 Assumptions recorded as **Q70** in `docs/OPEN-QUESTIONS.md`.
 
+### Phase-3 increment 6 — tracing composed into the relation read (2026-11-16)
+
+`query_traces` existed without a writer; `RelationService.neighbors` is now that writer. With a
+`trace_id` and a configured `QueryTraceService`, it records the statement it ran, the stage that
+was actually served (`relation_one_hop`/`relation_multi_hop`), the measured `latency_ms` and the
+row count. The `perf_counter` bracket covers the read only, and a `SQLAlchemyError` from the trace
+write is logged and swallowed so the answer survives.
+
+- `.venv/Scripts/python.exe -m pytest tests/unit/test_relation_tracing.py -o addopts="" -q` →
+  **5 passed** (1.1 s); with the relation suite → **22 passed** (1.2 s).
+- `ruff check` / `ruff format --check` clean; `pyright` on `global_intelligence` plus the new test
+  → **0 errors**.
+
+Honest gaps: no database, so no trace row was written or read; `EntityResolutionService` still
+writes no trace (its load statement sits inside `EntityStore.load` — Q71); nothing yet composes a
+trace across an answer, so `trace_id` is a seam a later phase will use.
+
+Assumptions recorded as **Q71** in `docs/OPEN-QUESTIONS.md`.
+
 ## Next step
 **Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
 progress**: increment 1 (registry, aliases, deterministic resolution, access filter) and increment 2
 (sourced `entity_relations`, append-only `entity_relation_evidence`, `RelationStore.one_hop`) are
 landed, together with the seeded recursive `RelationStore.multi_hop` behind `gi_relations_enabled` and
-`query_traces` behind `gi_query_traces_enabled`, whose store exists but is not yet called by the
-services; offline B/I resolver evidence is recorded in `BENCHMARK_RESULTS.md` (9/9, zero wrong
-claims). Next: composing the trace store into the entity and relation services, a relation
-UI/answer path, and applying migrations `0028`+`0029`+`0030` to a disposable `*_test` database and
-exercising the DB-backed paths (register/alias, relation record/evidence, one-hop and multi-hop
-reads, trace write/read), which this host cannot do without PostgreSQL. Phase 1 exit criteria remain
-recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+`query_traces` behind `gi_query_traces_enabled` (the relation read now writes its row when a
+`trace_id` is supplied); offline B/I resolver evidence is recorded in `BENCHMARK_RESULTS.md` (9/9,
+zero wrong claims). Next: the relation answer path (sourced statements a person can read), tracing
+the resolution load (Q71), and applying migrations `0028`+`0029`+`0030` to a disposable `*_test`
+database and exercising the DB-backed paths (register/alias, relation record/evidence, one-hop and
+multi-hop reads, trace write/read), which this host cannot do without PostgreSQL. Phase 1 exit
+criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

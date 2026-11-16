@@ -1,3 +1,21 @@
+## 2026-11-16 — Phase 3 (sixth increment): the relation read writes the trace it promised
+
+- `RelationService.neighbors` accepts an optional `trace_id` and, when a `QueryTraceService` is
+  configured and `gi_query_traces_enabled` is on, records the statement it ran with the measured
+  `latency_ms` (from `perf_counter`) and its row count: `relation_one_hop` or
+  `relation_multi_hop` depending on the depth actually served. Without a `trace_id` nothing is
+  written, so a caller decides per answer whether the audit row is worth the write.
+- A trace failure is logged (`SQLAlchemyError`) and swallowed: the sourced relation answer is still
+  returned, because an audit row is not worth losing a fact over. `relation_service(...)` now
+  accepts the trace service from its caller, since tracing rides its own flag.
+- Verified: 5 new unit tests pass (one-hop stage and plan, recursive stage and `WITH RECURSIVE`
+  plan, no `trace_id` → no write, a failing trace leaves the answer intact, flag-off writes
+  nothing); `ruff`, `ruff format` and `pyright` are clean on the touched files. Still **NOT
+  VERIFIED** against a database: no PostgreSQL on this host, so no trace row was written or read.
+- Deferred and recorded as Q71: `EntityResolutionService` is not traced yet, because its load
+  statement lives inside `EntityStore.load` and would need that seam exposed before a plan can be
+  recorded honestly.
+
 ## 2026-11-16 — Phase 3 (fifth increment): entity resolution measured against scenarios B and I
 
 - `tests/evaluation/entity_resolution.py` adds a generated labelled corpus for Phase 3's exit
