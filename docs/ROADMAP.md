@@ -657,8 +657,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       0 wrong claims, and a shared name returns `AMBIGUOUS` (`BENCHMARK_RESULTS.md`). Not yet built:
       any relation UI; the precision/recall figure is on a generated corpus, not real contracts;
       relation reads now write their `query_traces` row when the caller supplies a `trace_id`
-      (tracing off by default, a trace failure never fails the read); none of migrations
-      `0028`–`0030` has been applied (no PostgreSQL on this host).
+      (tracing off by default, a trace failure never fails the read). Migrations `0028`–`0030`
+      **were applied** to a disposable `office_gi_test` database on a local PostgreSQL 17, and
+      `tests/integration/test_phase3_entities_db.py` proves register/alias/load, resolution by code,
+      sourced relation write, one-hop and multi-hop reads, the validity window, evidence
+      idempotence and trace write/read against it. Not yet built: any relation UI.
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

@@ -1,3 +1,24 @@
+## 2026-11-17 — Phase 3 (seventh increment): the layer runs against a real PostgreSQL
+
+- Migrations `0028_entity_registry`, `0029_entity_relations` and `0030_query_traces` were applied
+  to a disposable `office_gi_test` database on the local `postgres:17-alpine` container
+  (`alembic upgrade head`, all three revisions listed as running). The migration is reversible by
+  construction and is now **applied**, not only rendered offline.
+- `tests/integration/test_phase3_entities_db.py` exercises the whole layer against that database:
+  register a product and a customer, add an accepted alias, load the registry through the shared
+  access filter, resolve a mention by code and confirm a typo resolves to nothing, record a
+  sourced `supplied_to` relation with `confirmed` status, read it one hop deep with its evidence,
+  walk two hops (the same claim returned once), see nothing outside the validity window, prove a
+  repeated evidence source stays one row, write and read a `query_traces` row, and get
+  `AuthorizationDenied` for a disabled account.
+- **Bug fixed:** `EntityStore.load` fetched product/customer aliases and product codes keyed by the
+  business record id, but looked them up by the registry entity id, so every record-level alias and
+  every product code was silently dropped — resolution by code could not work against a database
+  even though the unit tests passed. The fetched facts are now re-keyed onto the entity that names
+  them, and the integration test fails without the fix.
+- Verified: `pytest tests/integration -m integration` → **69 passed, 58 skipped** against a live
+  PostgreSQL 17 and Qdrant; `ruff`, `ruff format` and `pyright` clean on the touched files.
+
 ## 2026-11-16 — Phase 3 (sixth increment): the relation read writes the trace it promised
 
 - `RelationService.neighbors` accepts an optional `trace_id` and, when a `QueryTraceService` is

@@ -549,6 +549,30 @@ trace across an answer, so `trace_id` is a seam a later phase will use.
 
 Assumptions recorded as **Q71** in `docs/OPEN-QUESTIONS.md`.
 
+### Phase-3 increment 7 — verified against a real PostgreSQL (2026-11-17)
+
+A local `postgres:17-alpine` container (`qoder_postgres`, host port 5435) and a disposable
+`office_gi_test` database were provisioned; `alembic upgrade head` applied `0028`, `0029` and
+`0030` for real. This replaces the previous "rendered offline only" status of the Phase-3 schema.
+
+- `.venv/Scripts/python.exe -m pytest tests/integration -m integration -o addopts="" -q` →
+  **69 passed, 58 skipped** (1 m 40 s) against PostgreSQL 17 + Qdrant.
+- New `tests/integration/test_phase3_entities_db.py` covers: register (idempotent), add_alias,
+  `EntityStore.load` through the shared access filter (product code and record-level alias both
+  present), resolution by identifier, typo → unresolved, `RelationStore.record` with a confirmed
+  status, one-hop read with evidence, two-hop walk returning the claim once, `as_of` outside the
+  window → empty, duplicate evidence source → one row, `QueryTraceService.record` →
+  `QueryTraceStore.traces` round-trip, and `AuthorizationDenied` for a disabled account.
+- **Bug found and fixed by that test:** `EntityStore.load` re-keyed nothing, so aliases and product
+  codes fetched by business-record id were looked up by entity id and dropped. Codes and aliases now
+  land on the right record; the test asserts both and fails without the change.
+- `ruff check` / `ruff format --check` clean; `pyright` **0 errors** on the touched files.
+
+Honest gaps: the database is a local development container, not staging; the remaining Phase-3 gap
+is the relation answer path/UI, and the query-trace policy questions (Q69, Q71) are unchanged.
+
+Assumptions recorded as **Q72** in `docs/OPEN-QUESTIONS.md`.
+
 ## Next step
 **Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
 progress**: increment 1 (registry, aliases, deterministic resolution, access filter) and increment 2
@@ -556,11 +580,12 @@ progress**: increment 1 (registry, aliases, deterministic resolution, access fil
 landed, together with the seeded recursive `RelationStore.multi_hop` behind `gi_relations_enabled` and
 `query_traces` behind `gi_query_traces_enabled` (the relation read now writes its row when a
 `trace_id` is supplied); offline B/I resolver evidence is recorded in `BENCHMARK_RESULTS.md` (9/9,
-zero wrong claims). Next: the relation answer path (sourced statements a person can read), tracing
-the resolution load (Q71), and applying migrations `0028`+`0029`+`0030` to a disposable `*_test`
-database and exercising the DB-backed paths (register/alias, relation record/evidence, one-hop and
-multi-hop reads, trace write/read), which this host cannot do without PostgreSQL. Phase 1 exit
-criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+zero wrong claims). Migrations `0028`–`0030` are **applied** to a disposable `office_gi_test` database on a local
+PostgreSQL 17, and the DB-backed paths (register/alias, relation record/evidence, one-hop and
+multi-hop reads, trace write/read) are covered by
+`tests/integration/test_phase3_entities_db.py` (69 integration tests pass). Next: the relation
+answer path (sourced statements a person can read) and tracing the resolution load (Q71). Phase 1
+exit criteria remain recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

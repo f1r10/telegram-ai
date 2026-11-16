@@ -81,6 +81,11 @@ class EntityStore:
         for entity_id, alias in registry_aliases.all():
             aliases[entity_id].add(alias)
 
+        # The business tables are keyed by their own row id, while a record is keyed by the registry
+        # entity id, so every fetched fact is re-keyed onto the entity that names it.
+        entity_ids_by_record: dict[UUID, UUID] = {
+            entity.business_record_id: entity.id for entity in entities
+        }
         product_ids = [
             entity.business_record_id
             for entity in entities
@@ -93,14 +98,14 @@ class EntityStore:
                 )
             )
             for product_id, alias in product_aliases.all():
-                aliases[product_id].add(alias)
+                aliases[entity_ids_by_record[product_id]].add(alias)
             codes = await self.session.execute(
                 select(Product.id, Product.canonical_code).where(Product.id.in_(product_ids))
             )
             for product_id, canonical_code in codes.all():
                 normalized_code = _normalized_code(canonical_code)
                 if normalized_code:
-                    identifiers[product_id].add(normalized_code)
+                    identifiers[entity_ids_by_record[product_id]].add(normalized_code)
 
         customer_ids = [
             entity.business_record_id
@@ -114,7 +119,7 @@ class EntityStore:
                 )
             )
             for customer_id, alias in customer_aliases.all():
-                aliases[customer_id].add(alias)
+                aliases[entity_ids_by_record[customer_id]].add(alias)
 
         return [
             EntityRecord(
