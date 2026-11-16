@@ -25,7 +25,15 @@
   model's server default, one-hop statement contents — kind, both access conditions, validity window,
   row bound — empty-access no-query path, and the no-source/no-reason/backwards-window refusals);
   `ruff`, `ruff format` and `pyright` are clean on the touched files; migration `0029` is the single
-  head and renders offline in both directions. It **was not applied**: no PostgreSQL on this host, so no
+  head and renders offline in both directions.
+- `RelationStore.multi_hop` adds the recursive walk behind `multi_hop_statement`: a seeded CTE that
+  follows one relation kind up to `max_hops` (default 2, hard ceiling `MAX_MULTI_HOP_DEPTH = 3`),
+  applies the shared access filter at **every** step (seed type and each reached entity type),
+  checks the validity window per hop, refuses to revisit a relation id through a `visited` path, and
+  stays inside `MAX_RELATIONS_PER_ENTITY`. A relation reached twice is returned once at its smallest
+  depth, and each `RelationHop` now carries that `depth`. `RelationService` is the flag-gated entry
+  point (`gi_relations_enabled`, off by default); with it off no session opens and the answer is
+  empty. It **was not applied**: no PostgreSQL on this host, so no
   relation row was written or read against a real database.
 
 ## 2026-11-15 — Phase 3 (first increment): entity registry, aliases and deterministic resolution

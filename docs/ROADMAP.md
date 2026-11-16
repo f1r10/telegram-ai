@@ -646,9 +646,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       migration `0029_entity_relations` with `entity_relations` (sourced claim, `verification_status`
       `confirmed|inferred|rejected`, `valid_from`/`valid_until`, mandatory `source_reference`) and
       append-only `entity_relation_evidence`, plus `RelationStore.one_hop` — one statement, access
-      filter on both endpoints, validity window at an instant, bounded to one hop and 50 relations.
-      Not yet built: `query_traces`, the recursive-CTE multi-hop and any relation UI; neither migration
-      has been applied (no PostgreSQL on this host).
+      filter on both endpoints, validity window at an instant, bounded to one hop and 50 relations;
+      plus `RelationStore.multi_hop`, a seeded recursive CTE bounded by depth (default 2, ceiling 3),
+      the per-seed row cap and a `visited` cycle guard, with access and validity checked at every
+      hop, behind `gi_relations_enabled` (off). Not yet built: `query_traces` and any relation UI;
+      neither migration has been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

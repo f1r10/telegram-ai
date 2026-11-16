@@ -16,11 +16,16 @@ from office_assistant.global_intelligence.entities.access import (
     entity_type_scope,
 )
 from office_assistant.global_intelligence.entities.relations import (
+    DEFAULT_MULTI_HOP_DEPTH,
+    MAX_MULTI_HOP_DEPTH,
     MAX_RELATION_HOPS,
     MAX_RELATIONS_PER_ENTITY,
     RelationHop,
+    RelationService,
     RelationStore,
+    multi_hop_statement,
     one_hop_statement,
+    relation_service,
 )
 from office_assistant.global_intelligence.entities.resolution import (
     CANDIDATE_SIMILARITY,
@@ -50,9 +55,11 @@ from office_assistant.global_intelligence.entities.types import (
 
 __all__ = [
     "CANDIDATE_SIMILARITY",
+    "DEFAULT_MULTI_HOP_DEPTH",
     "ENTITY_FEATURES",
     "MAX_CANDIDATES",
     "MAX_ENTITY_RECORDS",
+    "MAX_MULTI_HOP_DEPTH",
     "MAX_RELATION_HOPS",
     "MAX_RELATIONS_PER_ENTITY",
     "RELATION_ENDPOINTS",
@@ -64,6 +71,7 @@ __all__ = [
     "EntityStore",
     "MatchStrength",
     "RelationHop",
+    "RelationService",
     "RelationStore",
     "RelationType",
     "Resolution",
@@ -76,8 +84,10 @@ __all__ = [
     "entity_scope",
     "entity_type_scope",
     "normalize_identifier",
+    "multi_hop_statement",
     "normalize_mention",
     "one_hop_statement",
     "relation_endpoints",
+    "relation_service",
     "resolve",
 ]
