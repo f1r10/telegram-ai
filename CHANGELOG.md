@@ -1,3 +1,21 @@
+## 2026-11-16 — Phase 3 (fifth increment): entity resolution measured against scenarios B and I
+
+- `tests/evaluation/entity_resolution.py` adds a generated labelled corpus for Phase 3's exit
+  criteria: 7 registry records (three products with codes/aliases, two customers, and two
+  customers that share one canonical name) and 13 mentions, each labelled with the identity it
+  must reach or with `None` when the correct answer is no identity. It runs the shipped
+  `entities.resolve` — no private duplicate of the rules — and reports counts, resolution
+  precision/recall and a false-merge rate.
+- Measured: 9 of 9 resolvable mentions resolved to the right identity, 4 withheld (typo, unseen
+  suffix, unrelated word, shared name) and **0 wrong claims**, i.e. precision 1.0, recall 1.0,
+  false-merge rate 0.0 on this corpus. Scenario B is covered by five different surface forms of
+  one product (code, canonical name, alias, spaced alias, re-cased form) all reaching
+  `product-m404`; scenario I by `M405` resolving to itself rather than `M404`, and by the shared
+  name `Atlas` returning `AMBIGUOUS` with both records as candidates instead of a pick.
+- Recorded in `docs/evaluation/BENCHMARK_RESULTS.md` with the command, the numbers and an explicit
+  statement of what is **not** claimed: the corpus is synthetic, so real-contract precision/recall
+  and the database-backed load/alias paths remain unmeasured.
+
 ## 2026-11-16 — Phase 3 (fourth increment): query traces
 
 - New additive migration `0030_query_traces` (revises `0029_entity_relations`) creates

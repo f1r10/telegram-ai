@@ -652,8 +652,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       hop, behind `gi_relations_enabled` (off); and migration `0030_query_traces` with
       `query_traces` (one row per executed statement: caller `trace_id`, `user_id`, `stage`,
       `plan_json`, `source_usage_json`, measured `row_count`, nullable `latency_ms`), written only
-      when `gi_query_traces_enabled` is on. Not yet built: any relation UI; none of migrations
-      `0028`–`0030` has been applied (no PostgreSQL on this host).
+      when `gi_query_traces_enabled` is on. Offline scenario-B/I evidence for the resolver lives in
+      `tests/evaluation/entity_resolution.py`: 9/9 resolvable mentions reach the right identity,
+      0 wrong claims, and a shared name returns `AMBIGUOUS` (`BENCHMARK_RESULTS.md`). Not yet built:
+      any relation UI; the precision/recall figure is on a generated corpus, not real contracts;
+      none of migrations `0028`–`0030` has been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

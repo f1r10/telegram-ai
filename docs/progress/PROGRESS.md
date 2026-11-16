@@ -509,17 +509,39 @@ not yet the caller. Nothing writes a trace until a later increment composes them
 
 Assumptions recorded as **Q69** in `docs/OPEN-QUESTIONS.md`.
 
+### Phase-3 increment 5 — scenario B/I measurement (2026-11-16)
+
+Phase 3's exit criteria ask for B and I to pass and for entity-resolution precision/recall to be
+reported. `tests/evaluation/entity_resolution.py` supplies that evidence offline: a generated
+7-record registry and 13 labelled mentions, scored through the shipped `entities.resolve`.
+
+- `.venv/Scripts/python.exe -m pytest tests/evaluation/test_entity_resolution_eval.py -o addopts="" -q`
+  → **6 passed** (1.0 s).
+- Measured: **9/9** resolvable mentions resolved to the right identity, **4** withheld, **0** wrong
+  claims → precision **1.0**, recall **1.0**, false-merge rate **0.0**. Scenario B: five surface
+  forms of one product (code, canonical name, alias, spaced alias, re-cased) all reach
+  `product-m404`, and a code outranks an alias that points elsewhere. Scenario I: `M405` resolves to
+  itself, `Plinter M404`/`M404X`/`Kamera` stay unresolved, and `Atlas` returns `AMBIGUOUS` with both
+  records as candidates rather than picking one. Recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
+
+Honest gaps: the corpus is synthetic, so this is a rules check, not a real-contract accuracy figure;
+the store/load/alias-registration paths behind resolution still need PostgreSQL; scenario B's
+retrieval-and-merge half is Phase 5's.
+
+Assumptions recorded as **Q70** in `docs/OPEN-QUESTIONS.md`.
+
 ## Next step
 **Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
 progress**: increment 1 (registry, aliases, deterministic resolution, access filter) and increment 2
 (sourced `entity_relations`, append-only `entity_relation_evidence`, `RelationStore.one_hop`) are
 landed, together with the seeded recursive `RelationStore.multi_hop` behind `gi_relations_enabled` and
 `query_traces` behind `gi_query_traces_enabled`, whose store exists but is not yet called by the
-services. Next: composing the trace store into the entity and relation services, a relation UI/answer
-path, and applying migrations `0028`+`0029`+`0030` to a disposable `*_test` database and exercising
-the DB-backed paths (register/alias, relation record/evidence, one-hop and multi-hop reads, trace
-write/read), which this host cannot do without PostgreSQL. Phase 1 exit criteria remain recorded in
-`docs/evaluation/BENCHMARK_RESULTS.md`.
+services; offline B/I resolver evidence is recorded in `BENCHMARK_RESULTS.md` (9/9, zero wrong
+claims). Next: composing the trace store into the entity and relation services, a relation
+UI/answer path, and applying migrations `0028`+`0029`+`0030` to a disposable `*_test` database and
+exercising the DB-backed paths (register/alias, relation record/evidence, one-hop and multi-hop
+reads, trace write/read), which this host cannot do without PostgreSQL. Phase 1 exit criteria remain
+recorded in `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED
 - Any end-to-end answer, retrieval metric, OCR/vision result, graph reasoning result, ACL test or

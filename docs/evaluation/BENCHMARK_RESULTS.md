@@ -588,10 +588,59 @@ measured evidence** to adopt either engine, that the measurable incumbent arms a
 on the generated fixtures, and that both engines therefore stay uninstalled and unadopted with a
 stated revisit trigger. Real-contract accuracy for every arm remains **NOT MEASURED**.
 
+## Phase 3 — entity resolution (scenario B identity linking, scenario I no-wrong-merge)
+
+**Corpus:** generated in `tests/evaluation/entity_resolution.py` — 7 registry records (three
+products carrying a code and aliases, two customers with an alias, and two customers that share
+the canonical name `Atlas`) and 13 labelled mentions. The corpus is code, so no private data
+enters the repository and the measurement is reproducible offline.
+
+**Command:** `uv run --no-sync pytest tests/evaluation/test_entity_resolution_eval.py -q`
+(the same module's `report()` prints the JSON below).
+
+| metric | value |
+| --- | --- |
+| cases | 13 |
+| resolvable cases | 9 |
+| resolved | 9 |
+| correct | 9 |
+| withheld (no identity expected) | 4 |
+| ambiguous | 1 |
+| wrong claims | **0** |
+| resolution precision | **1.0** |
+| resolution recall | **1.0** |
+| false-merge rate | **0.0** |
+
+Per case (what the shipped resolver decided):
+
+| case | scenario | outcome | matched by |
+| --- | --- | --- | --- |
+| b-code (`M404`) | B | `product-m404` | identifier |
+| b-canonical (`HP LaserJet Pro M404dn`) | B | `product-m404` | canonical name |
+| b-alias (`M404dn`) | B | `product-m404` | alias |
+| b-alias-spaced (`HP M404`) | B | `product-m404` | alias |
+| b-case-form (`hp  m404`) | B | `product-m404` | alias |
+| b-customer-canonical (`Delta MMC`) | B | `customer-delta` | canonical name |
+| b-customer-alias (`delta`) | B | `customer-delta` | alias |
+| b-identifier-outranks-alias (`HP M404` + code `M405`) | B | `product-m405` | identifier |
+| i-model-neighbour (`M405`) | I | `product-m405` | identifier |
+| i-typo (`Plinter M404`) | I | withheld (unresolved) | — |
+| i-unseen-suffix (`M404X`) | I | withheld (unresolved) | — |
+| i-unrelated (`Kamera`) | I | withheld (unresolved) | — |
+| i-shared-name (`Atlas`) | I | `AMBIGUOUS`, both candidates | canonical name |
+
+**What this does not claim.** The corpus is synthetic and small: it shows the strength order and
+the no-merge rule behave as specified, not that precision on real Azerbaijani/Russian contract
+text is 1.0. The store that loads records (`EntityStore`), alias registration and the database
+paths behind them remain **NOT VERIFIED** — this host has no PostgreSQL. Scenario B's retrieval
+and answer half (documents + graph + merge) still belongs to Phase 5.
+
 ## Not measured (honest gaps)
 
 - End-to-end answers, retrieval quality (recall/MRR/nDCG), OCR and vision accuracy, graph reasoning,
   ACL isolation, provider-outage behaviour: **not measured** — those layers are Phases 2–7.
+- Entity-resolution precision/recall is measured **only on the generated Phase-3 corpus** above; the
+  real-contract figure and the database-backed resolution paths are **not measured**.
 - Phase 2 native-vs-candidate parser accuracy **on real contracts** is **not measured** — M0 proves the
   harness generates real bytes and scores them, and M4 supplies measured table numbers on generated
   fixtures; the real Azerbaijani/Russian/Turkish labelled corpus, real scanned tables and real
