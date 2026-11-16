@@ -136,6 +136,7 @@ class Settings(BaseSettings):
     gi_decomposition_enabled: bool = False
     gi_entity_resolution_enabled: bool = False
     gi_relations_enabled: bool = False
+    gi_query_traces_enabled: bool = False
     gi_conflict_classifier_enabled: bool = False
     gi_per_statement_confidence_enabled: bool = False
     gi_verification_enabled: bool = False

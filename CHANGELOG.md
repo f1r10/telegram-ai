@@ -1,3 +1,26 @@
+## 2026-11-16 — Phase 3 (fourth increment): query traces
+
+- New additive migration `0030_query_traces` (revises `0029_entity_relations`) creates
+  `query_traces`: one row per statement the entity layer ran, carrying the caller's `trace_id`
+  (shared by every statement of one answer), the `user_id` it ran for, the `stage`
+  (`resolution|relation_one_hop|relation_multi_hop`), the `plan_json` that ran, the
+  `source_usage_json`, the measured `row_count` and an optional `latency_ms`. A check constraint
+  bounds `row_count >= 0` and `latency_ms >= 0`; `latency_ms` stays nullable so a read that was
+  not measured records no number rather than a zero that would read as a measurement.
+- `global_intelligence/traces.py` adds `statement_plan` (statement text with placeholders plus the
+  values bound to it, compiled with the PostgreSQL dialect and never interpolated), `QueryTraceStore`
+  (`record` refuses an empty plan or a negative count/latency and takes `user_id` from the access
+  decision rather than a caller; `traces` reads one trace back) and `QueryTraceService` /
+  `query_trace_service` behind `gi_query_traces_enabled` (off by default: no session opens and
+  nothing is written). `traces_statement` scopes a non-admin read to their own rows inside the
+  query, while an admin may read a whole trace.
+- Verified: 10 new unit tests pass (stage vocabulary against the model's check constraint, nullable
+  latency, plan contents and UUID/date serialisation, the empty-plan and negative-cost refusals, the
+  per-actor read scoping, and the flag-off path against a session factory that raises); `ruff`,
+  `ruff format` and `pyright` are clean on the touched files; migration `0030` is the single head and
+  renders offline in both directions. The migration was **not applied** and no trace row was written
+  or read against a real database: this host has no PostgreSQL.
+
 ## 2026-11-16 — Phase 3 (second increment): sourced relations and the one-hop query
 
 - New additive migration `0029_entity_relations` (revises `0028_entity_registry`) creates

@@ -2114,6 +2114,44 @@ class EntityRelationEvidence(Base):
     )
 
 
+class QueryTrace(Base):
+    """One statement the entity layer executed, with the plan it ran and what it cost.
+
+    A trace is observability, not an answer: it carries the stage, the statement text with the
+    values it was bound to, the row count and — only when the caller measured it — the latency.
+    ``latency_ms`` stays nullable so an unmeasured read records no number rather than a zero that
+    would read as a measurement.
+    """
+
+    __tablename__ = "query_traces"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('resolution', 'relation_one_hop', 'relation_multi_hop')",
+            name="ck_query_traces_stage",
+        ),
+        CheckConstraint("row_count >= 0", name="ck_query_traces_row_count"),
+        CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="ck_query_traces_latency"),
+        Index("ix_query_traces_trace", "trace_id", "created_at"),
+        Index("ix_query_traces_user", "user_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    trace_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    plan_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    source_usage_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, server_default="'{}'::jsonb"
+    )
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class OrderAttachment(Base):
     """Reference to a committed file object; the bytes stay owned by file_objects.
 

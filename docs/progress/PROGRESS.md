@@ -456,7 +456,8 @@ temporal facts and multi-hop are not built yet** and are the next increment.
 Honest gaps: the migration was not applied and no DB-backed path ran (load, candidate write,
 register, add_alias), so those are **NOT VERIFIED**; entity-resolution precision/recall against the
 scenario B targets is **not measured** (it needs a real corpus and a database); `entity_relations`,
-`entity_relation_evidence`, `query_traces` and the recursive-CTE multi-hop are **not built**.
+`entity_relation_evidence`, `query_traces` and the recursive-CTE multi-hop are **not built** (all four
+landed in later increments; `query_traces` in increment 4 below).
 
 Assumptions recorded as **Q66** in `docs/OPEN-QUESTIONS.md`.
 
@@ -483,14 +484,41 @@ Assumptions recorded as **Q66** in `docs/OPEN-QUESTIONS.md`.
   commit is pushed to the same feature branch (never `main`); a push failing for network reasons is
   reported rather than retried blindly.
 
+### Phase-3 increment 4 — query traces (2026-11-16)
+
+Migration `0030_query_traces` adds `query_traces`, the table `IMPLEMENTATION_PLAN.md`/§6 of
+`TARGET_ARCHITECTURE.md` lists as observability and harness material: one row per statement the
+entity layer executed, with the caller's `trace_id`, the `user_id`, the `stage`
+(`resolution|relation_one_hop|relation_multi_hop`), the plan that ran, the source usage, the
+measured `row_count` and an optional `latency_ms`. `global_intelligence/traces.py` holds
+`statement_plan`, `QueryTraceStore`, `QueryTraceService` and the flag `gi_query_traces_enabled`
+(off by default, so an opted-out deployment writes nothing).
+
+- `.venv/Scripts/python.exe -m pytest tests/unit/test_query_traces.py -o addopts="" -q` →
+  **10 passed** (1.1 s); with the relation and migration-artifact suites → **28 passed** (1.3 s).
+- `ruff check` / `ruff format --check` clean on the new module, test and migration; `pyright` on
+  `src/office_assistant/global_intelligence` plus the new test → **0 errors**.
+- `alembic heads` → `0030_query_traces (head)`, i.e. still one head; `alembic upgrade head --sql`
+  emits `CREATE TABLE query_traces` and `alembic downgrade 0030…:0029… --sql` emits the matching
+  `DROP TABLE` (placeholder `POSTGRES_*`; `--sql` never connects).
+
+Honest gaps: the migration was not applied and neither `record` nor `traces` ran against a database,
+so the DB-backed paths are **NOT VERIFIED**; no latency was measured on a real query, and the table
+is not yet wired into `RelationService`/`EntityResolutionService` call sites — the store is the seam,
+not yet the caller. Nothing writes a trace until a later increment composes them.
+
+Assumptions recorded as **Q69** in `docs/OPEN-QUESTIONS.md`.
+
 ## Next step
 **Phase 2 is complete** (M0–M11 landed, M11 records the Docling/PaddleOCR verdicts). **Phase 3 is in
 progress**: increment 1 (registry, aliases, deterministic resolution, access filter) and increment 2
 (sourced `entity_relations`, append-only `entity_relation_evidence`, `RelationStore.one_hop`) are
-landed, together with the seeded recursive `RelationStore.multi_hop` behind `gi_relations_enabled`.
-Next: `query_traces`, and applying migrations `0028`+`0029` to a disposable `*_test` database and
-exercising the DB-backed paths (register/alias, relation record/evidence, one-hop and multi-hop
-reads), which this host cannot do without PostgreSQL. Phase 1 exit criteria remain recorded in
+landed, together with the seeded recursive `RelationStore.multi_hop` behind `gi_relations_enabled` and
+`query_traces` behind `gi_query_traces_enabled`, whose store exists but is not yet called by the
+services. Next: composing the trace store into the entity and relation services, a relation UI/answer
+path, and applying migrations `0028`+`0029`+`0030` to a disposable `*_test` database and exercising
+the DB-backed paths (register/alias, relation record/evidence, one-hop and multi-hop reads, trace
+write/read), which this host cannot do without PostgreSQL. Phase 1 exit criteria remain recorded in
 `docs/evaluation/BENCHMARK_RESULTS.md`.
 
 ## NOT VERIFIED

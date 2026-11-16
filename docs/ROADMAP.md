@@ -649,8 +649,11 @@ unchanged while the flags are off. Plan: `docs/architecture/IMPLEMENTATION_PLAN.
       filter on both endpoints, validity window at an instant, bounded to one hop and 50 relations;
       plus `RelationStore.multi_hop`, a seeded recursive CTE bounded by depth (default 2, ceiling 3),
       the per-seed row cap and a `visited` cycle guard, with access and validity checked at every
-      hop, behind `gi_relations_enabled` (off). Not yet built: `query_traces` and any relation UI;
-      neither migration has been applied (no PostgreSQL on this host).
+      hop, behind `gi_relations_enabled` (off); and migration `0030_query_traces` with
+      `query_traces` (one row per executed statement: caller `trace_id`, `user_id`, `stage`,
+      `plan_json`, `source_usage_json`, measured `row_count`, nullable `latency_ms`), written only
+      when `gi_query_traces_enabled` is on. Not yet built: any relation UI; none of migrations
+      `0028`–`0030` has been applied (no PostgreSQL on this host).
 - [ ] Phase 4 — multimodal vision/OCR providers and candidate verification (scenario C).
 - [ ] Phase 5 — global reasoning: multi-hop, SQL tools, conflict classification, per-statement
       verification (scenarios D, E, G).

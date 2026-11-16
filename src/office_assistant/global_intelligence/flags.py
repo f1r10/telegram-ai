@@ -30,6 +30,7 @@ class EngineFlags(BaseModel):
     decomposition_enabled: bool = False
     entity_resolution_enabled: bool = False
     relations_enabled: bool = False
+    query_traces_enabled: bool = False
     conflict_classifier_enabled: bool = False
     per_statement_confidence_enabled: bool = False
     verification_enabled: bool = False
@@ -57,6 +58,7 @@ def engine_flags(settings: Settings) -> EngineFlags:
         decomposition_enabled=settings.gi_decomposition_enabled,
         entity_resolution_enabled=settings.gi_entity_resolution_enabled,
         relations_enabled=settings.gi_relations_enabled,
+        query_traces_enabled=settings.gi_query_traces_enabled,
         conflict_classifier_enabled=settings.gi_conflict_classifier_enabled,
         per_statement_confidence_enabled=settings.gi_per_statement_confidence_enabled,
         verification_enabled=settings.gi_verification_enabled,
